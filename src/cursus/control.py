@@ -36,6 +36,7 @@ class Control:
             phase = {'id': phase_id, 'input': data, 'state': decision['state'],
                      'revision': 1, 'roles': self.settings.get('roles', {}),
                      'registry_commit': self.settings['service'].get('role_release_commit'),
+                     'profile_digest': self.settings.get('profile_digest'),
                      'references': []}
             await tx.save('phases', phase)
             await tx.revision('specs', phase_id, 1, source)
@@ -45,6 +46,15 @@ class Control:
         return await self.store.transact(principal, 'operator/actions', request_id, value, transition)
 
     async def enqueue(self, tx, phase, step, slot, inputs, **extra):
+        role_name = extra.pop('role', None)
+        if role_name:
+            from cursus.contracts import canonical_json
+            role = phase['roles'].get(role_name)
+            if role is None:
+                raise Problem('invalid_config', 'Required role is unavailable.')
+            extra['invocation'] = {'role': role, 'registry_commit': phase['registry_commit'],
+                'profile_digest': phase['profile_digest'],
+                'prompt_text': role['prompt_text'] + '\nTask data:\n' + canonical_json(inputs).decode()}
         job = {'id': identity(), 'phase_id': phase['id'], 'step': step,
                'slot': slot, 'input': inputs, **extra}
         ordinal = await tx.connection.fetchval('SELECT count(*)+1 FROM jobs WHERE phase_id=$1 '
@@ -71,7 +81,12 @@ class Control:
 
     async def runner_request(self, runner_id, route, data, generation, request_id):
         from cursus.transport import request
-        return await request(self, runner_id, route, data, generation, request_id)
+        result = await request(self, runner_id, route, data, generation, request_id)
+        if route == 'jobs/next' and result is None:
+            import time
+            await self.wait(time.monotonic() + self.settings['limits']['long_poll_seconds'])
+            result = await request(self, runner_id, route, data, generation, request_id)
+        return result
 
     async def maintain(self, trigger):
         if trigger != 'boot':
@@ -87,4 +102,52 @@ class Control:
         return await self.store.transact('control', 'boot', identity(), {}, close_admission)
 
     async def completed(self, tx, attempt, final):
-        raise Problem('unsupported_milestone', 'Execution results are not enabled yet.')
+        from cursus.contracts import _object
+        job = attempt['claim']['job']
+        phase = await tx.get('phases', job['phase_id'])
+        if not phase or phase['state'] in ('delivered', 'canceled'):
+            raise Problem('state_conflict', 'Phase cannot advance.')
+        _object(final, {'kind'}, {'value', 'reason', 'classification'})
+        try:
+            decision = self.decide(phase, {'kind': 'final', 'job': job, 'final': final,
+                'attempt_id': attempt['id'], 'enrollment': self.enrolled(phase['input']['repo']),
+                'repair_retries': self.settings['limits']['repair_retries'],
+                'intent_id': identity(), 'lane_id': identity(), 'package_row_id': identity()})
+        except (Problem, TypeError, KeyError, AttributeError) as exc:
+            phase.update(state='parked', reason=exc.code if isinstance(exc, Problem) else 'invalid_result')
+            decision = {'phase': phase}
+        phase = decision['phase']
+        phase['revision'] += 1
+        attempt['status'] = 'unknown' if final['kind'] == 'unknown' else 'terminal'
+        attempt['final'] = final
+        await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1", job['id'])
+        if 'plan' in decision:
+            await tx.revision('plans', phase['id'], 1, decision['plan'])
+            package = decision['plan']['packages'][0]
+            await tx.save('packages', {'id': phase['package_row_id'], 'package': package,
+                          'state': 'ready'}, phase_id=phase['id'], plan_revision=1,
+                          package_id=package['id'])
+            await tx.save('integration_lanes', {'id': phase['lane_id'], 'target_sha': phase['base_sha'],
+                          'state': 'active'}, phase_id=phase['id'], group_id='default')
+        if job['step'] == 'resolve_input' and 'spec' in phase:
+            await tx.revision('specs', phase['id'], 2, {'text': phase['spec'], 'base_sha': phase['base_sha']})
+        if 'confirmed_intent' in decision:
+            publication = await tx.get('publications', decision['confirmed_intent'])
+            publication.update(state='confirmed', result=final['value'])
+            await tx.save('publications', publication, state='confirmed')
+        if 'intent' in decision:
+            intent = decision['intent']
+            await tx.save('publications', dict(intent, state='pending'), phase_id=phase['id'],
+                          lane_id=phase['lane_id'], state='pending')
+        await tx.save('phases', phase)
+        if phase.get('package_row_id'):
+            package = await tx.get('packages', phase['package_row_id'])
+            package['state'] = phase['state']
+            if 'candidate' in phase:
+                package['accepted_candidate'] = phase['candidate']
+            await tx.save('packages', package)
+        if 'next' in decision:
+            next_job = decision['next']
+            await self.enqueue(tx, phase, next_job['step'], next_job['slot'], next_job['input'],
+                               **{k: v for k, v in next_job.items() if k not in ('step','slot','input')})
+        await tx.event(phase['id'], 'transition', {'state': phase['state'], 'step': job['step']})

@@ -12,6 +12,8 @@ import http.client
 import os
 from pathlib import Path
 import socket
+import signal
+from contextlib import nullcontext
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -45,6 +47,8 @@ def application(control, local=False):
         return response
 
     async def body(request):
+        if request.headers.get('content-type', '').split(';')[0] != 'application/json':
+            raise Problem('invalid_contract', 'JSON Content-Type is required.')
         data = bytearray()
         async for chunk in request.stream():
             data.extend(chunk)
@@ -83,6 +87,8 @@ def application(control, local=False):
             if len(generation) != 1:
                 raise Problem('invalid_fields', 'Runner generation is required.')
             validate('Id', generation[0])
+            if request.method == 'GET' and len(request.query_params.multi_items()) != len(dict(request.query_params)):
+                raise Problem('invalid_fields', 'Duplicate query parameter.')
             data = dict(request.query_params) if request.method == 'GET' else await body(request)
             response = await control.runner_request(control.settings['runner']['id'], route, data,
                                                     generation[0], request_id(request))
@@ -105,9 +111,22 @@ async def serve(settings, control):
                uvicorn.Config(application(control), host=service['listen_host'],
                               port=service['listen_port'], log_level='warning')]
     servers = [uvicorn.Server(item) for item in configs]
+    loop = asyncio.get_running_loop()
+    def stop():
+        for server in servers:
+            server.should_exit = True
+    for server in servers:
+        server.capture_signals = nullcontext
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(signum, stop)
     try:
-        await asyncio.gather(servers[0].serve(sockets=[unix]), servers[1].serve())
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(servers[0].serve(sockets=[unix]))
+            tasks.create_task(servers[1].serve())
     finally:
+        stop()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(signum)
         unix.close()
         path.unlink(missing_ok=True)
 

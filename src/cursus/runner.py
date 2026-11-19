@@ -9,8 +9,13 @@ from pathlib import Path
 import ssl
 import urllib.error
 import urllib.request
+import urllib.parse
+import pwd
+import random
+import time
+import shutil
 from uuid import uuid4
-from cursus.contracts import Problem, canonical_json, decode_json
+from cursus.contracts import Problem, canonical_json, decode_json, validate
 
 
 class Journal:
@@ -19,7 +24,8 @@ class Journal:
     A partial final line was never acknowledged and can be truncated. Complete
     corrupt records cannot establish launch absence and fail closed.
     """
-    def __init__(self, root):
+    def __init__(self, root, max_bytes=2147483648):
+        self.max_bytes = max_bytes
         self.root = Path(root)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.lock = (self.root / 'lock').open('a+b')
@@ -66,7 +72,16 @@ class Journal:
         record = {'kind': kind, 'value': value}
         digest = sha256(self.digest.encode() + canonical_json(record)).hexdigest()
         raw = canonical_json({'record': record, 'digest': digest}) + b'\n'
-        self.stream.write(raw)
+        terminal = kind in ('ack','retire','directive') or (kind == 'event' and value.get('kind') == 'final')
+        reserve = 0 if terminal else 65536
+        if self.path.stat().st_size + len(raw) + reserve > self.max_bytes or shutil.disk_usage(self.root).free < len(raw) + reserve:
+            raise Problem('storage', 'Journal reserve exhausted; intake is stopped.')
+        remaining = memoryview(raw)
+        while remaining:
+            written = self.stream.write(remaining)
+            if not written:
+                raise OSError('Journal write did not complete')
+            remaining = remaining[written:]
         os.fsync(self.stream.fileno())
         self.records.append(record)
         self.digest = digest
@@ -83,6 +98,7 @@ class HTTPS:
         self.origin, self.bearer, self.generation = origin, bearer, generation
         if not origin.startswith('https://'):
             raise Problem('invalid_config', 'Runner requires HTTPS.')
+        self.capacity = asyncio.Semaphore(2)
         self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context()),
                                                   NoRedirect())
 
@@ -103,7 +119,8 @@ class HTTPS:
                 if exc.code in (401, 403):
                     raise Problem('unauthorized', 'Runner authorization denied.') from None
                 raise Problem('transport', 'Runner request rejected.') from None
-        return await asyncio.to_thread(send)
+        async with self.capacity:
+            return await asyncio.to_thread(send)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -116,6 +133,7 @@ class Runner:
         self.id, self.journal, self.transport = runner_id, journal, transport
         self.repository, self.execution = repository, execution
         self.reconciled = False
+        self.activation = str(uuid4())
 
     def record(self, kind, value):
         return self.journal.record(kind, value)
@@ -150,7 +168,7 @@ class Runner:
         self.record('pending', {'id': request_id, 'slot': slot})
         result = await self.exchange('jobs/next', {'slot': slot}, request_id, 'GET')
         if result:
-            claim = result['claim']
+            claim = validate('Claim', result['claim'])
             if claim['runner_id'] != self.id or claim['request_id'] != request_id:
                 raise Problem('invalid_contract', 'Unexpected grant identity.')
             previous = [r['value'] for r in self.journal.records if r['kind'] == 'grant'
@@ -163,9 +181,169 @@ class Runner:
         self.record('retire', request_id)
         return None
 
+    async def event(self, attempt_id, kind, payload):
+        seq = 1 + sum(r['kind'] == 'event' and r['value']['attempt_id'] == attempt_id
+                      for r in self.journal.records)
+        event = {'attempt_id': attempt_id, 'seq': seq, 'kind': kind, 'payload': payload}
+        self.record('event', event)
+        return event
+
+    async def replay(self):
+        positions = {}
+        for record in self.journal.records:
+            if record['kind'] == 'ack':
+                positions[record['value']['attempt_id']] = record['value']['committed_through']
+        grouped = {}
+        for record in self.journal.records:
+            if record['kind'] == 'event':
+                event = record['value']
+                if event['seq'] > positions.get(event['attempt_id'], 0):
+                    grouped.setdefault(event['attempt_id'], []).append(event)
+        for attempt_id, events in grouped.items():
+            for offset in range(0, len(events), 100):
+                ack = await self.exchange(f'attempts/{attempt_id}/events', events[offset:offset + 100])
+                self.record('ack', dict(ack, attempt_id=attempt_id))
+
+    def assign(self, path, configured, readonly=False):
+        if not configured or os.geteuid() != 0:
+            return
+        user = pwd.getpwnam(configured['user'])
+        # Never traverse symlinks while preparing the privilege boundary.
+        if not readonly:
+            for entry in [path, *path.rglob('*')]:
+                if entry.name == '.git' or entry.is_symlink():
+                    continue
+                os.chown(entry, user.pw_uid, user.pw_gid, follow_symlinks=False)
+        path.chmod(0o555 if readonly else 0o700)
+
+    def progress(self, event, job, attempt_id, outcome=None):
+        import logging
+        from datetime import datetime, timezone
+        from cursus import __version__
+        logging.getLogger('cursus.runner').info(json.dumps({
+            'time': datetime.now(timezone.utc).isoformat(), 'service': 'runner',
+            'version': __version__, 'event': event, 'job_id': job['id'],
+            'attempt_id': attempt_id, 'step': job['step'], 'outcome': outcome}))
+
+    async def dispatch(self, claim):
+        job, attempt_id = claim['job'], claim['attempt_id']
+        if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
+            raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
+        self.record('launch', attempt_id)
+        self.active_slot = job['slot']
+        self.progress('started', job, attempt_id)
+        await self.event(attempt_id, 'started', {'service_activation': self.activation,
+                                              'time': __import__('datetime').datetime.now(
+                                                  __import__('datetime').timezone.utc).isoformat()})
+        async def log(payload):
+            # Agent text is sanitized by Execution before reaching persistence.
+            await self.event(attempt_id, 'log', payload)
+        try:
+            step = job['step']
+            if step == 'produce':
+                data = job['input']
+                path = await asyncio.to_thread(self.repository.workspace, data['repo'], data['base_sha'], attempt_id)
+                configured = self.execution.configured(job['invocation'])
+                self.assign(path, configured)
+                result = await self.execution.run(job, path, attempt_id, log)
+                candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
+                value = {'report': result, 'candidate': candidate}
+            elif step in ('verify', 'review'):
+                path = await asyncio.to_thread(self.repository.snapshot, job['input']['candidate'],
+                                               attempt_id, step == 'review')
+                configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
+                self.assign(path, configured, readonly=step == 'review')
+                value = await self.execution.run(job, path, attempt_id, log)
+            elif step in ('plan', 'scout'):
+                if step == 'scout':
+                    data = job['input']
+                    candidate = {'repo': data['repo'], 'head_sha': data['base_sha']}
+                    path = await asyncio.to_thread(self.repository.snapshot, candidate, attempt_id, True)
+                else:
+                    path = self.repository.reviews / attempt_id
+                    path.mkdir(mode=0o755)
+                value = await self.execution.run(job, path, attempt_id, log)
+            else:
+                value = await asyncio.to_thread(self.repository.perform, job, attempt_id)
+            final = {'kind': 'completed', 'value': value}
+        except Problem as exc:
+            final = {'kind': 'unknown' if exc.code in ('publication_unknown', 'unknown_stop') else 'failed',
+                     'classification': exc.code, 'reason': exc.message}
+        except (OSError, ValueError):
+            final = {'kind': 'failed', 'classification': 'execution_error', 'reason': 'Runner operation failed.'}
+        self.active_slot = None
+        self.progress('finished', job, attempt_id, final['kind'])
+        await self.event(attempt_id, 'final', final)
+        await self.replay()
+        self.record('retire', claim['request_id'])
+        return final
+
     async def serve(self):
-        raise Problem('unsupported_milestone', 'Dispatch is not enabled yet.')
+        heartbeat = asyncio.create_task(self.heartbeat())
+        try:
+            await self.work_loop()
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
 
+    async def heartbeat(self):
+        failures = 0
+        while failures < 5:
+            await asyncio.sleep(10)
+            try:
+                slots = dict.fromkeys(('worker','verifier','frontier','repository'), 0)
+                if getattr(self, 'active_slot', None):
+                    slots[self.active_slot] = 1
+                await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
+                    'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.activation,
+                    'health':'executing' if getattr(self, 'active_slot', None) else 'ready'})
+                failures = 0
+            except (OSError, Problem) as exc:
+                self.reconciled = False
+                failures += 1
+                if isinstance(exc, Problem) and exc.code == 'unauthorized':
+                    self.intake_denied = True
+                    return
 
-async def compose(settings):
-    raise Problem('unsupported_milestone', 'Runner dispatch is not enabled yet.')
+    async def work_loop(self):
+        self.activation = str(uuid4())
+        failures, fault_started = 0, None
+        while True:
+            try:
+                if getattr(self, 'intake_denied', False):
+                    raise Problem('unauthorized', 'Runner authorization denied.')
+                if not self.reconciled:
+                    await self.reconcile()
+                    await self.replay()
+                    directive = await self.reconcile()
+                    for held in directive['held_claims']:
+                        launched = any(r['kind'] == 'launch' and r['value'] == held['attempt_id'] for r in self.journal.records)
+                        if not launched:
+                            if not any(r['kind'] == 'grant' and r['value']['attempt_id'] == held['attempt_id'] for r in self.journal.records):
+                                self.record('grant', validate('Claim', held))
+                            await self.dispatch(held)
+                if not self.reconciled:
+                    raise Problem('recovery_required', 'Unreconciled claims require operator evidence.')
+                await self.exchange(f'runners/{self.id}/heartbeat', {
+                    'slots': dict.fromkeys(('worker','verifier','frontier','repository'), 0),
+                    'spool_bytes': self.journal.path.stat().st_size, 'boot_id': self.activation, 'health': 'ready'})
+                granted = False
+                # M1 admits a serial package pipeline; each configured lane has
+                # at most one in flight. M2 adds parallel phase scheduling.
+                for slot in ('repository', 'frontier', 'worker', 'verifier'):
+                    claim = await self.claim(slot)
+                    if claim:
+                        granted = True
+                        await self.dispatch(claim)
+                failures, fault_started = 0, None
+                if not granted:
+                    await asyncio.sleep(1)
+            except (OSError, Problem) as exc:
+                self.reconciled = False
+                if isinstance(exc, Problem) and exc.code in ('unauthorized', 'recovery_required', 'storage', 'journal_corrupt'):
+                    raise
+                failures += 1
+                fault_started = fault_started or time.monotonic()
+                if failures >= 5 or time.monotonic() - fault_started >= 120:
+                    raise Problem('transport', 'Runner transport retry budget exhausted.') from None
+                await asyncio.sleep(min(30, 2 ** failures) + random.uniform(0, 1))

@@ -73,6 +73,12 @@ async def request(control, runner_id, route, data, generation, request_id):
                                                'AND request_id=$2', runner_id, request_id)
             if old:
                 return {'runner_id': runner_id, 'claim': payload(old)['claim']}
+            count = await tx.connection.fetchval(
+                "SELECT count(*) FROM attempts a JOIN jobs j ON a.job_id=j.id "
+                "WHERE a.runner_id=$1 AND a.status IN ('active','unknown') AND j.slot=$2", runner_id, data['slot'])
+            capacity = {'worker': 2, 'verifier': 1, 'frontier': 1, 'repository': 1}[data['slot']]
+            if count >= capacity:
+                return None
             job_row = await tx.connection.fetchrow("SELECT id,payload FROM jobs WHERE state='queued' "
                                                    'AND slot=$1 ORDER BY creation_cursor,id '
                                                    'FOR UPDATE SKIP LOCKED LIMIT 1', data['slot'])
@@ -84,6 +90,10 @@ async def request(control, runner_id, route, data, generation, request_id):
             attempt = {'id': attempt_id, 'claim': claim, 'ack': 0, 'status': 'active'}
             await tx.save('attempts', attempt, job_id=job['id'], phase_id=job['phase_id'],
                           runner_id=runner_id, request_id=request_id, status='active', ack=0)
+            if job['step'] == 'produce':
+                phase = await tx.get('phases', job['phase_id'])
+                package = await tx.get('packages', phase['package_row_id'])
+                await tx.save('packages', package, owner=attempt_id)
             await tx.connection.execute("UPDATE jobs SET state='claimed' WHERE id=$1", job['id'])
             await tx.event(job['phase_id'], 'claimed', {'job_id': job['id'], 'attempt_id': attempt_id})
             return {'runner_id': runner_id, 'claim': claim}
@@ -96,7 +106,7 @@ async def request(control, runner_id, route, data, generation, request_id):
             if not isinstance(data, list) or not 1 <= len(data) <= 100:
                 raise Problem('invalid_contract', 'Expected a bounded event array.')
             for event in data:
-                _object(event, {'attempt_id', 'seq', 'kind', 'payload'})
+                validate('Event', event)
                 if event['attempt_id'] != attempt_id:
                     raise Problem('invalid_contract', 'Foreign event attempt.')
                 seq = validate('Seq', event['seq'])

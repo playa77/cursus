@@ -240,3 +240,62 @@ Never let worker/verifier users access the cache, state or publisher files.
 Expected-head leases are additionally restricted to fast-forward ancestry; no
 history replacement or target publication is authorized. PR creation has no
 automatic retry after an uncertain request. Preserve the intent and reconcile.
+
+## M1 execution and publication (WP-07–08)
+
+The runner enrollment must mirror control enrollment. Its fixed GitHub HTTPS
+remote is computed from owner/name. Configure native credentials separately;
+never supply the developer agent's keys or environment. `roles.toml` pins the
+SHA-256 of the exact qualified capabilities file as `profile_digest`. Runner
+startup verifies that digest and the binary/user/home enrollment. Each launch
+checks binary bytes, role/model/provider/reasoning, exact tool set, approved
+prompt transport and clean-config/read-only arguments. Fill `fixed_argv` with
+the **complete measured command**, including static model and tool flags.
+The implementation recognizes only the documented terminal shapes in the
+capability worksheet; a vendor format change requires source requalification.
+
+A CLI profile may contain `[pi.role_profiles.scout]` or
+`[pi.role_profiles.reviewer]` overrides for distinct measured argv, tools and
+identity. A pi reviewer requires `pi_reviewer.enabled=true`, a separate user/home
+and qualified read-only role profile. Never reuse worker write authority.
+Default organizational roles use Claude and Codex. An initial planner scout
+request has `kind=scout_request`, one `question`, and
+`input_refs=["repository_snapshot"]`; a second scout request parks the plan.
+
+M1 schedules one step at a time; declared capacities are upper bounds. Independent
+10-second heartbeats continue while a CLI executes. Transport has at most two
+in-flight exchanges (one long poll plus heartbeat); the external GitHub REST
+boundary is serial with at least one second between calls. Runner transport
+retries are limited to five failed cycles/120 seconds, with capped exponential
+backoff and jitter; authorization failure stops intake. Provider-internal
+retries remain unknown until measured. No Cursus inference retry/failover exists.
+
+Production and verifier execution drop UID/GID and supplementary groups. The
+explicit child environment contains HOME/USER/LOGNAME/PATH/LANG/TMPDIR only.
+Process groups are bounded by role/check timeouts, terminated before capture,
+and unresolved descendant termination parks ownership. The systemd cgroup is
+the deployment backstop; prove its behavior in WP-09. Trusted Git administration
+uses runner-owned metadata even if a worker changes its workspace `.git` file.
+Review snapshots exclude Git metadata and reject links/special files; verifier
+snapshots are writable only by the verifier. Parent paths must permit traversal
+without exposing cache, state or credentials (see Accounts above).
+
+Workflow progression requires a structured production report, exact immutable
+candidate, complete successful command evidence and independent criterion review.
+It verifies the separate staged tree and all enrolled phase checks before
+committing publication intents. The current M1 path parks on target drift.
+A negative criterion/verdict allows at most two fresh production attempts after
+the initial attempt, each with a separate workspace/ref and fresh checks/review.
+Missing/malformed output parks rather than guessing success. PR handoff includes
+the exact head, repository, number and URL; Cursus has no merge operation.
+
+Journal records are append-only, hash-chained and fsynced under an exclusive
+lock. Preserve the state directory and generation. A torn trailing record can
+be removed only when the earlier prefix is intact. Corrupt history, prior
+unresolved launch intents or uncertain publication are not permission to rerun.
+The spool cap preserves terminal-record reserve; persistence failure stops intake.
+A known unlaunched grant can be recovered after reconciliation. Full cancellation,
+abandonment and uncertain-outcome recovery are WP-11, not M1 operators' ad hoc
+SQL procedures. Do not edit rows, delete journals or manually replay publisher
+commands to clear a parked gate. Services report sanitized IDs/outcomes via
+journald; model logs are sanitized before journal/event storage.

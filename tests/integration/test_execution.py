@@ -60,7 +60,7 @@ else:
         binary.chmod(0o755)
         profiles[cli] = {'binary': str(binary), 'binary_digest': sha256(binary.read_bytes()).hexdigest(),
             'model': 'fixture', 'reasoning': 'fixture', 'qualified_roles': ['worker', 'planner', 'reviewer', 'scout'],
-            'tool_allowlist': ['read', 'write'], 'fixed_argv': [], 'clean_config_argv': ['--clean'],
+            'tool_allowlist': ['read', 'write'] if cli == 'pi' else ['read'], 'fixed_argv': [], 'clean_config_argv': ['--clean'],
             'read_only_argv': ['--read-only'], 'prompt_transport': 'rpc' if cli == 'pi' else 'stdin',
             'probe_evidence': ['controlled-executable-fixture']}
     return Execution(profiles, identities, identities['codex'], allow_test_identity=True)

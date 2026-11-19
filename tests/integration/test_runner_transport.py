@@ -56,9 +56,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(len((await db.store.read('attempts'))['items']), 1)
                         with self.assertRaises(Problem) as caught:
                             await runner.exchange(f"attempts/{grant['attempt_id']}/events", [{
-                                'attempt_id': grant['attempt_id'], 'seq': 2, 'kind': 'started', 'payload': {}}])
+                                'attempt_id': grant['attempt_id'], 'seq': 2, 'kind': 'started', 'payload': {'service_activation': str(uuid4()), 'time': '2026-11-19T00:00:00Z'}}])
                         self.assertEqual(caught.exception.code, 'sequence_conflict')
                         self.assertEqual((await db.store.read('attempts'))['items'][0]['ack'], 0)
+                        event = {'attempt_id': grant['attempt_id'], 'seq': 1, 'kind': 'started',
+                                 'payload': {'service_activation': str(uuid4()), 'time': '2026-11-19T00:00:00Z'}}
+                        route = f"attempts/{grant['attempt_id']}/events"
+                        ack = await runner.exchange(route, [event])
+                        self.assertEqual(ack, await runner.exchange(route, [event]))
+                        with self.assertRaises(Problem):
+                            await runner.exchange(route, [dict(event, payload=dict(event['payload'], time='2026-11-19T00:00:01Z'))])
+                        self.assertEqual(ack['committed_through'], 1)
                         self.assertEqual([r['kind'] for r in journal.records].count('grant'), 1)
                 finally:
                     journal.close()

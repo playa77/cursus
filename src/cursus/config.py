@@ -83,9 +83,12 @@ def role_release(service):
     validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
+    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout'))
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
-        if role['cli'] not in ('pi', 'claude', 'codex', 'agy') or '*' in role['tools']:
+        if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():
+            fail('Role invocation tuple is not qualified.')
+        if role['cli'] not in ('pi', 'claude', 'codex', 'agy') or any('*' in tool for tool in role['tools']):
             fail('Invalid CLI or wildcard authority.')
         if role['tier'] not in ('production', 'organization'):
             fail()
@@ -95,7 +98,7 @@ def role_release(service):
             fail('Organizational roles require read-only tools.')
         positive(role['timeout_seconds'])
         prompt = absolute(service['prompts_root']) / role['prompt']
-        if prompt.resolve().parent != absolute(service['prompts_root']).resolve():
+        if prompt.suffix != '.md' or prompt.resolve().parent != absolute(service['prompts_root']).resolve():
             fail()
         role['prompt_text'] = prompt.read_text()
         role['name'] = name
@@ -133,11 +136,34 @@ def load(process_kind, path):
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
     elif process_kind == 'runner':
-        keys(settings, (*required, 'publisher', 'capacity', 'cli', 'worker_slots', 'verification', 'pi_reviewer'))
+        keys(settings, (*required, 'publisher', 'capacity', 'cli', 'worker_slots', 'verification', 'pi_reviewer', 'repositories'))
         service = settings['service']
         keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
                        'repository_root', 'worktree_root', 'review_root', 'capabilities_file', 'capabilities_digest'))
         validate('Id', service['runner_id'])
+        enrollment(settings['repositories'])
+        keys(settings['publisher'], ('git_binary', 'git_credential_file', 'github_credential_file'))
+        for configured in settings['publisher'].values():
+            absolute(configured)
+        keys(settings['cli'], ('pi', 'claude', 'codex', 'agy'))
+        users = []
+        for cli, identity in settings['cli'].items():
+            keys(identity, ('binary','user','home','model'), ('provider','reasoning'))
+            absolute(identity['binary'])
+            absolute(identity['home'])
+            users.append(identity['user'])
+        keys(settings['verification'], ('user','home'))
+        absolute(settings['verification']['home'])
+        users.append(settings['verification']['user'])
+        if len(set(users)) != len(users) or 'root' in users:
+            fail('Execution identities must be distinct and unprivileged.')
+        keys(settings['pi_reviewer'], ('enabled','user','home'))
+        if settings['pi_reviewer']['enabled'] and (settings['pi_reviewer']['user'] in users or settings['pi_reviewer']['user'] == 'root'):
+            fail('Pi review requires a distinct unprivileged identity.')
+        absolute(settings['pi_reviewer']['home'])
+        for slot in settings['worker_slots']:
+            keys(slot, ('id','user','home'))
+            absolute(slot['home'])
         for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
             absolute(service[key])
         keys(settings['capacity'], ('worker', 'verifier', 'frontier', 'repository'))
@@ -151,6 +177,10 @@ def load(process_kind, path):
         settings['profiles']['digest'] = service['capabilities_digest']
         if settings['profiles'].get('qualification') != 'qualified':
             fail('Capability profile is not qualified.')
+        for cli in ('pi','claude','codex','agy'):
+            measured = settings['profiles'].get(cli, {})
+            if measured.get('binary') != settings['cli'][cli]['binary'] or measured.get('user') != settings['cli'][cli]['user'] or measured.get('home') != settings['cli'][cli]['home']:
+                fail('Measured binary/identity differs from runtime settings.')
         origin = service['origin']
     else:
         fail('Unsupported process kind.')
@@ -159,6 +189,11 @@ def load(process_kind, path):
     parsed = urlsplit(origin)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
         fail('Expected an exact HTTPS origin.')
+    allowed_limits = {'long_poll_seconds','heartbeat_seconds','unreachable_after_missed_heartbeats',
+        'repair_retries','interrupted_retries','debate_rounds','debug_turns','interview_rounds',
+        'request_bytes','spec_bytes','log_event_bytes','events_per_batch','artifact_bytes',
+        'phase_artifact_bytes','runner_spool_bytes'} if process_kind == 'control' else {'long_poll_seconds','heartbeat_seconds','spool_bytes'}
+    keys(settings['limits'], allowed_limits)
     for name, value in settings['limits'].items():
         positive(value)
         if name == 'debate_rounds' and value > 3:

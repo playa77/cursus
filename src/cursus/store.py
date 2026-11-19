@@ -52,10 +52,12 @@ class Transaction:
         keys = ['id', 'payload', *columns]
         values = [value['id'], encode(value), *columns.values()]
         arguments = ','.join(f'${i}' for i in range(1, len(keys) + 1))
-        updates = ','.join(f'{key}=EXCLUDED.{key}' for key in keys[1:])
-        await self.connection.execute(
-            f"INSERT INTO {table} ({','.join(keys)}) VALUES ({arguments}) "
-            f'ON CONFLICT(id) DO UPDATE SET {updates}', *values)
+        assignments = ','.join(f'{key}=${index}' for index, key in enumerate(keys[1:], 2))
+        updated = await self.connection.fetchval(
+            f'UPDATE {table} SET {assignments} WHERE id=$1 RETURNING id', *values)
+        if updated is None:
+            await self.connection.execute(
+                f"INSERT INTO {table} ({','.join(keys)}) VALUES ({arguments})", *values)
 
     async def revision(self, table, phase_id, revision, value):
         if table not in ('specs', 'plans'):
@@ -119,8 +121,9 @@ class Store:
                 tx = Transaction(connection, cursor)
                 response = await transition(tx)
                 await connection.execute('UPDATE coordination SET cursor=$1', tx.cursor)
-                await connection.execute('INSERT INTO request_keys VALUES($1,$2,$3,$4,$5)',
-                                         principal, route, request_id, digest, encode(response))
+                if response is not None:
+                    await connection.execute('INSERT INTO request_keys VALUES($1,$2,$3,$4,$5)',
+                                             principal, route, request_id, digest, encode(response))
                 await connection.execute("SELECT pg_notify('cursus_events',$1)", str(tx.cursor))
                 return response
 

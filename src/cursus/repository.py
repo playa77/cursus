@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shlex
 import tarfile
 import time
 import urllib.error
@@ -20,9 +21,12 @@ class GitHub:
     def __init__(self, credential_file):
         self.credential_file = credential_file
         self.last = 0.0
+        self.blocked = False
 
     def request(self, method, path, body=None):
         from cursus.config import secret
+        if self.blocked:
+            raise Problem('github_unavailable', 'GitHub boundary is paused after denial or throttling.')
         time.sleep(max(0, self.last + 1 - time.monotonic()))
         self.last = time.monotonic()
         request = urllib.request.Request('https://api.github.com' + path,
@@ -35,6 +39,12 @@ class GitHub:
         try:
             with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
                 return json.loads(response.read(1048577))
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401,403,429):
+                self.blocked = True
+            # Do not retry this operation or bypass a Retry-After period. A
+            # paused publisher requires operator diagnosis before reactivation.
+            raise Problem('publication_unknown', 'GitHub rejected the operation; reconcile intent.') from None
         except (OSError, ValueError):
             raise Problem('publication_unknown', 'GitHub result is uncertain; reconcile intent.') from None
 
@@ -44,6 +54,7 @@ class Repository:
         self.root, self.worktrees, self.reviews = map(Path, (root, worktrees, reviews))
         self.enrollments, self.github, self.binary = enrollments, github, git
         self.credential_file = credential_file
+        self.worktree_admin = {}
         for path in (self.root, self.worktrees, self.reviews):
             path.mkdir(mode=0o711, parents=True, exist_ok=True)
         self.environment = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8',
@@ -59,7 +70,9 @@ class Repository:
         if self.credential_file:
             # Git's credential-store reads the operator's provisioned file
             # opaquely; credential values never enter argv or model context.
-            command += ['-c', f'credential.helper=store --file={self.credential_file}']
+            command += ['-c', 'credential.helper=store --file=' + shlex.quote(str(self.credential_file))]
+        if Path(directory) in self.worktree_admin:
+            command += ['--git-dir=' + self.worktree_admin[Path(directory)], '--work-tree=' + str(directory)]
         result = subprocess.run([*command, *args], input=data, capture_output=True,
                                 env=self.environment, timeout=120)
         if result.returncode not in allowed:
@@ -76,7 +89,8 @@ class Repository:
 
     def cache(self, repo):
         item = self.enrolled(repo)
-        path = self.root / (repo['owner'] + '--' + repo['name'] + '.git')
+        token = sha256((repo['owner'] + '/' + repo['name']).encode()).hexdigest()
+        path = self.root / (token + '.git')
         if not path.exists():
             path.mkdir(mode=0o700)
             self.git(path, 'init', '--bare', '--object-format=' + item.get('object_format', 'sha1'))
@@ -97,6 +111,7 @@ class Repository:
         if path.exists():
             raise Problem('state_conflict', 'Workspace already exists; do not relaunch.')
         self.git(cache, 'worktree', 'add', '--detach', str(path), base)
+        self.worktree_admin[path] = (path / '.git').read_text().strip().removeprefix('gitdir: ')
         return path
 
     def snapshot(self, candidate, attempt_id, readonly=True):
@@ -231,7 +246,11 @@ class Repository:
                     source_repo = dict(owner=source['owner'], name=source['name'], target_ref=repo['target_ref'])
                     self.fetch(source_repo, source['commit'])
                     _path(source['path'])
-                    raw = self.git(self.cache(source_repo), 'show', source['commit'] + ':' + source['path'])
+                    blob = source['commit'] + ':' + source['path']
+                    length = int(self.git(self.cache(source_repo), 'cat-file', '-s', blob))
+                    if length > 262144:
+                        raise Problem('payload_too_large', 'Repository spec exceeds byte limit.')
+                    raw = self.git(self.cache(source_repo), 'show', blob)
                     if len(raw) > 262144:
                         raise Problem('payload_too_large', 'Repository spec exceeds byte limit.')
                     result.update(text=raw.decode('utf-8'), source_commit=source['commit'])
@@ -247,7 +266,8 @@ class Repository:
             ref = self.ref(job, attempt_id, 'stage')
             self.push(repo, ref, head, None, ref)
             staged = dict(candidate, base_sha=data['expected_head'], head_sha=head, attempt_ref=ref)
-            return {'candidate': staged, 'patch_identity': sha256(self.patch(staged)).hexdigest()}
+            return {'candidate': staged, 'patch_identity': sha256(self.patch(staged)).hexdigest(),
+                    'candidate_patch_identity': sha256(patch).hexdigest()}
         if step in ('advance_integration', 'publish_pr', 'reconcile_publication'):
             intent = data['intent']
             if job.get('publication_id') != intent['id'] or intent['phase_id'] != job['phase_id'] or intent['repo'] != repo:

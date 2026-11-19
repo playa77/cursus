@@ -165,3 +165,49 @@ class GitRemote:
         enrollment = {('fixture', 'repo'): {'remote': str(self.remote), 'object_format': 'sha1',
                                           'allowed_target_refs': ['refs/heads/main']}}
         return Repository(ws.root / 'cache', ws.worktrees, ws.root / 'reviews', enrollment, self)
+
+
+def control_config(ws, dsn):
+    """Committed role release plus non-secret, private local control settings."""
+    import grp
+    import os
+    import shutil
+    from uuid import uuid4
+    remote = GitRemote(ws.root)
+    release = remote.seed
+    role_text = Path('roles.toml').read_text()
+    for old, new in {'REPLACE_SHA256_OF_QUALIFIED_PROFILE':'a'*64,
+                     'REPLACE_QUALIFIED_MODEL':'fixture','REPLACE_QUALIFIED_REASONING':'fixture',
+                     'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID':'fixture-go'}.items():
+        role_text = role_text.replace(old,new)
+    (release/'roles.toml').write_text(role_text)
+    shutil.copytree('prompts', release/'prompts')
+    remote.git(release, 'add', '.')
+    remote.git(release, 'commit', '-m', 'Fixture role release')
+    commit = remote.git(release, 'rev-parse', 'HEAD')
+    dsn_file, digest = ws.root/'dsn', ws.root/'digest'
+    dsn_file.write_text(dsn)
+    digest.write_text('a'*64)
+    dsn_file.chmod(0o600)
+    digest.chmod(0o600)
+    text = Path('deploy/control.example.toml').read_text()
+    for old, new in {
+        '/opt/cursus/release/roles.toml':str(release/'roles.toml'),
+        '/opt/cursus/release/prompts':str(release/'prompts'),
+        '/etc/cursus/control/database-dsn':str(dsn_file),
+        '/etc/cursus/control/runner-bearer.sha256':str(digest),
+        '/run/cursus/operator.sock':str(ws.root/'operator.sock'),
+        '"cursus-operators"':json_quote(grp.getgrgid(os.getgid()).gr_name),
+        'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
+        'REPLACE_GITHUB_OWNER':'fixture', 'REPLACE_TRUSTED_REPO':'repo',
+        'listen_port = 8787':'listen_port = 0',
+    }.items():
+        text = text.replace(old,new)
+    path = ws.root/'control.toml'
+    path.write_text(text)
+    return path
+
+
+def json_quote(value):
+    import json
+    return json.dumps(value)

@@ -196,7 +196,7 @@ class ContractTests(unittest.TestCase):
         error = self.assert_problem("invalid_variant", validate, "Action", {"kind": "SECRET"})
         self.assertNotIn("SECRET", json.dumps(error.as_dict()))
         self.assertEqual(set(error.as_dict()), {"code", "message"})
-        self.assert_problem("unsupported_contract", validate, "Job", {})
+        self.assert_problem("unsupported_contract", validate, "FutureContract", {})
 
 
 if __name__ == "__main__":

@@ -138,3 +138,39 @@ shapes; a parent-only sentinel is absent from children. A real failing verifier
 command produces failed evidence at its supplied candidate. Invalid role/tier,
 incomplete review and absent assistant output cannot pass. These same-UID local
 fixtures do not prove cross-user, native-auth, vendor tools or systemd isolation.
+
+## WP-08 — local connected single-package path
+
+2026-11-19: the production CLI submits through a private HTTP Unix socket to
+migrated PostgreSQL; a runner connects through authenticated HTTP, journals real
+grants, invokes executable CLI boundaries, captures actual Git changes, executes
+repository checks, reviews and publishes against the controlled GitHub seam.
+No Cursus claims/candidates/evidence/intents are seeded by tests.
+
+`test_one_package.py`: 6 tests. Inline and pinned repo sources confirm one PR at
+the exact staged/reviewed head and leave target unchanged. Malformed review,
+missing report, exhausted repair budget and target drift cannot publish. Event
+replay uses process-produced spool records. `test_runner_transport.py` also
+checks digest-equal event replay and conflicting repeated sequence rejection.
+
+The final source regression and wheel results are recorded below after the
+final verification run. Full crash/reconnect, cross-user/service controls,
+provider behavior and real GitHub permissions remain separate qualification.
+
+### Final local verification — 2026-11-19
+
+- Installed version: 0.2.0; CPython 3.14.4/Linux, PostgreSQL 18.6.
+- Unit discovery: **18 passed**; integration discovery: **17 passed**, no skips.
+  Integration run: approximately 57 seconds, disposable random PostgreSQL
+  schemas, private Unix HTTP sockets, local bare Git and executable CLI fixtures.
+- The control composition smoke starts a separate production bootstrap process,
+  reapplies migrations, submits via the actual operator socket, and confirms
+  SIGTERM stops both listeners and removes its socket.
+- Offline isolated wheel build from the preverified WP-01 wheelhouse passed;
+  non-isolated build, wheel reinstall, offline submit help/version, migration
+  inclusion inspection, compileall, `pip check` and `git diff --check` passed.
+- Tested wheel SHA-256:
+  `76a6978f2315823077b6c82b6a95714c9fac275786555927693bcc86922556db`.
+  The isolated build reproduced the same wheel bytes.
+- No model/provider, real GitHub, SSH, Tailscale or systemd deployment calls.
+  Tests use same-UID executable boundaries; OS isolation remains unqualified.

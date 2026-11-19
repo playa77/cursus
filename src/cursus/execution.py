@@ -56,17 +56,25 @@ class Execution:
             raise Problem('identity_boundary', 'Execution requires distinct unprivileged identities.')
         return user
 
+    def configured(self, invocation):
+        role = invocation['role']
+        key = 'pi_reviewer' if role['name'] == 'reviewer' and role['cli'] == 'pi' else role['cli']
+        if key not in self.identities:
+            raise Problem('profile_mismatch', 'Required isolated identity is unavailable.')
+        return self.identities[key]
+
     def authorize(self, invocation):
         role = invocation['role']
         cli = role['cli']
         profile = self.profiles[cli]
+        profile = dict(profile, **profile.get('role_profiles', {}).get(role['name'], {}))
         if role['name'] not in profile['qualified_roles'] or role['model'] != profile['model']:
             raise Problem('profile_mismatch', 'Role/model is not qualified.')
         if (role['tier'] == 'production' and cli != 'pi') or role['tier'] not in ('production', 'organization'):
             raise Problem('profile_mismatch', 'Invalid production CLI.')
         if role['tier'] == 'organization' and set(role['tools']) - {'read', 'list', 'search'}:
             raise Problem('profile_mismatch', 'Reviewer/organization tools must be read-only.')
-        if set(role['tools']) - set(profile['tool_allowlist']) or '*' in role['tools']:
+        if set(role['tools']) != set(profile['tool_allowlist']) or '*' in role['tools']:
             raise Problem('profile_mismatch', 'Role tools exceed qualified authority.')
         if invocation['profile_digest'] != self.profiles['digest']:
             raise Problem('profile_mismatch', 'Invocation profile digest differs.')
@@ -78,17 +86,27 @@ class Execution:
             raise Problem('profile_mismatch', 'CLI binary digest changed.')
         if not profile.get('probe_evidence') or not profile.get('clean_config_argv'):
             raise Problem('profile_mismatch', 'Missing installed-version capability evidence.')
+        if not self.allow_test_identity:
+            tokens = profile['fixed_argv']
+            required = {'pi': ['--mode', 'rpc' if role['name'] == 'worker' else 'json'],
+                        'claude': ['-p', '--output-format', 'stream-json'],
+                        'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
+            if any(token not in tokens for token in required):
+                raise Problem('profile_mismatch', 'Required direct CLI invocation family is missing.')
         argv = [str(binary), *profile['fixed_argv']]
-        if role['tier'] == 'organization':
+        if role['tier'] == 'organization' or role['name'] == 'scout':
             if not profile.get('read_only_argv'):
                 raise Problem('profile_mismatch', 'Missing read-only qualification.')
             argv += profile['read_only_argv']
         argv += profile['clean_config_argv']
-        return profile, argv, self.identity(self.identities[cli])
+        configured = self.configured(invocation)
+        if not self.allow_test_identity and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
+            raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
+        return profile, argv, self.identity(configured)
 
     async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False):
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
-                       'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': str(workspace)}
+                       'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
         process = await asyncio.create_subprocess_exec(*argv, cwd=workspace, env=environment,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -148,6 +166,18 @@ class Execution:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            if process.returncode is None:
+                await process.wait()
+            # A remaining group may include descendants even after the leader
+            # exited. Without proof of cleanup, withhold candidate capture.
+            for _ in range(20):
+                try:
+                    os.killpg(process.pid, 0)
+                except ProcessLookupError:
+                    break
+                await asyncio.sleep(.05)
+            else:
+                raise Problem('unknown_stop', 'Execution group termination is not confirmed.')
 
     def normalize(self, cli, raw):
         frames = [decode_json(line) for line in raw.splitlines() if line.strip()]
@@ -171,7 +201,7 @@ class Execution:
                     answer, terminal = frame.get('result'), True
         if not terminal or not isinstance(answer, str):
             raise Problem('missing_terminal', 'No qualified terminal assistant response.')
-        return decode_json(answer)
+        return decode_json(sanitize(answer))
 
     async def run(self, job, workspace, attempt_id, sink=None):
         if job['step'] == 'verify':
@@ -190,7 +220,7 @@ class Execution:
         else:
             raise Problem('profile_mismatch', 'Unqualified prompt transport.')
         code, raw, diagnostic = await self.child(argv, workspace, user,
-            self.identities[invocation['role']['cli']]['home'], stdin, invocation['role']['timeout_seconds'], sink,
+            self.configured(invocation)['home'], stdin, invocation['role']['timeout_seconds'], sink,
             rpc=transport == 'rpc')
         if code:
             raise Problem('cli_failed', 'CLI process failed.')

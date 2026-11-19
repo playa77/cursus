@@ -30,6 +30,8 @@ def parser():
 
 
 async def service(args):
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
     from cursus.config import load
     settings = load(args.command, args.config)
     if args.command == 'control':
@@ -48,8 +50,29 @@ async def service(args):
         finally:
             await pool.close()
     else:
-        from cursus.runner import compose
-        await compose(settings)
+        import os
+        from cursus.runner import HTTPS, Journal, Runner
+        from cursus.repository import Repository, GitHub
+        from cursus.execution import Execution
+        if os.geteuid() != 0:
+            raise Problem('identity_boundary', 'Runner parent requires privileged identity switching.')
+        service = settings['service']
+        journal = Journal(service['state_root'], settings['limits']['spool_bytes'])
+        try:
+            transport = HTTPS(service['origin'], settings['bearer'], journal.generation)
+            enrollment = {(r['owner'], r['name']): r for r in settings['repositories']}
+            publisher = settings['publisher']
+            repository = Repository(service['repository_root'], service['worktree_root'], service['review_root'],
+                enrollment, GitHub(publisher['github_credential_file']), publisher['git_binary'],
+                publisher['git_credential_file'])
+            identities = dict(settings['cli'])
+            if settings['pi_reviewer']['enabled']:
+                identities['pi_reviewer'] = settings['pi_reviewer']
+            execution = Execution(settings['profiles'], identities, settings['verification'])
+            runner = Runner(service['runner_id'], journal, transport, repository, execution)
+            await runner.serve()
+        finally:
+            journal.close()
 
 
 def main(argv=None):
@@ -71,7 +94,11 @@ def main(argv=None):
                 route = '/attempts/' + validate('Id', args.attempt_id)
             result = request_local(args.socket, route)
         else:
-            raw = sys.stdin.buffer.read(1048577) if args.input == '-' else __import__('pathlib').Path(args.input).read_bytes()
+            if args.input == '-':
+                raw = sys.stdin.buffer.read(1048577)
+            else:
+                with __import__('pathlib').Path(args.input).open('rb') as source:
+                    raw = source.read(1048577)
             value = decode_json(raw)
             if args.command == 'submit':
                 value = {'kind': 'submit', 'input': validate('Input', value)}
