@@ -92,7 +92,7 @@ async def request(control, runner_id, route, data, generation, request_id):
                           runner_id=runner_id, request_id=request_id, status='active', ack=0)
             if job['step'] == 'produce':
                 phase = await tx.get('phases', job['phase_id'])
-                package = await tx.get('packages', phase['package_row_id'])
+                package = await tx.get('packages', phase.get('package_rows', {}).get(job.get('package_id'), phase.get('package_row_id')))
                 await tx.save('packages', package, owner=attempt_id)
             await tx.connection.execute("UPDATE jobs SET state='claimed' WHERE id=$1", job['id'])
             await tx.event(job['phase_id'], 'claimed', {'job_id': job['id'], 'attempt_id': attempt_id})

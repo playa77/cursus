@@ -112,7 +112,9 @@ class Control:
             decision = self.decide(phase, {'kind': 'final', 'job': job, 'final': final,
                 'attempt_id': attempt['id'], 'enrollment': self.enrolled(phase['input']['repo']),
                 'repair_retries': self.settings['limits']['repair_retries'],
-                'intent_id': identity(), 'lane_id': identity(), 'package_row_id': identity()})
+                'intent_id': identity(), 'lane_id': identity(), 'package_row_id': identity(),
+                'package_ids': {p['id']: identity() for p in final.get('value', {}).get('packages', [])} if isinstance(final.get('value'), dict) else {},
+                'lane_ids': {g['id']: identity() for g in final.get('value', {}).get('delivery_groups', [{'id':'default'}])} if isinstance(final.get('value'), dict) else {}})
         except (Problem, TypeError, KeyError, AttributeError) as exc:
             phase.update(state='parked', reason=exc.code if isinstance(exc, Problem) else 'invalid_result')
             decision = {'phase': phase}
@@ -123,12 +125,14 @@ class Control:
         await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1", job['id'])
         if 'plan' in decision:
             await tx.revision('plans', phase['id'], 1, decision['plan'])
-            package = decision['plan']['packages'][0]
-            await tx.save('packages', {'id': phase['package_row_id'], 'package': package,
-                          'state': 'ready'}, phase_id=phase['id'], plan_revision=1,
-                          package_id=package['id'])
-            await tx.save('integration_lanes', {'id': phase['lane_id'], 'target_sha': phase['base_sha'],
-                          'state': 'active'}, phase_id=phase['id'], group_id='default')
+            for package in decision['plan']['packages']:
+                row_id = phase.get('package_rows', {}).get(package['id'], phase.get('package_row_id'))
+                await tx.save('packages', {'id': row_id, 'package': package, 'state':'ready'},
+                              phase_id=phase['id'], plan_revision=1, package_id=package['id'])
+            lanes = phase.get('lanes', {'default':{'row_id':phase.get('lane_id')}})
+            for name, lane in lanes.items():
+                await tx.save('integration_lanes', {'id':lane['row_id'], 'target_sha':phase['base_sha'],
+                    'state':'active'}, phase_id=phase['id'], group_id=name)
         if job['step'] == 'resolve_input' and 'spec' in phase:
             await tx.revision('specs', phase['id'], 2, {'text': phase['spec'], 'base_sha': phase['base_sha']})
         if 'confirmed_intent' in decision:
@@ -138,16 +142,19 @@ class Control:
         if 'intent' in decision:
             intent = decision['intent']
             await tx.save('publications', dict(intent, state='pending'), phase_id=phase['id'],
-                          lane_id=phase['lane_id'], state='pending')
+                          lane_id=decision.get('lane_id', phase.get('lane_id')), state='pending')
         await tx.save('phases', phase)
+        for name, state in phase.get('schedule', {}).items():
+            row = await tx.get('packages', phase['package_rows'][name])
+            row.update(state)
+            await tx.save('packages', row)
         if phase.get('package_row_id'):
             package = await tx.get('packages', phase['package_row_id'])
             package['state'] = phase['state']
             if 'candidate' in phase:
                 package['accepted_candidate'] = phase['candidate']
             await tx.save('packages', package)
-        if 'next' in decision:
-            next_job = decision['next']
+        for next_job in decision.get('jobs', []) + ([decision['next']] if 'next' in decision else []):
             await self.enqueue(tx, phase, next_job['step'], next_job['slot'], next_job['input'],
                                **{k: v for k, v in next_job.items() if k not in ('step','slot','input')})
         await tx.event(phase['id'], 'transition', {'state': phase['state'], 'step': job['step']})

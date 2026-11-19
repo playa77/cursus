@@ -134,6 +134,8 @@ class Runner:
         self.repository, self.execution = repository, execution
         self.reconciled = False
         self.activation = str(uuid4())
+        self.active = {}
+        self.replay_lock = asyncio.Lock()
 
     def record(self, kind, value):
         return self.journal.record(kind, value)
@@ -189,6 +191,10 @@ class Runner:
         return event
 
     async def replay(self):
+        async with self.replay_lock:
+            await self._replay()
+
+    async def _replay(self):
         positions = {}
         for record in self.journal.records:
             if record['kind'] == 'ack':
@@ -230,7 +236,7 @@ class Runner:
         if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
         self.record('launch', attempt_id)
-        self.active_slot = job['slot']
+        self.active[attempt_id] = job['slot']
         self.progress('started', job, attempt_id)
         await self.event(attempt_id, 'started', {'service_activation': self.activation,
                                               'time': __import__('datetime').datetime.now(
@@ -271,7 +277,7 @@ class Runner:
                      'classification': exc.code, 'reason': exc.message}
         except (OSError, ValueError):
             final = {'kind': 'failed', 'classification': 'execution_error', 'reason': 'Runner operation failed.'}
-        self.active_slot = None
+        self.active.pop(attempt_id, None)
         self.progress('finished', job, attempt_id, final['kind'])
         await self.event(attempt_id, 'final', final)
         await self.replay()
@@ -292,11 +298,11 @@ class Runner:
             await asyncio.sleep(10)
             try:
                 slots = dict.fromkeys(('worker','verifier','frontier','repository'), 0)
-                if getattr(self, 'active_slot', None):
-                    slots[self.active_slot] = 1
+                for slot in self.active.values():
+                    slots[slot] += 1
                 await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
                     'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.activation,
-                    'health':'executing' if getattr(self, 'active_slot', None) else 'ready'})
+                    'health':'executing' if self.active else 'ready'})
                 failures = 0
             except (OSError, Problem) as exc:
                 self.reconciled = False
@@ -308,6 +314,7 @@ class Runner:
     async def work_loop(self):
         self.activation = str(uuid4())
         failures, fault_started = 0, None
+        tasks = set()
         while True:
             try:
                 if getattr(self, 'intake_denied', False):
@@ -327,14 +334,21 @@ class Runner:
                 await self.exchange(f'runners/{self.id}/heartbeat', {
                     'slots': dict.fromkeys(('worker','verifier','frontier','repository'), 0),
                     'spool_bytes': self.journal.path.stat().st_size, 'boot_id': self.activation, 'health': 'ready'})
+                for task in list(tasks):
+                    if task.done():
+                        tasks.remove(task)
+                        await task
                 granted = False
-                # M1 admits a serial package pipeline; each configured lane has
-                # at most one in flight. M2 adds parallel phase scheduling.
+                # Claims remain bounded centrally; local counts avoid polling
+                # a full slot while existing tasks retain process ownership.
                 for slot in ('repository', 'frontier', 'worker', 'verifier'):
-                    claim = await self.claim(slot)
-                    if claim:
-                        granted = True
-                        await self.dispatch(claim)
+                    capacity = 2 if slot == 'worker' else 1
+                    for _ in range(capacity - list(self.active.values()).count(slot)):
+                        claim = await self.claim(slot)
+                        if claim:
+                            granted = True
+                            self.active[claim['attempt_id']] = slot
+                            tasks.add(asyncio.create_task(self.dispatch(claim)))
                 failures, fault_started = 0, None
                 if not granted:
                     await asyncio.sleep(1)

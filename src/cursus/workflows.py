@@ -13,40 +13,15 @@ def admitted(value):
 
 
 def plan(value, enrollment):
-    _object(value, {'packages', 'phase_check_ids'})
-    if not isinstance(value['packages'], list) or len(value['packages']) != 1:
-        raise Problem('unsupported_milestone', 'M1 requires exactly one package.')
-    package = value['packages'][0]
-    _object(package, {'id', 'dependencies', 'objective', 'inputs', 'criteria'})
-    if (not isinstance(package['id'], str) or not package['id'] or
-            any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in package['id'])):
-        raise Problem('invalid_plan', 'Invalid package identity.')
-    if package['dependencies'] != [] or not isinstance(package['objective'], str) or not package['objective'].strip():
-        raise Problem('invalid_plan', 'Invalid dependencies/objective.')
-    if not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
-        raise Problem('invalid_plan', 'Missing package inputs/criteria.')
+    validate('Plan', value)
     checks = {c['id'] for c in enrollment['checks']}
     if value['phase_check_ids'] != enrollment['phase_check_ids']:
         raise Problem('invalid_plan', 'Plan must retain every enrolled phase check.')
-    seen = set()
-    for item in package['criteria']:
-        _object(item, {'id', 'requirement', 'check'})
-        if not isinstance(item['id'], str) or not item['id'] or item['id'] in seen or not isinstance(item['requirement'], str):
-            raise Problem('invalid_plan', 'Invalid/duplicate criterion.')
-        seen.add(item['id'])
-        check = item['check']
-        if check.get('kind') == 'command':
-            _object(check, {'kind', 'command_id', 'expected_exit'}, {'required_literal'})
-            if check['command_id'] not in checks or type(check['expected_exit']) is not int or not 0 <= check['expected_exit'] <= 255:
-                raise Problem('invalid_plan', 'Unknown command or invalid expected exit.')
-            if 'required_literal' in check and not isinstance(check['required_literal'], str):
-                raise Problem('invalid_plan', 'Invalid literal.')
-        elif check.get('kind') == 'review':
-            _object(check, {'kind', 'pass_rule', 'evidence'})
-            if not isinstance(check['pass_rule'], str) or not check['pass_rule'].strip() or not isinstance(check['evidence'], list) or not check['evidence']:
-                raise Problem('invalid_plan', 'Review needs observable pass rule and evidence.')
-        else:
-            raise Problem('unsupported_milestone', 'M1 code supports command/review criteria.')
+    for package in value['packages']:
+        for criterion in package['criteria']:
+            check = criterion['check']
+            if check['kind'] == 'command' and check['command_id'] not in checks:
+                raise Problem('invalid_plan', 'Unknown enrolled command.')
     return value
 
 
@@ -67,7 +42,7 @@ def evidence(value, candidate, criteria, attempt_id):
     return all(e['passed'] for e in value)
 
 
-def decide(snapshot, change):
+def single_decide(snapshot, change):
     if change['kind'] == 'submit':
         value = change['input']
         admitted(value)
@@ -176,12 +151,12 @@ def decide(snapshot, change):
             queue('inspect_target', 'repository', {'repo': repo})
         else:
             phase.update(review=value, state='integration')
-            queue('stage_integration', 'repository', {'repo': repo, 'expected_head': phase['base_sha'],
+            queue('stage_integration', 'repository', {'repo': repo, 'expected_head': phase.get('integration_head', phase['base_sha']),
                                                      'candidate': phase['candidate']})
     elif step == 'stage_integration':
         _object(value, {'candidate', 'patch_identity', 'candidate_patch_identity'})
         staged = validate('Candidate', value['candidate'], object_format=enrollment.get('object_format', 'sha1'))
-        if staged['repo'] != repo or staged['base_sha'] != phase['base_sha'] or staged['attempt_ref'] != f"refs/heads/cursus-stage/{phase['id']}/default/{attempt_id}":
+        if staged['repo'] != repo or staged['base_sha'] != phase.get('integration_head', phase['base_sha']) or staged['attempt_ref'] != f"refs/heads/cursus-stage/{phase['id']}/{job.get('group_id', 'default')}/{attempt_id}":
             raise Problem('invalid_candidate', 'Staged identity differs.')
         validate('Digest', value['patch_identity'])
         validate('Digest', value['candidate_patch_identity'])
@@ -198,8 +173,8 @@ def decide(snapshot, change):
             phase.update(state='parked', reason='Target drift requires M2 revalidation.')
         else:
             intent = {'id': change['intent_id'], 'phase_id': phase['id'], 'repo': repo,
-                      'head_ref': f"refs/heads/cursus/{phase['id']}/default", 'head_sha': phase['staged']['head_sha'],
-                      'target_sha': phase['base_sha'], 'expected_old': None, 'kind': 'advance_integration'}
+                      'head_ref': f"refs/heads/cursus/{phase['id']}/{job.get('group_id', 'default')}", 'head_sha': phase['staged']['head_sha'],
+                      'target_sha': phase['base_sha'], 'expected_old': phase.get('remote_head'), 'kind': 'advance_integration'}
             phase.update(intent=intent, state='delivery')
             decision['intent'] = intent
             queue('advance_integration', 'repository', {'repo': repo, 'intent': intent})
@@ -227,3 +202,14 @@ def decide(snapshot, change):
     else:
         raise Problem('unsupported_milestone', 'Step is unavailable in M1.')
     return decision
+
+
+def decide(snapshot, change):
+    """Dispatch phase scheduling without sharing mutable package projections."""
+    if snapshot.get('schedule') or (change.get('job', {}).get('step') == 'plan'
+            and change.get('final', {}).get('kind') == 'completed'
+            and isinstance(change['final'].get('value'), dict)
+            and len(change['final']['value'].get('packages', [])) > 1):
+        from cursus.scheduling import decide_phase
+        return decide_phase(snapshot, change)
+    return single_decide(snapshot, change)

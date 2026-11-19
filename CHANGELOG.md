@@ -51,3 +51,10 @@ tag or production-readiness claim is implied.
   evidence; ADR 0001 records the package and contract boundary.
 
 This package version is a bootstrap baseline. It is not a qualified M0 release.
+
+### M2 implementation in progress
+
+- WP-10: validated package DAGs and independent delivery groups; parallel runner
+  tasks, per-package candidate/evidence state, serialized integration and dependent
+  dispatch from committed heads. Conflicting patches or target drift park safely.
+- ADR 0005 records the implementation scope and explicit live qualification deferral.

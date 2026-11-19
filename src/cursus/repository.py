@@ -151,7 +151,7 @@ class Repository:
             raise Problem('invalid_ref', 'Unsafe package ID.')
         ref = f"refs/heads/wp/{job['phase_id']}/{package}/{attempt_id}/candidate"
         if kind == 'stage':
-            ref = f"refs/heads/cursus-stage/{job['phase_id']}/default/{attempt_id}"
+            ref = f"refs/heads/cursus-stage/{job['phase_id']}/{job.get('group_id', 'default')}/{attempt_id}"
         return validate('Ref', ref)
 
     def remote_head(self, repo, ref):
@@ -273,7 +273,7 @@ class Repository:
             if job.get('publication_id') != intent['id'] or intent['phase_id'] != job['phase_id'] or intent['repo'] != repo:
                 raise Problem('forbidden', 'Publication intent identity mismatch.')
             ref, head = intent['head_ref'], intent['head_sha']
-            owned = f"refs/heads/cursus/{job['phase_id']}/default"
+            owned = f"refs/heads/cursus/{job['phase_id']}/{job.get('group_id', 'default')}"
             if ref != owned:
                 raise Problem('forbidden', 'Intent ref is outside owned lane.')
             if step == 'advance_integration':

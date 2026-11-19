@@ -57,19 +57,58 @@ def criterion(value):
 
 
 def plan(value):
-    _object(value, {'packages','phase_check_ids'})
-    if not isinstance(value['packages'], list) or len(value['packages']) != 1:
-        _fail('unsupported_milestone', 'M1 requires one package.')
-    package = value['packages'][0]
-    _object(package, {'id','dependencies','objective','inputs','criteria'})
-    _text(package['id'])
-    _text(package['objective'])
-    if package['dependencies'] != [] or not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
+    _object(value, {'packages','phase_check_ids'}, {'delivery_groups'})
+    packages = value['packages']
+    if not isinstance(packages, list) or not 1 <= len(packages) <= 100:
+        _fail('invalid_plan', 'Expected one to 100 packages.')
+    ids = []
+    for package in packages:
+        _object(package, {'id','dependencies','objective','inputs','criteria'})
+        name = _text(package['id'])
+        if any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in name):
+            _fail()
+        ids.append(name)
+        _text(package['objective'])
+        if not isinstance(package['dependencies'], list) or not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
+            _fail()
+        for item in package['criteria']:
+            criterion(item)
+        if len({c['id'] for c in package['criteria']}) != len(package['criteria']):
+            _fail()
+    if len(set(ids)) != len(ids):
+        _fail('invalid_plan', 'Duplicate package ID.')
+    edges = {p['id']: p['dependencies'] for p in packages}
+    done = set()
+    def visit(name, active):
+        if name not in edges or name in active:
+            _fail('invalid_plan', 'Unknown or cyclic dependency.')
+        if name in done:
+            return
+        deps = edges[name]
+        if any(not isinstance(d, str) for d in deps) or len(set(deps)) != len(deps):
+            _fail()
+        for dep in deps:
+            visit(dep, active | {name})
+        done.add(name)
+    for name in ids:
+        visit(name, set())
+    groups = value.get('delivery_groups', [{'id':'default', 'package_ids':ids}])
+    if not isinstance(groups, list) or not groups:
         _fail()
-    for item in package['criteria']:
-        criterion(item)
-    if len({c['id'] for c in package['criteria']}) != len(package['criteria']):
-        _fail()
+    members, group_ids = [], []
+    for group in groups:
+        _object(group, {'id','package_ids'})
+        name = _text(group['id'])
+        if any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in name):
+            _fail()
+        group_ids.append(name)
+        if not isinstance(group['package_ids'], list) or not group['package_ids']:
+            _fail()
+        members.extend(group['package_ids'])
+        if any(d not in group['package_ids'] for p in packages if p['id'] in group['package_ids'] for d in p['dependencies']):
+            _fail('invalid_plan', 'Delivery groups must be independent.')
+    if len(set(group_ids)) != len(group_ids) or len(members) != len(ids) or set(members) != set(ids):
+        _fail('invalid_plan', 'Groups must partition the plan.')
     if not isinstance(value['phase_check_ids'], list) or not value['phase_check_ids']:
         _fail()
     return value
