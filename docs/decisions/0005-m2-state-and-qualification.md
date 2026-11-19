@@ -15,7 +15,8 @@ structured organizational conversations. The M0/M1 live gates remain pending.
 
 Keep package projections independent and reuse exact candidate/evidence gates.
 Serialize integration per delivery group under the existing Store coordination
-transaction. Queued dependents pin the committed group head. Separate groups
+transaction. Revalidate target movement through a bounded merge, executed checks
+and fresh review; conflicts or exhaustion park without unchecked publication. Queued dependents pin the committed group head. Separate groups
 partition packages and reject dependencies across delivery outputs.
 
 Keep recovery and command state durable, scoped to the original attempt. An

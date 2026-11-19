@@ -1,6 +1,8 @@
 # ADR 0004: M1 single-package execution and publication
 
-- Status: accepted for WP-04–08 implementation; live qualification pending
+- Status: accepted for WP-04–08; M2 extends the admission, scheduling, recovery
+  and target-drift decisions in [ADR 0005](0005-m2-state-and-qualification.md) and
+  [ADR 0006](0006-m2-debug-and-conversations.md). Live qualification remains deferred.
 - Date: 2026-11-19
 - Basis: D1 §§3–7; D2 §§4, 7–8, 12, 15; roadmap WP-04–09
 - Task: operator request to implement through WP-09; follows ADR 0003

@@ -1,6 +1,6 @@
 # Qualification evidence
 
-Revision: 2026-11-19-r1. Normative baseline: D1 v0.1.1, D2 v0.1.2,
+Revision: 2026-11-19-r2. Normative baseline: D1 v0.1.1, D2 v0.1.2,
 implementation roadmap v0.1.1. Status describes evidence, not file existence.
 Private deployment inventory and credentials do not belong in this public repo.
 
@@ -204,3 +204,75 @@ Record also each negative probe's expected denial and observed effect, rather
 than accepting a success exit code as proof of effective tool restrictions.
 The public workbook intentionally retains `qualification="unqualified"` and
 empty role grants; fixture evidence must never populate live probe evidence.
+
+## WP-10–13 — local M2 implementation
+
+Source implementation adds graph/group scheduling, concurrent runner tasks,
+serialized integration, recovery/commands, continuing RPC debugging, guided
+interviews and distinct frontier debate seats. ADRs 0005/0006 record the durable
+choices. Tests use empty PostgreSQL schemas, private Unix HTTP sockets, isolated
+Git remotes and executable CLI/GitHub boundary fixtures. They call no live model,
+provider, VPS, tailnet, or GitHub service.
+
+Observed local results (2026-11-19, Linux x86_64, CPython 3.14.4,
+PostgreSQL 18.6; final runtime source `435a87f`):
+
+- Full integration regression: **38 passed** against the clean-installed M2
+  wheel after the target-drift lane fix. An earlier run found the lane waiting
+  behind its own owner; that defect was corrected, with all five scheduling
+  scenarios also rechecked successfully.
+- Final stale-process/verifier changes: affected recovery/debug suites,
+  **12 passed**. After final subprocess lifecycle cleanup, execution **3 passed**
+  and debug **5 passed**, including live-stale-process stop, cancellation,
+  missing reproduction, turn cap and same-PID failing/passing checkpoints.
+- Final clean-installed wheel: unit suite **18 passed**; offline CLI help/version
+  and `pip check` passed. `compileall` and `git diff --check` passed.
+- Offline isolated wheel build and clean hash-locked dependency installation
+  passed using the existing verified wheelhouse. Final wheel:
+  `dist/cursus-0.3.0-py3-none-any.whl`, SHA-256
+  `7ea470a23f6dde9fd1aab6d499e8217903366400b41d73e52c47dca862dc5343`.
+- Scheduling assertions cover distinct parallel claims/refs, plan order,
+  dependent committed bases, independent delivery groups, serialized lane writes,
+  actual runner-service dispatch and bounded target-drift revalidation.
+- Recovery assertions cover lost grant and ack, control restart, ownership versus
+  reachability, proven stop, explicit unknown/abandon, stale finals/verifiers,
+  cancellation before launch and remote effects reconciled without duplicate PRs.
+- Interview/debate assertions cover socket answers, required-input gating,
+  revision changes, five fresh seat invocations with three distinct fixture CLI
+  families, amendments, wrong-seat rejection and unresolved third-round parking.
+
+These checks do not qualify deployment users, native credentials, real CLI tool
+restrictions, cross-user/cgroup isolation or any A1–A4 live acceptance criterion.
+
+## WP-14 — M2 qualification: explicitly deferred
+
+Operator direction: **user qualification and live testing are deferred until
+further notice**. This supersedes the roadmap's instruction to run live WP-14
+now. The procedure/checklist is implemented; its live acceptance is not complete.
+Do not submit real runs, change VPS services/networking, conduct provider probes
+or create an M2 milestone tag under this implementation task.
+
+When the operator resumes qualification, create four private absolute Input JSON
+paths and retain the returned phase/request IDs. Never invent real-work inputs.
+Record these fields for each scenario: tested source/wheel digest; role release
+and capability digest; literal input path/command; approved repository and target
+SHA; UTC start/end; attempt/job IDs; effective users and process/boot/service
+identities; verifier/review evidence; publication intent/ref/head and PR URL;
+intervention log; actual launch/turn/concurrency counts; cost observations and
+unknown vendor retry behavior. Keep credentials and private inventory out of source.
+
+| Scenario | Input requirements | Required observations | Result |
+| --- | --- | --- | --- |
+| M2 phase / A1, A3 | Authorized real code phase, at least five packages, independent ready packages and dependencies; exact approved checks | Two pi attempts overlap in different identities/worktrees/refs; dependents pin committed heads; serialized combined checks/review; exact reviewed PR; no operator interventions | Deferred |
+| Recovery / A2 | Separate disposable trusted phase, bounded fault windows and cleanup | Control restart/link disconnect retain attempt; ordered replay once; proven stop uses fresh bounded attempt; unknown holds ownership; explicit abandon invalidates stale results; ambiguous mutation reconciles without duplicate effect | Deferred |
+| Debug / A4 | Real reproducible failing project and fix criteria; one debug package | Same pi RPC process across multiple turns; independent failed then passing checkpoint evidence; exact passing SHA reviewed and delivered without final operator stop | Deferred |
+| Debate / A7 | Plan or spec debate with pinned author and three distinct frontier CLIs | Fresh rationale/critic/reply/judge/amendment sessions, correct seat inputs, durable transcript, spec-answer revision if asked, accepted amendments or parked third round | Deferred |
+| Capacity/isolation | Two qualified worker identities plus verifier/frontier/repository lanes | Actual load behavior, credential/filesystem/process isolation and cgroup cleanup on intended VPS-A | Deferred |
+| Milestone | Every live gate above and applicable M0/M1 evidence | Reviewed exact source, sanitized attestations, scoped release authorization | No M2 tag |
+
+Before each run, the operator supplies maximum process launches, debug/interview/
+debate turns and repairs, allowed concurrency, elapsed-time and cost ceilings,
+credential separation and working task-owned termination. Source defaults are
+not billing authorization or enforced provider caps. Respect source quotas and
+Retry-After; stop affected live work on denial, persistent throttle or uncertainty.
+See the runbook's WP-14 procedure for commands and isolated fault boundaries.

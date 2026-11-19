@@ -398,3 +398,96 @@ attempts. A phase remains canceling until held execution and publication effects
 resolve. `steer` takes the original active pi attempt_id and text. Commands are
 journaled before dispatch and correlated by command ID; uncertain delivery is
 never automatically injected again. Inspect command results in committed events.
+
+## M2 execution and conversations (WP-10–13)
+
+M2 supersedes the earlier M1 availability/serial-only descriptions above. Code
+`form=phase` admits a validated package DAG. Optional delivery_groups partition
+packages into independent outputs; dependencies cannot cross groups. One-shot,
+ticket and debug require one package. Ready packages are queued in plan order;
+workers use distinct identities/worktrees/refs. A lane stages one reviewed package
+at a time, executes combined checks, and re-reviews a changed delta. Dependents
+pin only confirmed integrated heads. Target movement causes bounded target merge,
+verification and fresh review before an expected-head publication; conflicts or
+budget exhaustion park. Final merge remains with the operator.
+
+Configure both worker_slots with distinct unprivileged users/homes. The first
+matches the pi profile. For the second, add a measured capability override under
+`[worker_profiles."SECOND_WORKER_USER"]`, including its user/home and any differing
+binary/argv/qualification fields. It inherits the pi profile's fixed tuple and
+is checked against the assigned identity before launch. This is an unqualified
+configuration shape, not permission to reuse the developer agent's credentials.
+Require a separate measured `[pi.role_profiles.debug]` when debug settings differ.
+The debug role must qualify RPC prompt, idle continuation, steering and stop.
+
+A debug Input uses workflow=debug, repo, source and both debate flags; omit form.
+The runner retains its RPC process while verifier jobs inspect numbered immutable
+checkpoint refs. Continue/finish commands bind checkpoint and evidence. A passing
+checkpoint closes the process, checks the workspace is unchanged and enters
+independent review. Duplicate command IDs are not reinjected; unresolved prior
+command intent reports uncertain after restart.
+
+Guided intake uses source={"kind":"interview"}. Status returns open questions
+with control-assigned UUIDs. Submit answer with phase_id, question_id and text
+through `cursus action --input PATH`; retries reuse the original request UUID.
+Only the current open question round accepts an answer, and every required answer
+must be committed before a new interview job. Complete specs receive a revision.
+
+Set plan_debate/spec_debate on intake to enable the fixed roles. Qualify advocate,
+critic and judge on Claude/Codex/Antigravity distinctly; advocate must use the
+planner/interviewer's author CLI. Prompts document the closed per-seat JSON
+results. Each invocation is fresh; transcript projections and amendments are
+persisted. Spec judge questions return to guided intake; unresolved major/blocker
+findings park at three rounds. Normal direct intake skips these optional stages.
+
+## WP-14 — deferred live M2 qualification
+
+Do not execute this procedure until the operator lifts the qualification/live-test
+deferral and supplies the scoped inputs and run budgets in tests/qualification.md.
+There is no M2 tag. Use separate scenarios so recovery interventions never count
+as part of the autonomous five-package acceptance run.
+
+On VPS-B, for each private absolute phase/recovery/debug/debate input path:
+
+```text
+cursus submit --input "$INPUT_PATH"
+cursus status --phase-id "$PHASE_ID"
+```
+
+Copy PHASE_ID from the submit reply; retain its request_id. Inspect status no more
+frequently than every 10 seconds, stopping on delivered, parked, canceled or the
+approved elapsed-time bound. Independently confirm GitHub heads/PR and unchanged
+target. Record all acceptance observations in the private evidence record.
+
+For the separate recovery scenario, while pi is active, record its attempt,
+process, boot and service activation identities. On VPS-B run:
+
+```text
+sudo systemctl restart cursus-control
+cursus status --phase-id "$PHASE_ID"
+```
+
+Confirm the same runner/attempt continues and replay adds no duplicate effect.
+For an isolated link fault, use an operator-approved fault boundary restricted
+to the runner's Cursus HTTPS connection (never the SSH/admin path, shared tailnet
+or unrelated traffic). Pre-record the exact host-specific apply/revert commands,
+a finite duration and an independent timed revert. No generic firewall command
+is supplied because the actual host topology and safe management path are private
+qualification inputs. Confirm ownership retention throughout and contiguous replay
+on restoration. Revert only the task-owned fault, even on failed acceptance.
+
+For proven interruption, restart only the dedicated disposable scenario's runner
+service after recording its cgroup and descendants. Prove old activation cleanup;
+if that evidence is absent, expect unknown. The implementation automatically
+proves prior execution stopped after an observed boot change; same-boot launch
+without terminal/group evidence remains unknown. A changed/absent PID alone is
+insufficient. Preserve journal and generation. Exercise declare_unrecoverable and
+abandon on separately isolated disposable work; record reasons and stale-result
+rejection. Reconcile any unresolved publication read-only before a new effect.
+
+For debug, show failed and passing executed verifier evidence on different
+checkpoint refs from the same RPC PID/start identity. Finish must be autonomous
+and the PR must point to the reviewed passing result. For debate, record three
+actual CLI identities plus fresh seat attempts and durable amendments/transcript.
+Only after all live gates pass may a separately authorized reviewed M2 tag be
+created. Do not substitute these fixture tests for live qualification.
