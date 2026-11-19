@@ -299,3 +299,80 @@ abandonment and uncertain-outcome recovery are WP-11, not M1 operators' ad hoc
 SQL procedures. Do not edit rows, delete journals or manually replay publisher
 commands to clear a parked gate. Services report sanitized IDs/outcomes via
 journald; model logs are sanitized before journal/event storage.
+
+## WP-09 — live M1 qualification procedure
+
+This section prepares qualification; it is not evidence that deployment or any
+probe ran. Keep private machine/account values in the operator-local record.
+Do not tag M1 until every gate in `tests/qualification.md` passes. Carry forward
+M0 evidence and the exact source commit/wheel SHA-256. No new runtime feature is
+introduced during this package.
+
+1. Verify the intended hosts, private listeners, DB role, users, filesystem and
+   systemd boundaries from WP-02. Install the same reviewed wheel/release on both
+   hosts. Use the actual installed CLI versions to fill all qualified profiles,
+   role tuples and literal argv. Measure native login/renewal per identity.
+   Check binary digests and commit the non-secret role/prompt release before
+   setting its revision. Keep credential paths/configuration operator-local.
+2. Before each live probe record maximum launches/turns, one in-flight model
+   process, timeout and termination grace, operator-approved cost ceiling and
+   known/unknown vendor retry behavior. Use operator-provisioned native test
+   credentials, never developer-agent keys. Use an explicit child environment.
+   A timeout/process bound is not an enforced provider spend cap. Stop on auth
+   denial, forbidden approval prompts or throttling; honor Retry-After and do
+   not rotate identity. Record the exact task-owned stop mechanism and outcome.
+3. Measure pi JSON and RPC, actual Go tool execution and final-report framing;
+   in a dedicated bounded RPC probe exercise ID-correlated prompt, active steer,
+   idle prompt and abort. Distinguish accepted steering from demonstrated
+   consumption. Measure Claude, Codex and Antigravity independently, including
+   a required legitimate read, attempted forbidden write/shell/MCP and terminal
+   success/error. Record literal **installed-version** argv and sanitized wire
+   fixtures. If a required signature differs, fix the supported parser/config
+   and rerun affected tests; never declare a guessed flag qualified.
+4. Probe cross-user file/process/credential access and systemd descendant stop.
+   All workers, verifier and reviewer must lack publisher/cache/state/other-slot
+   authority. Verify the verifier can run only its supplied literal check and
+   the reviewer cannot modify the immutable candidate. Inspect actual listener,
+   firewall, Serve and tailnet ACL state; no public app or DB ingress.
+5. On both operator clients use a temporary operator-managed, loopback-only
+   identity probe behind the intended private Serve origin. Record its exact
+   invocation/configuration and safe boolean outcomes. Check the exact canonical
+   Tailscale login, missing/wrong/duplicate identity and injected identity headers.
+   An injected header must not impersonate the operator. Remove the temporary
+   probe after observing its outcome; leave M1 browser routes disabled.
+6. Enroll an explicitly authorized trusted test repo on both hosts. Confirm its
+   GitHub automation cannot update/merge the target as a publication side effect.
+   Set the approved literal phase check argv/cwd/timeout. Record target SHA and
+   GitHub permission observations. Plan the live phase's maximum model launches,
+   repair/scout allowance, concurrency, elapsed-time/cost ceilings and stop path
+   before submission. These ceilings require operator input; none is inferred
+   from public templates or subscription names.
+
+Example Input JSON, after replacing repository and real-work text locally:
+
+```json
+{
+  "workflow": "code",
+  "form": "one-shot",
+  "source": {"kind": "inline", "text": "REPLACE_WITH_AUTHORIZED_SMALL_CHANGE_AND_ACCEPTANCE_CRITERIA"},
+  "repo": {"owner": "REPLACE_OWNER", "name": "REPLACE_REPO", "target_ref": "refs/heads/main"},
+  "plan_debate": false,
+  "spec_debate": false
+}
+```
+
+On VPS-B inspect `systemctl status cursus-control`, then run
+`cursus submit --help` and `cursus submit --input "$M1_INPUT"`, with M1_INPUT an
+absolute file path. Copy reply `entity_id` to PHASE_ID and retain `request_id`.
+Inspect VPS-A `systemctl status cursus-runner`; query
+`cursus status --phase-id "$PHASE_ID"` at a bounded operator-selected interval
+(at least 10 seconds for this qualification), stopping at delivered, parked or
+the predeclared time budget. Record phase/attempt/publication IDs, check evidence,
+creator/reviewer identities, exact PR head/base/URL and the independently observed
+unchanged target. Do not seed state or manually push/PR to rescue acceptance.
+
+Only after all gates pass, review the exact tested source and milestone changelog
+and obtain scoped release-tag/publication authorization. A failed/missing probe,
+unknown remote result or absent actual credential keeps M1 unqualified. Preserve
+all existing claims and journals for the recovery package rather than deleting
+state to rerun a qualification scenario.

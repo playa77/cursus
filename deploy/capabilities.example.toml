@@ -98,3 +98,10 @@ renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
 # agent_end; Codex emits item.completed agent_message and turn.completed;
 # Claude/agy emit result subtype=success. Any different installed wire format
 # requires a parser change and requalification, never a guessed success flag.
+# WP-09 activation gate: all four CLIs, both operator clients, OS/systemd
+# boundaries and the real PR trace require private observed evidence. This
+# public file remains unqualified; setting a string cannot establish proof.
+# Optional role-specific measured overrides use [pi.role_profiles.scout] or
+# [pi.role_profiles.reviewer]; override the full fixed_argv, tool_allowlist,
+# qualified_roles and user/home where applicable. Read-only roles require
+# read_only_argv and clean_config_argv; never inherit worker write tools.

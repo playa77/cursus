@@ -159,7 +159,7 @@ provider behavior and real GitHub permissions remain separate qualification.
 
 ### Final local verification — 2026-11-19
 
-- Installed version: 0.2.0; CPython 3.14.4/Linux, PostgreSQL 18.6.
+- Runtime source: `663d64c` (WP-08); installed version: 0.2.0; CPython 3.14.4/Linux, PostgreSQL 18.6.
 - Unit discovery: **18 passed**; integration discovery: **17 passed**, no skips.
   Integration run: approximately 57 seconds, disposable random PostgreSQL
   schemas, private Unix HTTP sockets, local bare Git and executable CLI fixtures.
@@ -174,3 +174,33 @@ provider behavior and real GitHub permissions remain separate qualification.
   The isolated build reproduced the same wheel bytes.
 - No model/provider, real GitHub, SSH, Tailscale or systemd deployment calls.
   Tests use same-UID executable boundaries; OS isolation remains unqualified.
+
+## WP-09 — live M1 qualification: blocked on operator inputs
+
+Public-source procedure and evidence schema are prepared. **Acceptance is not
+complete.** No VPS deployment, live model invocation, native credential access,
+Serve change, real GitHub mutation or milestone tag was performed in this task.
+ADR 0002's public/private boundary remains in effect. Required operator inputs
+are the private M0 attestation, intended hosts/service identities, qualified
+native test credentials and invocation measurements, an authorized real-work
+repo/spec, and per-run cost/time/termination authorization.
+
+| Gate | Required operator-local evidence | Status |
+| --- | --- | --- |
+| M0 predecessor | Actual WP-02 inventory, all four CLI auth/renewal outcomes, both clients and no-public-ingress evidence | Not supplied |
+| Installed release | Source commit, wheel hash, Python/PostgreSQL/Git versions, committed role/prompts and measured profile digest on both hosts | Not run |
+| pi JSON/RPC | Exact argv/tuple, Go tool call, terminal report, prompt/steer/abort correlation and consumption evidence | Not run |
+| Claude | Headless read-only structured success/failure, forbidden tool/config tests and renewal | Not run |
+| Codex | Headless read-only structured success/failure, clean project config and renewal | Not run |
+| Antigravity | Native cached auth, headless stream success/failure, effective read-only tools and renewal | Not run |
+| OS/service isolation | Distinct UID/GID/groups/homes, denied cross-slot/parent credential access, descendant stop with service/boot/process identities | Not run |
+| Private ingress | Intended listeners/ACLs and both clients' canonical, absent/wrong/duplicate/forged Serve identity probe | Not run |
+| GitHub authorization | Trusted repo, permitted owned refs, target/merge denial, safe repo automation | Not run |
+| Real one-package trace | Actual CLI submit/status, durable phase/attempt/evidence/verdict/intents, one confirmed PR at exact verified head, unchanged target | Not run |
+| M1 release | All prior gates passed at exact reviewed commit, scoped tag authorization, annotated SemVer tag | Deferred; no tag |
+
+Use the private per-CLI form above for literal commands, probe outputs and budgets.
+Record also each negative probe's expected denial and observed effect, rather
+than accepting a success exit code as proof of effective tool restrictions.
+The public workbook intentionally retains `qualification="unqualified"` and
+empty role grants; fixture evidence must never populate live probe evidence.

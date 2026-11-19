@@ -4,6 +4,11 @@ Notable changes are recorded here using Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- WP-09: live M1 qualification procedure, per-boundary evidence checklist and
+  explicit operator-input gates. Qualification remains unrun; no M1 tag.
+
 ## [0.2.0] - 2026-11-19
 
 Public-source M1 implementation; live M0/M1 qualification is pending. No release
