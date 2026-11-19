@@ -1,7 +1,7 @@
 # Project brief: Cursus
 
 **Date** 2026-11-19  
-**Status** Draft  
+**Status** Approved  
 **Author** @Dan
 
 Build a small orchestrator of our own that turns one spec into a finished project phase. The output is reviewed pull requests, or non-code deliverables. Cheap pi workers do the work; frontier models only plan and review.
