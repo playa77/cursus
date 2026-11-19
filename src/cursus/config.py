@@ -83,7 +83,7 @@ def role_release(service):
     validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
-    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout','debug'), ('advocate','critic','judge'))
+    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge'))
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
         if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():

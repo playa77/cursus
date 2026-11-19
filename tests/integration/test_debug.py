@@ -10,11 +10,13 @@ from tests.phase_support import phase_runtime, drive, phase_state
 
 
 class DebugTests(unittest.IsolatedAsyncioTestCase):
-    async def scenario(self, cancel=False):
+    async def scenario(self, cancel=False, first_pass=False, turn_cap=False, abandon=False):
         value = code_input()
         value.update(workflow='debug')
         del value['form']
         async with phase_runtime(value=value) as rt:
+            if turn_cap:
+                rt['config']['limits']['debug_turns']=1
             binary = Path(rt['execution'].profiles['pi']['binary'])
             binary.write_text(f'''#!{sys.executable}
 import json, os, sys
@@ -27,16 +29,12 @@ for line in sys.stdin:
         continue
     turn+=1
     Path('process.txt').write_text(str(os.getpid()))
-    Path('result.txt').write_text('broken' if turn==1 else 'done')
+    Path('result.txt').write_text('broken' if turn==1 and not {first_pass!r} else 'done')
     value={{'summary':'Debug turn '+str(turn),'suggested_files':['result.txt']}}
     print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content':[{{'type':'text','text':json.dumps(value)}}]}}}}),flush=True)
     print(json.dumps({{'type':'agent_end'}}),flush=True)
 ''')
             rt['execution'].profiles['pi']['binary_digest'] = sha256(binary.read_bytes()).hexdigest()
-            rt['config']['roles']['debug']['timeout_seconds']=45
-            # The phase already pinned roles at admission; update test fixtures
-            # before admission via the immutable fixture timeout (5s) is enough
-            # because only verifier claims are polled while debug is held.
             await drive(rt,lambda p:p['state']=='execution')
             claim = await rt['runner'].claim('worker')
             self.assertEqual(claim['job']['step'],'debug')
@@ -46,9 +44,16 @@ for line in sys.stdin:
                 for _ in range(100):
                     phase = await phase_state(rt)
                     if phase.get('debug_checkpoint'):
+                        if abandon:
+                            await rt['control'].action('local_operator',str(uuid4()),{'kind':'declare_unrecoverable','attempt_id':claim['attempt_id'],'reason':'Isolated recovery scenario'})
+                            await rt['control'].action('local_operator',str(uuid4()),{'kind':'abandon','attempt_id':claim['attempt_id'],'reason':'Invalidate original ownership'})
+                            directive=await rt['runner'].reconcile()
+                            self.assertEqual(directive['dispositions'][claim['attempt_id']],'stop-stale')
+                            break
                         if cancel:
                             await rt['control'].action('local_operator',str(uuid4()),{'kind':'cancel','phase_id':rt['phase_id']})
                             directive=await rt['runner'].reconcile()
+                            await rt['runner'].apply_commands(directive['commands'])
                             await rt['runner'].apply_commands(directive['commands'])
                             break
                         verify = await rt['runner'].claim('verifier')
@@ -57,13 +62,23 @@ for line in sys.stdin:
                             seen.append(final['value'][0]['passed'])
                             directive=await rt['runner'].reconcile()
                             await rt['runner'].apply_commands(directive['commands'])
+                            await rt['runner'].apply_commands(directive['commands'])
                     if task.done():
                         break
                     await asyncio.sleep(.02)
                 await asyncio.wait_for(task,5)
                 phase=await phase_state(rt)
-                if cancel:
+                if abandon:
+                    old=(await rt['db'].store.read('attempts',claim['attempt_id']))['items'][0]
+                    self.assertEqual(old['status'],'abandoned')
+                    self.assertNotIn('candidate',phase)
+                    self.assertEqual(rt['remote'].prs,[])
+                elif cancel:
                     self.assertEqual(phase['state'],'canceled',phase)
+                    self.assertEqual(rt['remote'].prs,[])
+                elif first_pass or turn_cap:
+                    self.assertEqual(seen,[True] if first_pass else [False])
+                    self.assertEqual(phase['state'],'parked')
                     self.assertEqual(rt['remote'].prs,[])
                 else:
                     self.assertEqual(seen,[False,True])
@@ -73,6 +88,10 @@ for line in sys.stdin:
                     self.assertEqual(phase['debug_checkpoint']['turn'],2)
                     debug_attempts=[a for a in (await rt['db'].store.read('attempts'))['items'] if a['claim']['job']['step']=='debug']
                     self.assertEqual(len(debug_attempts),1)
+                    checkpoints=[r['value']['payload']['candidate'] for r in rt['journal'].records if r['kind']=='event' and r['value']['kind']=='debug_checkpoint']
+                    pids=[rt['remote'].git(rt['remote'].remote,'show',c['attempt_ref']+':process.txt') for c in checkpoints]
+                    self.assertEqual(len(pids),2)
+                    self.assertEqual(pids[0],pids[1])
                     self.assertEqual(len(rt['remote'].prs),1)
                     commands=(await rt['db'].store.read('commands'))['items']
                     self.assertEqual([c['state'] for c in commands],['accepted','accepted'])
@@ -86,3 +105,12 @@ for line in sys.stdin:
 
     async def test_cancel_stops_held_rpc_before_canceled(self):
         await self.scenario(cancel=True)
+
+    async def test_missing_reproduction_parks_without_pr(self):
+        await self.scenario(first_pass=True)
+
+    async def test_turn_cap_parks_and_stops_rpc(self):
+        await self.scenario(turn_cap=True)
+
+    async def test_abandoned_live_rpc_stops_and_cannot_advance(self):
+        await self.scenario(abandon=True)

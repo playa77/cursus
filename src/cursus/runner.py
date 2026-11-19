@@ -138,6 +138,7 @@ class Runner:
         self.command_queues = {}
         self.boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         self.replay_lock = asyncio.Lock()
+        self.tasks = set()
 
     def record(self, kind, value):
         return self.journal.record(kind, value)
@@ -163,6 +164,22 @@ class Runner:
                                  'reason': 'Durable journal observation.'})
         directive = await self.exchange(f'runners/{self.id}/reconcile', {
             'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending})
+        for attempt_id,disposition in directive['dispositions'].items():
+            if disposition=='stop-stale' and attempt_id in self.command_queues:
+                prior=any(r['kind']=='stale_stop' and r['value']==attempt_id for r in self.journal.records)
+                if not prior:
+                    self.record('stale_stop',attempt_id)
+                    await self.command_queues[attempt_id].put({'id':str(uuid4()),'attempt_id':attempt_id,'action':'stop'})
+        held_ids = {c['attempt_id'] for c in directive['held_claims']}
+        resolved = {r['value']['payload']['command_id'] for r in self.journal.records
+                    if r['kind']=='event' and r['value']['kind']=='command_result'}
+        for record in list(self.journal.records):
+            if record['kind']=='command_intent':
+                command = record['value']
+                if command['id'] not in resolved and command['attempt_id'] in held_ids and command['attempt_id'] not in self.active:
+                    await self.event(command['attempt_id'],'command_result',
+                        {'command_id':command['id'],'disposition':'uncertain','reason':'Prior RPC delivery has no durable result.'})
+                    resolved.add(command['id'])
         self.record('directive', directive)
         self.reconciled = directive['reconciled']
         return directive
@@ -266,6 +283,10 @@ class Runner:
         async def log(payload):
             # Agent text is sanitized by Execution before reaching persistence.
             await self.event(attempt_id, 'log', payload)
+        async def lifecycle(pid):
+            stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
+            self.record('process',{'attempt_id':attempt_id,'pid':pid,'start_ticks':stat[19],
+                'boot_id':self.boot_id,'activation':self.activation})
         async def command_result(value):
             await self.event(attempt_id,'command_result',value)
         try:
@@ -284,13 +305,13 @@ class Runner:
                         await self.replay()
                         return value
                     result = await self.execution.run(job,path,attempt_id,log,
-                        self.command_queues[attempt_id],command_result,checkpoint)
+                        self.command_queues[attempt_id],command_result,checkpoint,lifecycle)
                     if (self.repository.git(path,'status','--porcelain') or
                             self.repository.git(path,'rev-parse','HEAD').decode().strip() != result['candidate']['head_sha']):
                         raise Problem('invalid_candidate','Workspace changed after passing checkpoint.')
                     value = {'report':result['report'],'candidate':result['candidate']}
                 else:
-                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result)
+                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result, lifecycle=lifecycle)
                     candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
                     value = {'report': result, 'candidate': candidate}
             elif step in ('verify', 'review'):
@@ -299,7 +320,7 @@ class Runner:
                 configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
                 self.assign(path, configured, readonly=step == 'review')
                 value = await self.execution.run(job, path, attempt_id, log)
-            elif step in ('plan', 'scout'):
+            elif step in ('plan', 'scout', 'interview', 'debate'):
                 if step == 'scout':
                     data = job['input']
                     candidate = {'repo': data['repo'], 'head_sha': data['base_sha']}
@@ -330,6 +351,13 @@ class Runner:
                 continue
             queue = self.command_queues.get(command['attempt_id'])
             if queue is None:
+                granted = any(r['kind']=='grant' and r['value']['attempt_id']==command['attempt_id'] for r in self.journal.records)
+                launched = any(r['kind']=='launch' and r['value']==command['attempt_id'] for r in self.journal.records)
+                if command['action']=='stop' and granted and not launched:
+                    self.record('command_intent',command)
+                    await self.event(command['attempt_id'],'command_result',{'command_id':command['id'],'disposition':'stopped'})
+                    await self.event(command['attempt_id'],'final',{'kind':'canceled','reason':'Grant was canceled before launch.'})
+                    await self.replay()
                 continue
             self.record('command_intent',command)
             await queue.put(command)
@@ -340,7 +368,9 @@ class Runner:
             await self.work_loop()
         finally:
             heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+            for task in self.tasks:
+                task.cancel()
+            await asyncio.gather(heartbeat,*self.tasks, return_exceptions=True)
 
     async def heartbeat(self):
         failures = 0
@@ -351,7 +381,7 @@ class Runner:
                 for slot in self.active.values():
                     slots[slot] += 1
                 directive = await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
-                    'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.activation,
+                    'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.boot_id,
                     'health':'executing' if self.active else 'ready'})
                 await self.apply_commands(directive['commands'])
                 failures = 0
@@ -365,7 +395,7 @@ class Runner:
     async def work_loop(self):
         self.activation = str(uuid4())
         failures, fault_started = 0, None
-        tasks = set()
+        tasks = self.tasks
         while True:
             try:
                 if getattr(self, 'intake_denied', False):
@@ -374,9 +404,11 @@ class Runner:
                     await self.reconcile()
                     await self.replay()
                     directive = await self.reconcile()
+                    await self.apply_commands(directive['commands'])
                     for held in directive['held_claims']:
                         launched = any(r['kind'] == 'launch' and r['value'] == held['attempt_id'] for r in self.journal.records)
-                        if not launched:
+                        finished = any(r['kind']=='event' and r['value']['attempt_id']==held['attempt_id'] and r['value']['kind']=='final' for r in self.journal.records)
+                        if not launched and not finished:
                             if not any(r['kind'] == 'grant' and r['value']['attempt_id'] == held['attempt_id'] for r in self.journal.records):
                                 self.record('grant', validate('Claim', held))
                             await self.dispatch(held)

@@ -93,3 +93,51 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             await rt['runner'].dispatch(claim)
             self.assertEqual((await phase_state(rt))['state'],'delivered')
             self.assertEqual(len([r for r in rt['remote'].requests if r[0]=='POST']),1)
+
+    async def test_cancel_unlaunched_grant_never_executes(self):
+        async with phase_runtime() as rt:
+            claim=await rt['runner'].claim('repository')
+            await rt['control'].action('local_operator',str(uuid4()),{'kind':'cancel','phase_id':rt['phase_id']})
+            directive=await rt['runner'].reconcile()
+            await rt['runner'].apply_commands(directive['commands'])
+            phase=await phase_state(rt)
+            self.assertEqual(phase['state'],'canceled')
+            self.assertFalse(any(r['kind']=='launch' for r in rt['journal'].records))
+            self.assertEqual(rt['remote'].prs,[])
+
+    async def test_integration_effect_reconciles_before_releasing_dependents(self):
+        from tests.phase_support import packages
+        from tests.support import code_input
+        value=code_input(); value['form']='phase'
+        async with phase_runtime({'claude':packages()},value) as rt:
+            await drive(rt,lambda p:any(s.get('intent',{}).get('kind')=='advance_integration' for s in p.get('schedule',{}).values()))
+            original=rt['repository'].push
+            def lose_ref(repo,ref,desired,expected,owned):
+                result=original(repo,ref,desired,expected,owned)
+                if ref.startswith('refs/heads/cursus/'):
+                    raise Problem('publication_unknown','Lost ref response after effect')
+                return result
+            rt['repository'].push=lose_ref
+            claim=await rt['runner'].claim('repository')
+            await rt['runner'].dispatch(claim)
+            self.assertEqual((await phase_state(rt))['state'],'parked')
+            rt['repository'].push=original
+            claim=await rt['runner'].claim('repository')
+            self.assertEqual(claim['job']['step'],'reconcile_publication')
+            await rt['runner'].dispatch(claim)
+            phase=await drive(rt)
+            self.assertEqual(phase['state'],'delivered',phase.get('reason'))
+            self.assertEqual(len(rt['remote'].prs),1)
+
+    async def test_missed_heartbeats_change_liveness_without_releasing_owner(self):
+        from unittest.mock import patch
+        async with phase_runtime() as rt:
+            claim=await rt['runner'].claim('repository')
+            with patch('cursus.transport.now',return_value='2000-01-01T00:00:00+00:00'):
+                await rt['runner'].reconcile()
+            await rt['control'].maintain('tick')
+            runner=(await rt['db'].store.read('runners'))['items'][0]
+            self.assertFalse(runner['reachable'])
+            attempt=(await rt['db'].store.read('attempts',claim['attempt_id']))['items'][0]
+            self.assertEqual(attempt['status'],'active')
+            self.assertIsNone(await rt['runner'].claim('repository'))

@@ -118,7 +118,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
         return profile, argv, self.identity(configured)
 
-    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None):
+    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
                        'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
@@ -216,12 +216,14 @@ class Execution:
                 diagnostics.extend(chunk)
                 if len(diagnostics) > MAX_OUTPUT:
                     raise Problem('output_limit', 'Diagnostic output exceeds its bound.')
-        process.stdin.write(stdin)
-        await process.stdin.drain()
-        if not rpc:
-            process.stdin.close()
         try:
             async with asyncio.timeout(timeout):
+                if lifecycle:
+                    await lifecycle(process.pid)
+                process.stdin.write(stdin)
+                await process.stdin.drain()
+                if not rpc:
+                    process.stdin.close()
                 terminal, _ = await asyncio.gather(read_output(), read_error())
                 code = await process.wait()
                 if stopped:
@@ -295,7 +297,7 @@ class Execution:
             raise Problem('missing_terminal', 'No qualified terminal assistant response.')
         return decode_json(sanitize(answer))
 
-    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None):
+    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']
@@ -313,7 +315,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Unqualified prompt transport.')
         code, raw, diagnostic = await self.child(argv, workspace, user,
             self.configured(invocation)['home'], stdin, invocation['role']['timeout_seconds'], sink,
-            rpc=transport == 'rpc', commands=commands, command_sink=command_sink, checkpoint=checkpoint)
+            rpc=transport == 'rpc', commands=commands, command_sink=command_sink, checkpoint=checkpoint, lifecycle=lifecycle)
         if code:
             raise Problem('cli_failed', 'CLI process failed.')
         result = decode_json(raw) if checkpoint else self.normalize(invocation['role']['cli'], raw)

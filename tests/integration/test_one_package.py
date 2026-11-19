@@ -45,7 +45,8 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                         runner = Runner(config['runner']['id'], journal,
                             Wire(ws.root / 'runner.sock', journal.generation), repository, execution)
                         await runner.reconcile()
-                        for _ in range(20):
+                        moved=False
+                        for _ in range(30):
                             view = await control.query('local_operator', 'phases', phase_id)
                             phase = view['items'][0]
                             if phase['state'] in ('delivered', 'parked'):
@@ -55,7 +56,8 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                                 claim = await runner.claim(slot)
                                 if claim:
                                     claimed = True
-                                    if drift and claim['job']['step'] == 'inspect_target':
+                                    if drift and not moved and claim['job']['step'] == 'inspect_target':
+                                        moved=True
                                         (remote.seed / 'new.txt').write_text('target drift')
                                         remote.git(remote.seed, 'add', '.')
                                         remote.git(remote.seed, 'commit', '-m', 'Target moved')
@@ -70,8 +72,11 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                         await runner.replay()
                         self.assertTrue(all(a['status'] == 'terminal' for a in attempts))
                         if drift:
-                            self.assertEqual(phase['state'], 'parked')
-                            self.assertEqual(remote.prs, [])
+                            self.assertEqual(phase['state'], 'delivered',phase.get('reason'))
+                            self.assertEqual(len(remote.prs),1)
+                            self.assertEqual(phase['drift_count'],1)
+                            self.assertEqual(phase['references'][0]['head_sha'],phase['staged']['head_sha'])
+                            self.assertEqual(phase['integration_review']['verdict'],'accept')
                         elif overrides:
                             self.assertEqual(phase['state'], 'parked', phase.get('reason'))
                             self.assertEqual(remote.prs, [])
@@ -96,7 +101,7 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_review_cannot_publish(self):
         await self.run_phase(overrides={'codex': {'verdict': 'accept'}})
 
-    async def test_target_drift_parks_before_publication(self):
+    async def test_target_drift_revalidates_before_publication(self):
         await self.run_phase(drift=True)
 
     async def test_repair_budget_parks_without_intent(self):

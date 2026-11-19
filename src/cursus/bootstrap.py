@@ -46,7 +46,16 @@ async def service(args):
             control = Control(settings, store)
             if hasattr(control, 'maintain'):
                 await control.maintain('boot')
-            await serve(settings, control)
+            async def maintenance():
+                while True:
+                    await asyncio.sleep(settings['limits']['heartbeat_seconds'])
+                    await control.maintain('tick')
+            timer = asyncio.create_task(maintenance())
+            try:
+                await serve(settings, control)
+            finally:
+                timer.cancel()
+                await asyncio.gather(timer,return_exceptions=True)
         finally:
             await pool.close()
     else:

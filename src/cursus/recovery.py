@@ -9,6 +9,8 @@ async def command(tx, attempt, action, **data):
                 issued_seq=tx.cursor + 1, state='pending', **data)
     await tx.event(attempt['claim']['job']['phase_id'], 'command', item)
     await tx.save('commands', item, attempt_id=attempt['id'], issued_seq=item['issued_seq'])
+    attempt.setdefault('commands',{})[item['id']]=item
+    await tx.save('attempts',attempt)
     return item
 
 
@@ -29,6 +31,9 @@ async def retry(control, tx, attempt, reason):
         phase.update(state='parked', reason='Interrupted-step retry budget exhausted.')
     else:
         phase.update(state='execution', reason=reason)
+        if job['step']=='debug':
+            for key in ('debug_checkpoint','debug_passed','debug_evidence','debug_reproduced'):
+                phase.pop(key,None)
         extra = {k:v for k,v in job.items() if k not in ('id','phase_id','step','slot','input','invocation')}
         role = job.get('invocation', {}).get('role', {}).get('name')
         extra['interrupted_count'] = count + 1
@@ -46,7 +51,8 @@ async def action(control, tx, value):
         rows = await tx.connection.fetch("SELECT payload FROM attempts WHERE phase_id=$1 AND status IN ('active','unknown')",phase['id'])
         for row in rows:
             await command(tx,payload(row),'stop')
-        phase['state'] = 'canceling' if rows else 'canceled'
+        pending = await tx.connection.fetchval("SELECT count(*) FROM publications WHERE phase_id=$1 AND state='pending'",phase['id'])
+        phase['state'] = 'canceling' if rows or pending else 'canceled'
     else:
         attempt = await tx.get('attempts', value['attempt_id'])
         if not attempt:
@@ -70,6 +76,7 @@ async def action(control, tx, value):
             attempt.update(status='abandoned',reason=value['reason'])
             await tx.save('attempts',attempt,status='abandoned')
             await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",attempt['claim']['job']['id'])
+            await tx.connection.execute("UPDATE jobs SET state='canceled' WHERE state='queued' AND payload->'input'->>'debug_attempt_id'=$1",attempt['id'])
             await retry(control,tx,attempt,value['reason'])
             phase = await tx.get('phases', phase['id'])
         else:
@@ -88,3 +95,4 @@ async def result(tx, attempt, value):
         raise Problem('state_conflict','Command outcome differs.')
     item.update(state=value['disposition'],result=value)
     await tx.save('commands',item)
+    attempt.setdefault('commands',{})[item['id']]=item

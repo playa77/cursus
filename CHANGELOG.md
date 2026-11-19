@@ -67,3 +67,7 @@ This package version is a bootstrap baseline. It is not a qualified M0 release.
   review/PR handoff. Local tests execute a failing then passing check in one
   process and confirm cancellation. Concurrent workers lease distinct configured
   identities; the second identity requires its own measured profile.
+- WP-13: revision-bound guided interviews, required-answer admission, fixed
+  three-frontier-seat debate, immutable per-seat transcripts, validated author
+  amendments, spec-question round trips and the three-round unresolved-blocker
+  cap. Direct intake and bounded scout behavior remain available.

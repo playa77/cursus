@@ -10,12 +10,15 @@ from cursus.workflows import plan, single_decide
 
 FIELDS = ('candidate','creator','report','evidence','review','staged','staged_patch',
           'candidate_patch','integration_evidence','integration_review','repair_count',
-          'repair_findings','reason','intent','state')
+          'repair_findings','reason','intent','state','target_sha','drift_count')
 
 
 def decide_phase(snapshot, change):
     phase = deepcopy(snapshot)
     job = change['job']
+    if job['step']=='reconcile_publication' and change['final']['kind']=='completed' and change['final']['value'].get('kind')=='confirmed':
+        job = dict(job,step=job['input']['intent']['kind'])
+        change = dict(change,job=job,final={'kind':'completed','value':change['final']['value']['result']})
     decision = {'phase': phase, 'jobs': []}
     if job['step'] == 'plan':
         value = plan(change['final']['value'], change['enrollment'])
@@ -23,7 +26,7 @@ def decide_phase(snapshot, change):
         phase['schedule'] = {p['id']: {'state':'blocked'} for p in value['packages']}
         groups = value.get('delivery_groups', [{'id':'default', 'package_ids':list(phase['schedule'])}])
         phase['lanes'] = {g['id']: dict(g, head=phase['base_sha'], remote_head=None,
-                                       owner=None, state='active', row_id=change['lane_ids'][g['id']]) for g in groups}
+                                       owner=None, target_sha=phase['base_sha'], state='active', row_id=change['lane_ids'][g['id']]) for g in groups}
         phase['package_rows'] = change['package_ids']
         decision['plan'] = value
     else:
@@ -36,7 +39,7 @@ def decide_phase(snapshot, change):
             intent = state['intent']
             if change['final']['value'] != {'ref':intent['head_ref'], 'sha':intent['head_sha']}:
                 raise Problem('publication_mismatch', 'Lane confirmation differs.')
-            group.update(head=intent['head_sha'], remote_head=intent['head_sha'], owner=None)
+            group.update(head=intent['head_sha'], remote_head=intent['head_sha'], target_sha=intent['target_sha'],owner=None)
             state['state'] = 'integrated'
             decision['confirmed_intent'] = intent['id']
         else:
@@ -46,6 +49,9 @@ def decide_phase(snapshot, change):
             projection.update(plan={'packages':[package], 'phase_check_ids':phase['plan']['phase_check_ids']},
                               base_sha=state['base_sha'], integration_head=group['head'],
                               remote_head=group['remote_head'])
+            projection.setdefault('target_sha',group['target_sha'])
+            if job['step']=='stage_integration':
+                projection['integration_head']=job['input']['expected_head']
             # Target checks compare the enrolled target, not a dependent's base.
             if job['step'] == 'inspect_target':
                 projection['base_sha'] = phase['base_sha']
@@ -61,7 +67,7 @@ def decide_phase(snapshot, change):
             if 'next' in result:
                 upcoming = result['next']
                 upcoming.update(package_id=name, group_id=group['id'])
-                if upcoming['step'] == 'stage_integration':
+                if upcoming['step'] == 'stage_integration' and group['owner'] != name:
                     state['state'] = 'waiting_integration'
                 else:
                     decision['jobs'].append(upcoming)
@@ -90,7 +96,7 @@ def decide_phase(snapshot, change):
             name = group['package_ids'][-1]
             state = phase['schedule'][name]
             intent = dict(state['intent'], id=change['intent_id'], kind='publish_pr',
-                          head_sha=group['head'], expected_old=group['head'])
+                          head_sha=group['head'], expected_old=group['head'],target_sha=group['target_sha'])
             state.update(intent=intent, state='delivery')
             group['state'] = 'delivery'
             decision.update(intent=intent, lane_id=group['row_id'])

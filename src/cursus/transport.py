@@ -22,6 +22,7 @@ async def request(control, runner_id, route, data, generation, request_id):
         if runner is None:
             runner = {'id': runner_id, 'generation': generation, 'reconciled': False}
         runner['last_contact'] = now()
+        runner['reachable'] = True
         await tx.save('runners', runner)
         if route == f'runners/{runner_id}/reconcile':
             _object(data, {'generation', 'observations', 'pending_request_ids'})
@@ -61,12 +62,18 @@ async def request(control, runner_id, route, data, generation, request_id):
             # elapsed-time rule releases ownership or authorizes a relaunch.
             missing = [a for a in held if a['id'] not in observed
                        and a['claim']['request_id'] not in data['pending_request_ids']]
+            dispositions={a['id']:'await-reconciliation' if a in missing else 'replay' for a in held}
+            for attempt_id,observation in observed.items():
+                if attempt_id not in known:
+                    old=await tx.get('attempts',attempt_id)
+                    if old and old['claim']['runner_id']==runner_id:
+                        dispositions[attempt_id]='stop-stale' if old['status']=='abandoned' and observation['kind']=='live' else 'ignore-stale'
             runner['reconciled'] = not missing
             await tx.save('runners', runner)
             return {'held_claims': [a['claim'] for a in held], 'commands': await recovery.commands(tx,runner_id),
                     'ack_by_attempt': {a['id']: a['ack'] for a in held},
                     'reconciled': runner['reconciled'],
-                    'dispositions': {a['id']: 'await-reconciliation' if a in missing else 'replay' for a in held}}
+                    'dispositions': dispositions}
         if route == f'runners/{runner_id}/heartbeat':
             _object(data, {'slots', 'spool_bytes', 'boot_id', 'health'})
             _object(data['slots'], {'worker', 'verifier', 'frontier', 'repository'})

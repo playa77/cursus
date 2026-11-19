@@ -25,11 +25,17 @@ class Control:
             raise Problem('forbidden', 'Operator authorization required.')
         value = validate('Action', value)
         async def transition(tx):
+            if value['kind'] == 'answer':
+                from cursus.conversations import answer
+                return await answer(self,tx,value)
             if value['kind'] != 'submit':
                 from cursus.recovery import action
                 return await action(self, tx, value)
             decision = self.decide({}, value)
             data = value['input']
+            if data['plan_debate'] or data['spec_debate']:
+                from cursus.conversations import assignments
+                assignments(self.settings['roles'])
             self.enrolled(data['repo'])
             source = data['source']
             if source['kind'] == 'repo':
@@ -60,9 +66,12 @@ class Control:
                 'prompt_text': role['prompt_text'] + '\nTask data:\n' + canonical_json(inputs).decode()}
         job = {'id': identity(), 'phase_id': phase['id'], 'step': step,
                'slot': slot, 'input': inputs, **extra}
+        await tx.event(phase['id'],'queued',{'job_id':job['id'],'step':step,'package_id':job.get('package_id')})
         ordinal = await tx.connection.fetchval('SELECT count(*)+1 FROM jobs WHERE phase_id=$1 '
                                               'AND step=$2', phase['id'], step)
-        await tx.save('jobs', job, phase_id=phase['id'], step=step, scope='phase',
+        package_row = phase.get('package_rows',{}).get(job.get('package_id'),phase.get('package_row_id'))
+        lane_row = phase.get('lanes',{}).get(job.get('group_id'),{}).get('row_id',phase.get('lane_id'))
+        await tx.save('jobs', job, phase_id=phase['id'], package_id=package_row, lane_id=lane_row, step=step, scope='phase',
                       ordinal=ordinal, slot=slot, state='queued', creation_cursor=tx.cursor)
         return job
 
@@ -92,17 +101,23 @@ class Control:
         return result
 
     async def maintain(self, trigger):
-        if trigger != 'boot':
+        if trigger not in ('boot','tick'):
             return
         async def close_admission(tx):
             rows = await tx.connection.fetch('SELECT payload FROM runners')
             from cursus.store import payload
             for row in rows:
                 runner = payload(row)
-                runner['reconciled'] = False
+                if trigger=='boot':
+                    runner['reconciled'] = False
+                else:
+                    from datetime import datetime,timezone
+                    elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(runner['last_contact'])).total_seconds()
+                    limit=self.settings['limits'].get('heartbeat_seconds',10)*self.settings['limits'].get('unreachable_after_missed_heartbeats',3)
+                    runner['reachable']=elapsed < limit
                 await tx.save('runners', runner)
             return {'closed': True}
-        return await self.store.transact('control', 'boot', identity(), {}, close_admission)
+        return await self.store.transact('control', trigger, identity(), {}, close_admission)
 
     async def completed(self, tx, attempt, final):
         from cursus.contracts import _object
@@ -111,6 +126,15 @@ class Control:
         if not phase or phase['state'] in ('delivered', 'canceled'):
             raise Problem('state_conflict', 'Phase cannot advance.')
         _object(final, {'kind'}, {'value', 'reason', 'classification'})
+        parent_id=job['input'].get('debug_attempt_id')
+        if parent_id:
+            parent=await tx.get('attempts',parent_id)
+            if (not parent or parent['status'] not in ('active','unknown') or
+                    phase.get('debug_checkpoint',{}).get('candidate') != job['input']['candidate']):
+                attempt.update(status='terminal',final=final)
+                await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",job['id'])
+                await tx.event(phase['id'],'stale_verification',{'attempt_id':attempt['id']})
+                return
         if phase['state'] == 'canceling':
             attempt.update(status='unknown' if final['kind'] == 'unknown' else 'terminal', final=final)
             await tx.save('attempts',attempt,status=attempt['status'])
@@ -120,14 +144,21 @@ class Control:
             await tx.save('phases',phase)
             await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",job['id'])
             return
+        planning_value = final.get('value',{})
+        if job['step']=='debate' and not (isinstance(planning_value,dict) and 'packages' in planning_value):
+            planning_value = phase.get('debate',{}).get('document',{})
+        if not isinstance(planning_value,dict):
+            planning_value = {}
         try:
             decision = self.decide(phase, {'kind': 'final', 'job': job, 'final': final,
                 'attempt_id': attempt['id'], 'enrollment': self.enrolled(phase['input']['repo']),
+                'debate_rounds':self.settings['limits'].get('debate_rounds',3),
+                'interview_rounds':self.settings['limits'].get('interview_rounds',20),
                 'debug_turns':self.settings['limits'].get('debug_turns',10),
                 'repair_retries': self.settings['limits']['repair_retries'],
                 'intent_id': identity(), 'lane_id': identity(), 'package_row_id': identity(),
-                'package_ids': {p['id']: identity() for p in final.get('value', {}).get('packages', [])} if isinstance(final.get('value'), dict) else {},
-                'lane_ids': {g['id']: identity() for g in final.get('value', {}).get('delivery_groups', [{'id':'default'}])} if isinstance(final.get('value'), dict) else {}})
+                'package_ids': {p['id']: identity() for p in planning_value.get('packages', []) if isinstance(p,dict) and 'id' in p},
+                'lane_ids': {g['id']: identity() for g in planning_value.get('delivery_groups', [{'id':'default'}]) if isinstance(g,dict) and 'id' in g}})
         except (Problem, TypeError, KeyError, AttributeError) as exc:
             phase.update(state='parked', reason=exc.code if isinstance(exc, Problem) else 'invalid_result')
             decision = {'phase': phase}
@@ -146,8 +177,9 @@ class Control:
             for name, lane in lanes.items():
                 await tx.save('integration_lanes', {'id':lane['row_id'], 'target_sha':phase['base_sha'],
                     'state':'active'}, phase_id=phase['id'], group_id=name)
-        if job['step'] == 'resolve_input' and 'spec' in phase:
-            await tx.revision('specs', phase['id'], 2, {'text': phase['spec'], 'base_sha': phase['base_sha']})
+        if (job['step'] == 'resolve_input' and 'spec' in phase) or decision.get('spec_revision'):
+            phase['spec_revision'] = phase.get('spec_revision',2)
+            await tx.revision('specs', phase['id'], phase['spec_revision'], {'text': phase['spec'], 'base_sha': phase['base_sha']})
         if 'confirmed_intent' in decision:
             publication = await tx.get('publications', decision['confirmed_intent'])
             publication.update(state='confirmed', result=final['value'])

@@ -7,8 +7,7 @@ from cursus.execution import report, review
 
 
 def admitted(value):
-    if (value['workflow'] not in ('code','debug') or value['source']['kind'] == 'interview'
-            or value['plan_debate'] or value['spec_debate']):
+    if value['workflow'] not in ('code','debug'):
         raise Problem('unsupported_milestone', 'This workflow requires a later milestone.')
 
 
@@ -57,6 +56,8 @@ def single_decide(snapshot, change):
         value = final['value']
         original = dict(job, step=job['input']['intent']['kind'])
         if value.get('kind') == 'no_effect':
+            phase.update(state='delivery')
+            phase.pop('reason',None)
             return {'phase':phase, 'next':{k:v for k,v in original.items() if k not in ('id','phase_id')}}
         return single_decide(phase, dict(change, job=original, final={'kind':'completed','value':value['result']}))
     if final['kind'] != 'completed':
@@ -82,6 +83,9 @@ def single_decide(snapshot, change):
         if package.get('id'):
             decision['next']['package_id'] = package['id']
     def produce():
+        if phase['input']['workflow']=='debug':
+            for key in ('debug_checkpoint','debug_passed','debug_evidence','debug_reproduced'):
+                phase.pop(key,None)
         queue('debug' if phase['input']['workflow']=='debug' else 'produce', 'worker', {'repo': repo, 'base_sha': phase['base_sha'], 'spec': phase['spec'],
             'package': package, 'findings': phase.get('repair_findings', [])}, 'debug' if phase['input']['workflow']=='debug' else 'worker')
         phase['state'] = 'execution'
@@ -102,7 +106,7 @@ def single_decide(snapshot, change):
         if source['kind'] == 'repo' and value.get('source_commit') != source['commit']:
             raise Problem('invalid_result', 'Resolved source commit differs.')
         phase.update(base_sha=value['base_sha'], spec=value['text'], state='planning')
-        queue('plan', 'frontier', {'workflow': 'code', 'spec': value['text'], 'repo': repo,
+        queue('plan', 'frontier', {'workflow': phase['input']['workflow'], 'spec': value['text'], 'repo': repo,
                                  'base_sha': value['base_sha'], 'checks': enrollment['checks'],
                                  'phase_check_ids': enrollment['phase_check_ids']}, 'planner')
     elif step == 'plan':
@@ -126,7 +130,7 @@ def single_decide(snapshot, change):
         _object(value, {'findings','source_references'})
         if not isinstance(value['findings'], list) or not isinstance(value['source_references'], list):
             raise Problem('invalid_result', 'Scout requires findings/source references.')
-        queue('plan', 'frontier', {'workflow':'code', 'spec':phase['spec'], 'repo':repo,
+        queue('plan', 'frontier', {'workflow':phase['input']['workflow'], 'spec':phase['spec'], 'repo':repo,
             'base_sha':phase['base_sha'], 'checks':enrollment['checks'],
             'phase_check_ids':enrollment['phase_check_ids'], 'scout_findings':value}, 'planner')
     elif step in ('produce','debug'):
@@ -151,7 +155,12 @@ def single_decide(snapshot, change):
         if job['input'].get('debug_attempt_id'):
             passed = evidence(value,candidate,job['input']['criteria'],attempt_id)
             phase.update(debug_passed=passed,debug_evidence=value)
-            if not passed and phase['debug_checkpoint']['turn'] >= change.get('debug_turns',10):
+            if not passed:
+                phase['debug_reproduced']=True
+            if passed and not phase.get('debug_reproduced'):
+                phase.update(state='parked',reason='Debug requires executed reproduction evidence before accepting a fix.')
+                action='stop'
+            elif not passed and phase['debug_checkpoint']['turn'] >= change.get('debug_turns',10):
                 phase.update(state='parked',reason='Debug turn budget exhausted.')
                 action = 'stop'
             else:
@@ -200,12 +209,19 @@ def single_decide(snapshot, change):
                                     'checks': enrollment['checks'], 'integration': True})
     elif step == 'inspect_target':
         _object(value, {'base_sha'})
-        if value['base_sha'] != phase['base_sha']:
-            phase.update(state='parked', reason='Target drift requires M2 revalidation.')
+        if value['base_sha'] != phase.get('target_sha',phase['base_sha']):
+            count=phase.get('drift_count',0)
+            if count >= change['repair_retries']:
+                phase.update(state='parked',reason='Target drift revalidation budget exhausted.')
+            else:
+                phase.update(drift_count=count+1,target_sha=value['base_sha'],
+                             integration_head=phase['staged']['head_sha'],state='integration')
+                queue('stage_integration','repository',{'repo':repo,'expected_head':phase['staged']['head_sha'],
+                    'candidate':phase['staged'],'drift_target':value['base_sha']})
         else:
             intent = {'id': change['intent_id'], 'phase_id': phase['id'], 'repo': repo,
                       'head_ref': f"refs/heads/cursus/{phase['id']}/{job.get('group_id', 'default')}", 'head_sha': phase['staged']['head_sha'],
-                      'target_sha': phase['base_sha'], 'expected_old': phase.get('remote_head'), 'kind': 'advance_integration'}
+                      'target_sha': phase.get('target_sha',phase['base_sha']), 'expected_old': phase.get('remote_head'), 'kind': 'advance_integration'}
             phase.update(intent=intent, state='delivery')
             decision['intent'] = intent
             queue('advance_integration', 'repository', {'repo': repo, 'intent': intent})
@@ -237,10 +253,21 @@ def single_decide(snapshot, change):
 
 def decide(snapshot, change):
     """Dispatch phase scheduling without sharing mutable package projections."""
+    job = change.get('job', {})
+    completed = change.get('final', {}).get('kind') == 'completed'
+    inputs = snapshot.get('input', {})
+    conversation = job.get('step') in ('interview','debate')
+    conversation |= job.get('step') == 'resolve_input' and (inputs.get('source',{}).get('kind')=='interview' or inputs.get('spec_debate',False))
+    value = change.get('final',{}).get('value',{})
+    conversation |= (job.get('step') == 'plan' and completed and inputs.get('plan_debate',False)
+                     and not snapshot.get('plan_approved') and isinstance(value,dict) and value.get('kind') != 'scout_request')
+    if conversation:
+        from cursus.conversations import decide as converse
+        return converse(snapshot,change)
     if snapshot.get('schedule') or (snapshot.get('input',{}).get('form') == 'phase' and change.get('job', {}).get('step') == 'plan'
             and change.get('final', {}).get('kind') == 'completed'
             and isinstance(change['final'].get('value'), dict)
-            and len(change['final']['value'].get('packages', [])) > 1):
+            and (len(change['final']['value'].get('packages', [])) > 1 or 'delivery_groups' in change['final']['value'])):
         from cursus.scheduling import decide_phase
         return decide_phase(snapshot, change)
     return single_decide(snapshot, change)
