@@ -5,7 +5,7 @@
 | Document | 1 of the Cursus specification set |
 | Version | 0.1.0 |
 | Date | 2026-11-19 |
-| Status | Draft |
+| Status | Approved |
 | Baseline | Project Brief Cursus v1.2.0 and confirmed interview rounds 1–3 |
 
 ## 1. Overview & Goals
@@ -197,5 +197,3 @@ Use a versioned Python deployment, review and lock actively maintained permissiv
 | Version | Date | Changes |
 | --- | --- | --- |
 | 0.1.0 | 2026-11-19 | Initial draft grounded in Project Brief Cursus v1.2.0 and the confirmed interview. |
-
-Review this and let me know when you're ready for Document 2.
