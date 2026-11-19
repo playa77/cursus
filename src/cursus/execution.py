@@ -1,6 +1,7 @@
 """Direct, pinned CLI and verifier execution under isolated child identities."""
 
 import asyncio
+from contextvars import ContextVar
 from hashlib import sha256
 import json
 import os
@@ -49,6 +50,9 @@ class Execution:
     def __init__(self, profiles, identities, verifier, allow_test_identity=False):
         self.profiles, self.identities, self.verifier = profiles, identities, verifier
         self.allow_test_identity = allow_test_identity
+        self.worker_slots = [identities['pi']]
+        self.worker_context = ContextVar('worker_context',default=None)
+        self.worker_leases = set()
 
     def identity(self, configured):
         user = pwd.getpwnam(configured['user'])
@@ -58,6 +62,8 @@ class Execution:
 
     def configured(self, invocation):
         role = invocation['role']
+        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
+            return self.worker_slots[self.worker_context.get()]
         key = 'pi_reviewer' if role['name'] == 'reviewer' and role['cli'] == 'pi' else role['cli']
         if key not in self.identities:
             raise Problem('profile_mismatch', 'Required isolated identity is unavailable.')
@@ -68,6 +74,14 @@ class Execution:
         cli = role['cli']
         profile = self.profiles[cli]
         profile = dict(profile, **profile.get('role_profiles', {}).get(role['name'], {}))
+        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
+            slot = self.worker_context.get()
+            if slot:
+                configured = self.worker_slots[slot]
+                measured = self.profiles.get('worker_profiles',{}).get(configured['user'])
+                if not measured and not self.allow_test_identity:
+                    raise Problem('profile_mismatch','Second worker identity lacks measured qualification.')
+                profile = dict(profile, **(measured or {}))
         if role['name'] not in profile['qualified_roles'] or role['model'] != profile['model']:
             raise Problem('profile_mismatch', 'Role/model is not qualified.')
         if (role['tier'] == 'production' and cli != 'pi') or role['tier'] not in ('production', 'organization'):
@@ -88,7 +102,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Missing installed-version capability evidence.')
         if not self.allow_test_identity:
             tokens = profile['fixed_argv']
-            required = {'pi': ['--mode', 'rpc' if role['name'] == 'worker' else 'json'],
+            required = {'pi': ['--mode', 'rpc' if role['name'] in ('worker','debug') else 'json'],
                         'claude': ['-p', '--output-format', 'stream-json'],
                         'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
             if any(token not in tokens for token in required):
@@ -104,7 +118,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
         return profile, argv, self.identity(configured)
 
-    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None):
+    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None):
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
                        'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
@@ -116,6 +130,11 @@ class Execution:
         pending_commands = {}
         stopped = False
         stop_commands = []
+        debug_decisions = asyncio.Queue()
+        turn_start = 0
+        turn = 0
+        selected = None
+        debug_result = None
         async def consume_commands():
             nonlocal stopped
             while commands is not None:
@@ -123,9 +142,13 @@ class Execution:
                 if item['action'] == 'stop':
                     stopped = True
                     stop_commands.append(item)
+                    await debug_decisions.put(item)
                     if process.returncode is None:
                         os.killpg(process.pid,signal.SIGTERM)
                     return
+                if checkpoint and item['action'] in ('continue_debug','finish_debug'):
+                    await debug_decisions.put(item)
+                    continue
                 if not rpc:
                     if command_sink:
                         await command_sink({'command_id':item['id'],'disposition':'rejected','reason':'Execution has no RPC command channel.'})
@@ -135,6 +158,7 @@ class Execution:
                 await process.stdin.drain()
         command_task = asyncio.create_task(consume_commands())
         async def read_output():
+            nonlocal request_id,turn_start,turn,selected,debug_result
             terminal = False
             while True:
                 line = await process.stdout.readline()
@@ -154,7 +178,36 @@ class Execution:
                             raise Problem('protocol', 'RPC response correlation or acceptance failed.')
                     if frame.get('type') == 'agent_end':
                         terminal = True
-                        process.stdin.close()
+                        if checkpoint:
+                            turn += 1
+                            report_value = self.normalize('pi', bytes(output[turn_start:]))
+                            report(report_value)
+                            selected = await checkpoint(turn,report_value)
+                            while True:
+                                item = await debug_decisions.get()
+                                if item['action'] == 'stop':
+                                    break
+                                if item.get('checkpoint') != selected:
+                                    if command_sink:
+                                        await command_sink({'command_id':item['id'],'disposition':'rejected','reason':'Checkpoint differs from idle turn.'})
+                                    continue
+                                if item['action'] == 'finish_debug':
+                                    if not item.get('evidence') or not all(e['passed'] for e in item['evidence']):
+                                        raise Problem('invalid_evidence','Finish needs passing checkpoint verification.')
+                                    debug_result = selected
+                                    process.stdin.close()
+                                    if command_sink:
+                                        await command_sink({'command_id':item['id'],'disposition':'accepted'})
+                                else:
+                                    request_id = item['id']
+                                    pending_commands[request_id] = item
+                                    turn_start = len(output)
+                                    process.stdin.write(canonical_json({'id':request_id,'type':'prompt',
+                                        'message':'Continue debugging using this verifier evidence: ' + canonical_json(item['evidence']).decode()}) + b'\n')
+                                    await process.stdin.drain()
+                                break
+                        else:
+                            process.stdin.close()
                 if sink:
                     await sink({'stream': 'stdout', 'text': sanitize(line.decode('utf-8'))})
             return terminal
@@ -175,7 +228,9 @@ class Execution:
                     raise Problem('canceled', 'Execution stopped by operator command.')
                 if rpc and not terminal:
                     raise Problem('missing_terminal', 'RPC did not finish a qualifying turn.')
-                return code, bytes(output), sanitize(diagnostics.decode('utf-8', errors='replace'))
+                if checkpoint and debug_result is None:
+                    raise Problem('missing_terminal','Debug process exited without an approved finish.')
+                return code, canonical_json(debug_result) if checkpoint else bytes(output), sanitize(diagnostics.decode('utf-8', errors='replace'))
         except (TimeoutError, ValueError, Problem) as exc:
             if process.returncode is None:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -240,7 +295,7 @@ class Execution:
             raise Problem('missing_terminal', 'No qualified terminal assistant response.')
         return decode_json(sanitize(answer))
 
-    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None):
+    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None):
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']
@@ -258,10 +313,10 @@ class Execution:
             raise Problem('profile_mismatch', 'Unqualified prompt transport.')
         code, raw, diagnostic = await self.child(argv, workspace, user,
             self.configured(invocation)['home'], stdin, invocation['role']['timeout_seconds'], sink,
-            rpc=transport == 'rpc', commands=commands, command_sink=command_sink)
+            rpc=transport == 'rpc', commands=commands, command_sink=command_sink, checkpoint=checkpoint)
         if code:
             raise Problem('cli_failed', 'CLI process failed.')
-        result = self.normalize(invocation['role']['cli'], raw)
+        result = decode_json(raw) if checkpoint else self.normalize(invocation['role']['cli'], raw)
         if job['step'] == 'produce':
             report(result)
         if job['step'] == 'review':

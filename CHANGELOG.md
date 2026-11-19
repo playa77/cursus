@@ -62,3 +62,8 @@ This package version is a bootstrap baseline. It is not a qualified M0 release.
   lost-ack replay, boot-change stop evidence, bounded interrupted retries and
   read-only publication reconciliation. Includes checkpoint transport seams for
   WP-12; debug admission remains disabled in this commit.
+- WP-12: continuing pi RPC debug turns, immutable checkpoint refs, separate
+  verifier claims, durable continue/finish commands and exact passing-checkpoint
+  review/PR handoff. Local tests execute a failing then passing check in one
+  process and confirm cancellation. Concurrent workers lease distinct configured
+  identities; the second identity requires its own measured profile.

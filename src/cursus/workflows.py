@@ -7,7 +7,7 @@ from cursus.execution import report, review
 
 
 def admitted(value):
-    if (value['workflow'] != 'code' or value['source']['kind'] == 'interview'
+    if (value['workflow'] not in ('code','debug') or value['source']['kind'] == 'interview'
             or value['plan_debate'] or value['spec_debate']):
         raise Problem('unsupported_milestone', 'This workflow requires a later milestone.')
 

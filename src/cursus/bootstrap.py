@@ -69,6 +69,7 @@ async def service(args):
             if settings['pi_reviewer']['enabled']:
                 identities['pi_reviewer'] = settings['pi_reviewer']
             execution = Execution(settings['profiles'], identities, settings['verification'])
+            execution.worker_slots = settings['worker_slots']
             runner = Runner(service['runner_id'], journal, transport, repository, execution)
             await runner.serve()
         finally:

@@ -236,6 +236,22 @@ class Runner:
             'attempt_id': attempt_id, 'step': job['step'], 'outcome': outcome}))
 
     async def dispatch(self, claim):
+        token, slot = None, None
+        if claim['job']['step'] in ('produce','debug'):
+            slots = range(2 if self.execution.allow_test_identity else len(self.execution.worker_slots))
+            slot = next((i for i in slots if i not in self.execution.worker_leases),None)
+            if slot is None:
+                raise Problem('capacity','No isolated worker identity is free.')
+            self.execution.worker_leases.add(slot)
+            token = self.execution.worker_context.set(0 if self.execution.allow_test_identity else slot)
+        try:
+            return await self._dispatch(claim)
+        finally:
+            if token is not None:
+                self.execution.worker_context.reset(token)
+                self.execution.worker_leases.remove(slot)
+
+    async def _dispatch(self, claim):
         job, attempt_id = claim['job'], claim['attempt_id']
         if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
@@ -254,14 +270,29 @@ class Runner:
             await self.event(attempt_id,'command_result',value)
         try:
             step = job['step']
-            if step == 'produce':
+            if step in ('produce','debug'):
                 data = job['input']
                 path = await asyncio.to_thread(self.repository.workspace, data['repo'], data['base_sha'], attempt_id)
                 configured = self.execution.configured(job['invocation'])
                 self.assign(path, configured)
-                result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result)
-                candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
-                value = {'report': result, 'candidate': candidate}
+                if step == 'debug':
+                    async def checkpoint(turn, report):
+                        checkpoint_job = dict(job,input=dict(job['input'],checkpoint_turn=turn))
+                        candidate = await asyncio.to_thread(self.repository.capture,checkpoint_job,attempt_id,path,report)
+                        value = {'candidate':candidate,'turn':turn,'report':report}
+                        await self.event(attempt_id,'debug_checkpoint',value)
+                        await self.replay()
+                        return value
+                    result = await self.execution.run(job,path,attempt_id,log,
+                        self.command_queues[attempt_id],command_result,checkpoint)
+                    if (self.repository.git(path,'status','--porcelain') or
+                            self.repository.git(path,'rev-parse','HEAD').decode().strip() != result['candidate']['head_sha']):
+                        raise Problem('invalid_candidate','Workspace changed after passing checkpoint.')
+                    value = {'report':result['report'],'candidate':result['candidate']}
+                else:
+                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result)
+                    candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
+                    value = {'report': result, 'candidate': candidate}
             elif step in ('verify', 'review'):
                 path = await asyncio.to_thread(self.repository.snapshot, job['input']['candidate'],
                                                attempt_id, step == 'review')

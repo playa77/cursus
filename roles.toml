@@ -48,3 +48,14 @@ reasoning = "REPLACE_QUALIFIED_REASONING"
 tools = ["read", "list", "search"]
 timeout_seconds = 300
 prompt = "scout.md"
+
+[roles.debug]
+tier = "production"
+cli = "pi"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search", "write", "edit", "bash"]
+timeout_seconds = 1800
+prompt = "debug.md"
+

@@ -83,7 +83,7 @@ def role_release(service):
     validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
-    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout'))
+    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout','debug'), ('advocate','critic','judge'))
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
         if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():
@@ -161,6 +161,12 @@ def load(process_kind, path):
         if settings['pi_reviewer']['enabled'] and (settings['pi_reviewer']['user'] in users or settings['pi_reviewer']['user'] == 'root'):
             fail('Pi review requires a distinct unprivileged identity.')
         absolute(settings['pi_reviewer']['home'])
+        if len(settings['worker_slots']) != 2 or len({s['user'] for s in settings['worker_slots']}) != 2:
+            fail('Two distinct worker identities are required.')
+        if settings['worker_slots'][0]['user'] != settings['cli']['pi']['user']:
+            fail('First worker must match the pi profile identity.')
+        if settings['worker_slots'][1]['user'] in users or settings['worker_slots'][1]['user']=='root':
+            fail('Second worker must be separately isolated.')
         for slot in settings['worker_slots']:
             keys(slot, ('id','user','home'))
             absolute(slot['home'])
