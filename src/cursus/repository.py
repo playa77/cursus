@@ -152,6 +152,10 @@ class Repository:
         ref = f"refs/heads/wp/{job['phase_id']}/{package}/{attempt_id}/candidate"
         if kind == 'stage':
             ref = f"refs/heads/cursus-stage/{job['phase_id']}/{job.get('group_id', 'default')}/{attempt_id}"
+        if job['input'].get('checkpoint_turn') is not None and kind == 'candidate':
+            turn = job['input']['checkpoint_turn']
+            validate('Seq',turn)
+            ref = ref.removesuffix('candidate') + f'checkpoints/{turn}'
         return validate('Ref', ref)
 
     def remote_head(self, repo, ref):
@@ -276,6 +280,20 @@ class Repository:
             owned = f"refs/heads/cursus/{job['phase_id']}/{job.get('group_id', 'default')}"
             if ref != owned:
                 raise Problem('forbidden', 'Intent ref is outside owned lane.')
+            if step == 'reconcile_publication':
+                if intent['kind'] == 'advance_integration':
+                    current = self.remote_head(repo,ref)
+                    if current == head:
+                        return {'kind':'confirmed','result':{'ref':ref,'sha':head}}
+                    if current == intent['expected_old']:
+                        return {'kind':'no_effect'}
+                    raise Problem('publication_mismatch','Remote head differs from both expected outcomes.')
+                if self.remote_head(repo,ref) != head or self.fetch(repo) != intent['target_sha']:
+                    raise Problem('publication_mismatch','Read-only PR reconciliation found drift.')
+                result = self.matching_pr(repo,ref,head)
+                if result is None:
+                    raise Problem('publication_unknown','PR absence does not prove an ambiguous request had no effect.')
+                return {'kind':'confirmed','result':result}
             if step == 'advance_integration':
                 return self.push(repo, ref, head, intent['expected_old'], owned)
             if self.remote_head(repo, ref) != head:

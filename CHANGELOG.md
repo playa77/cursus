@@ -58,3 +58,7 @@ This package version is a bootstrap baseline. It is not a qualified M0 release.
   tasks, per-package candidate/evidence state, serialized integration and dependent
   dispatch from committed heads. Conflicting patches or target drift park safely.
 - ADR 0005 records the implementation scope and explicit live qualification deferral.
+- WP-11: original-attempt commands, cancel/unknown/abandon guards, lost-grant and
+  lost-ack replay, boot-change stop evidence, bounded interrupted retries and
+  read-only publication reconciliation. Includes checkpoint transport seams for
+  WP-12; debug admission remains disabled in this commit.

@@ -25,6 +25,9 @@ class Control:
             raise Problem('forbidden', 'Operator authorization required.')
         value = validate('Action', value)
         async def transition(tx):
+            if value['kind'] != 'submit':
+                from cursus.recovery import action
+                return await action(self, tx, value)
             decision = self.decide({}, value)
             data = value['input']
             self.enrolled(data['repo'])
@@ -108,9 +111,19 @@ class Control:
         if not phase or phase['state'] in ('delivered', 'canceled'):
             raise Problem('state_conflict', 'Phase cannot advance.')
         _object(final, {'kind'}, {'value', 'reason', 'classification'})
+        if phase['state'] == 'canceling':
+            attempt.update(status='unknown' if final['kind'] == 'unknown' else 'terminal', final=final)
+            await tx.save('attempts',attempt,status=attempt['status'])
+            held = await tx.connection.fetchval("SELECT count(*) FROM attempts WHERE phase_id=$1 AND status IN ('active','unknown')",phase['id'])
+            pending = await tx.connection.fetchval("SELECT count(*) FROM publications WHERE phase_id=$1 AND state='pending'",phase['id'])
+            phase['state'] = 'canceling' if held or pending else 'canceled'
+            await tx.save('phases',phase)
+            await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",job['id'])
+            return
         try:
             decision = self.decide(phase, {'kind': 'final', 'job': job, 'final': final,
                 'attempt_id': attempt['id'], 'enrollment': self.enrolled(phase['input']['repo']),
+                'debug_turns':self.settings['limits'].get('debug_turns',10),
                 'repair_retries': self.settings['limits']['repair_retries'],
                 'intent_id': identity(), 'lane_id': identity(), 'package_row_id': identity(),
                 'package_ids': {p['id']: identity() for p in final.get('value', {}).get('packages', [])} if isinstance(final.get('value'), dict) else {},
@@ -120,7 +133,7 @@ class Control:
             decision = {'phase': phase}
         phase = decision['phase']
         phase['revision'] += 1
-        attempt['status'] = 'unknown' if final['kind'] == 'unknown' else 'terminal'
+        attempt['status'] = 'unknown' if final['kind'] == 'unknown' and final.get('classification') != 'publication_unknown' else 'terminal'
         attempt['final'] = final
         await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1", job['id'])
         if 'plan' in decision:
@@ -143,6 +156,11 @@ class Control:
             intent = decision['intent']
             await tx.save('publications', dict(intent, state='pending'), phase_id=phase['id'],
                           lane_id=decision.get('lane_id', phase.get('lane_id')), state='pending')
+        if 'command' in decision:
+            from cursus.recovery import command
+            item = dict(decision['command'])
+            target = await tx.get('attempts',item.pop('attempt_id'))
+            await command(tx,target,item.pop('action'),**item)
         await tx.save('phases', phase)
         for name, state in phase.get('schedule', {}).items():
             row = await tx.get('packages', phase['package_rows'][name])
@@ -158,3 +176,25 @@ class Control:
             await self.enqueue(tx, phase, next_job['step'], next_job['slot'], next_job['input'],
                                **{k: v for k, v in next_job.items() if k not in ('step','slot','input')})
         await tx.event(phase['id'], 'transition', {'state': phase['state'], 'step': job['step']})
+
+
+    async def checkpoint(self, tx, attempt, value):
+        from cursus.execution import report
+        job = attempt['claim']['job']
+        phase = await tx.get('phases',job['phase_id'])
+        if job['step'] != 'debug' or phase['state'] in ('canceling','canceled','delivered','parked'):
+            raise Problem('state_conflict','Checkpoint has no active debug owner.')
+        candidate = validate('Candidate',value['candidate'],object_format=self.enrolled(phase['input']['repo']).get('object_format','sha1'))
+        turn = value['turn']
+        previous = phase.get('debug_checkpoint',{}).get('turn',0)
+        ref = f"refs/heads/wp/{phase['id']}/{job['package_id']}/{attempt['id']}/checkpoints/{turn}"
+        if (turn != previous+1 or turn > self.settings['limits'].get('debug_turns',10)
+                or candidate['base_sha'] != job['input']['base_sha'] or candidate['repo'] != phase['input']['repo']
+                or candidate['attempt_ref'] != ref):
+            raise Problem('invalid_candidate','Debug checkpoint ownership or turn differs.')
+        report(value['report'])
+        phase.update(debug_checkpoint=value,debug_passed=False)
+        await tx.save('phases',phase)
+        await self.enqueue(tx,phase,'verify','verifier',{'candidate':candidate,
+            'criteria':job['input']['package']['criteria'],'checks':self.enrolled(candidate['repo'])['checks'],
+            'debug_attempt_id':attempt['id']},package_id=job['package_id'])

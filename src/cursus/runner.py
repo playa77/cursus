@@ -135,6 +135,8 @@ class Runner:
         self.reconciled = False
         self.activation = str(uuid4())
         self.active = {}
+        self.command_queues = {}
+        self.boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         self.replay_lock = asyncio.Lock()
 
     def record(self, kind, value):
@@ -154,8 +156,10 @@ class Runner:
             launched = any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records)
             final = any(r['kind'] == 'event' and r['value']['attempt_id'] == attempt_id
                         and r['value']['kind'] == 'final' for r in self.journal.records)
+            starts = [r['value'] for r in self.journal.records if r['kind']=='process_context' and r['value']['attempt_id']==attempt_id]
+            stopped = starts and starts[-1]['boot_id'] != self.boot_id
             observations.append({'attempt_id': attempt_id,
-                                 'kind': 'terminal_pending' if final else 'unknown' if launched else 'never_started',
+                                 'kind': 'terminal_pending' if final else 'live' if attempt_id in self.active else 'stopped' if stopped else 'unknown' if launched else 'never_started',
                                  'reason': 'Durable journal observation.'})
         directive = await self.exchange(f'runners/{self.id}/reconcile', {
             'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending})
@@ -235,8 +239,10 @@ class Runner:
         job, attempt_id = claim['job'], claim['attempt_id']
         if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
+        self.record('process_context', {'attempt_id':attempt_id,'boot_id':self.boot_id,'activation':self.activation})
         self.record('launch', attempt_id)
         self.active[attempt_id] = job['slot']
+        self.command_queues[attempt_id] = asyncio.Queue()
         self.progress('started', job, attempt_id)
         await self.event(attempt_id, 'started', {'service_activation': self.activation,
                                               'time': __import__('datetime').datetime.now(
@@ -244,6 +250,8 @@ class Runner:
         async def log(payload):
             # Agent text is sanitized by Execution before reaching persistence.
             await self.event(attempt_id, 'log', payload)
+        async def command_result(value):
+            await self.event(attempt_id,'command_result',value)
         try:
             step = job['step']
             if step == 'produce':
@@ -251,7 +259,7 @@ class Runner:
                 path = await asyncio.to_thread(self.repository.workspace, data['repo'], data['base_sha'], attempt_id)
                 configured = self.execution.configured(job['invocation'])
                 self.assign(path, configured)
-                result = await self.execution.run(job, path, attempt_id, log)
+                result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result)
                 candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
                 value = {'report': result, 'candidate': candidate}
             elif step in ('verify', 'review'):
@@ -273,16 +281,27 @@ class Runner:
                 value = await asyncio.to_thread(self.repository.perform, job, attempt_id)
             final = {'kind': 'completed', 'value': value}
         except Problem as exc:
-            final = {'kind': 'unknown' if exc.code in ('publication_unknown', 'unknown_stop') else 'failed',
+            final = {'kind': 'canceled' if exc.code == 'canceled' else 'unknown' if exc.code in ('publication_unknown', 'unknown_stop') else 'failed',
                      'classification': exc.code, 'reason': exc.message}
         except (OSError, ValueError):
             final = {'kind': 'failed', 'classification': 'execution_error', 'reason': 'Runner operation failed.'}
         self.active.pop(attempt_id, None)
+        self.command_queues.pop(attempt_id, None)
         self.progress('finished', job, attempt_id, final['kind'])
         await self.event(attempt_id, 'final', final)
         await self.replay()
         self.record('retire', claim['request_id'])
         return final
+
+    async def apply_commands(self, commands):
+        for command in sorted(commands, key=lambda c:c['action'] != 'stop'):
+            if any(r['kind']=='command_intent' and r['value']['id']==command['id'] for r in self.journal.records):
+                continue
+            queue = self.command_queues.get(command['attempt_id'])
+            if queue is None:
+                continue
+            self.record('command_intent',command)
+            await queue.put(command)
 
     async def serve(self):
         heartbeat = asyncio.create_task(self.heartbeat())
@@ -300,9 +319,10 @@ class Runner:
                 slots = dict.fromkeys(('worker','verifier','frontier','repository'), 0)
                 for slot in self.active.values():
                     slots[slot] += 1
-                await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
+                directive = await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
                     'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.activation,
                     'health':'executing' if self.active else 'ready'})
+                await self.apply_commands(directive['commands'])
                 failures = 0
             except (OSError, Problem) as exc:
                 self.reconciled = False
@@ -331,9 +351,6 @@ class Runner:
                             await self.dispatch(held)
                 if not self.reconciled:
                     raise Problem('recovery_required', 'Unreconciled claims require operator evidence.')
-                await self.exchange(f'runners/{self.id}/heartbeat', {
-                    'slots': dict.fromkeys(('worker','verifier','frontier','repository'), 0),
-                    'spool_bytes': self.journal.path.stat().st_size, 'boot_id': self.activation, 'health': 'ready'})
                 for task in list(tasks):
                     if task.done():
                         tasks.remove(task)

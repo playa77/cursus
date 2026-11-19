@@ -104,7 +104,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
         return profile, argv, self.identity(configured)
 
-    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False):
+    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None):
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
                        'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
@@ -113,6 +113,27 @@ class Execution:
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=65537, **privileges)
         output, diagnostics = bytearray(), bytearray()
         request_id = 'cursus-turn-1'
+        pending_commands = {}
+        stopped = False
+        stop_commands = []
+        async def consume_commands():
+            nonlocal stopped
+            while commands is not None:
+                item = await commands.get()
+                if item['action'] == 'stop':
+                    stopped = True
+                    stop_commands.append(item)
+                    if process.returncode is None:
+                        os.killpg(process.pid,signal.SIGTERM)
+                    return
+                if not rpc:
+                    if command_sink:
+                        await command_sink({'command_id':item['id'],'disposition':'rejected','reason':'Execution has no RPC command channel.'})
+                    continue
+                pending_commands[item['id']] = item
+                process.stdin.write(canonical_json({'id':item['id'],'type':'steer','message':item['text']}) + b'\n')
+                await process.stdin.drain()
+        command_task = asyncio.create_task(consume_commands())
         async def read_output():
             terminal = False
             while True:
@@ -124,8 +145,13 @@ class Execution:
                     raise Problem('output_limit', 'Structured output exceeds its bound.')
                 if rpc:
                     frame = decode_json(line)
-                    if frame.get('type') == 'response' and (frame.get('id') != request_id or not frame.get('success')):
-                        raise Problem('protocol', 'RPC response correlation or acceptance failed.')
+                    if frame.get('type') == 'response':
+                        if frame.get('id') in pending_commands:
+                            item = pending_commands.pop(frame['id'])
+                            if command_sink:
+                                await command_sink({'command_id':item['id'], 'disposition':'accepted' if frame.get('success') else 'rejected'})
+                        elif frame.get('id') != request_id or not frame.get('success'):
+                            raise Problem('protocol', 'RPC response correlation or acceptance failed.')
                     if frame.get('type') == 'agent_end':
                         terminal = True
                         process.stdin.close()
@@ -145,6 +171,8 @@ class Execution:
             async with asyncio.timeout(timeout):
                 terminal, _ = await asyncio.gather(read_output(), read_error())
                 code = await process.wait()
+                if stopped:
+                    raise Problem('canceled', 'Execution stopped by operator command.')
                 if rpc and not terminal:
                     raise Problem('missing_terminal', 'RPC did not finish a qualifying turn.')
                 return code, bytes(output), sanitize(diagnostics.decode('utf-8', errors='replace'))
@@ -160,6 +188,8 @@ class Execution:
                 raise
             raise Problem('execution_timeout', 'Execution failed its framing/time bound.') from None
         finally:
+            command_task.cancel()
+            await asyncio.gather(command_task,return_exceptions=True)
             # A CLI may exit while descendants hold execution authority. The
             # owned process group is terminated before candidate capture.
             try:
@@ -178,6 +208,13 @@ class Execution:
                 await asyncio.sleep(.05)
             else:
                 raise Problem('unknown_stop', 'Execution group termination is not confirmed.')
+            if stopped and command_sink:
+                # Stop is resolved only after the owned group has disappeared.
+                for command in stop_commands:
+                    await command_sink({'command_id':command['id'],'disposition':'stopped'})
+            for command in pending_commands.values():
+                if command_sink:
+                    await command_sink({'command_id':command['id'],'disposition':'uncertain'})
 
     def normalize(self, cli, raw):
         frames = [decode_json(line) for line in raw.splitlines() if line.strip()]
@@ -203,7 +240,7 @@ class Execution:
             raise Problem('missing_terminal', 'No qualified terminal assistant response.')
         return decode_json(sanitize(answer))
 
-    async def run(self, job, workspace, attempt_id, sink=None):
+    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None):
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']
@@ -221,7 +258,7 @@ class Execution:
             raise Problem('profile_mismatch', 'Unqualified prompt transport.')
         code, raw, diagnostic = await self.child(argv, workspace, user,
             self.configured(invocation)['home'], stdin, invocation['role']['timeout_seconds'], sink,
-            rpc=transport == 'rpc')
+            rpc=transport == 'rpc', commands=commands, command_sink=command_sink)
         if code:
             raise Problem('cli_failed', 'CLI process failed.')
         result = self.normalize(invocation['role']['cli'], raw)

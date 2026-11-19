@@ -53,10 +53,20 @@ def single_decide(snapshot, change):
     phase = deepcopy(snapshot)
     job, final, attempt_id = change['job'], change['final'], change['attempt_id']
     _object(final, {'kind'}, {'value', 'classification', 'reason'})
+    if job['step'] == 'reconcile_publication' and final['kind'] == 'completed':
+        value = final['value']
+        original = dict(job, step=job['input']['intent']['kind'])
+        if value.get('kind') == 'no_effect':
+            return {'phase':phase, 'next':{k:v for k,v in original.items() if k not in ('id','phase_id')}}
+        return single_decide(phase, dict(change, job=original, final={'kind':'completed','value':value['result']}))
     if final['kind'] != 'completed':
         if final['kind'] not in ('failed', 'unknown', 'interrupted', 'canceled'):
             raise Problem('invalid_variant', 'Unknown final disposition.')
         phase.update(state='parked', reason=final.get('classification', final.get('reason', 'Execution unresolved.')))
+        if final.get('classification') == 'publication_unknown' and job.get('publication_id'):
+            return {'phase':phase, 'next':{'step':'reconcile_publication','slot':'repository',
+                'publication_id':job['publication_id'], 'input':job['input'],
+                **{k:job[k] for k in ('package_id','group_id') if k in job}}}
         return {'phase': phase}
     _object(final, {'kind', 'value'})
     value, step = final['value'], job['step']
@@ -72,8 +82,8 @@ def single_decide(snapshot, change):
         if package.get('id'):
             decision['next']['package_id'] = package['id']
     def produce():
-        queue('produce', 'worker', {'repo': repo, 'base_sha': phase['base_sha'], 'spec': phase['spec'],
-            'package': package, 'findings': phase.get('repair_findings', [])}, 'worker')
+        queue('debug' if phase['input']['workflow']=='debug' else 'produce', 'worker', {'repo': repo, 'base_sha': phase['base_sha'], 'spec': phase['spec'],
+            'package': package, 'findings': phase.get('repair_findings', [])}, 'debug' if phase['input']['workflow']=='debug' else 'worker')
         phase['state'] = 'execution'
     def repair(reason):
         count = phase.get('repair_count', 0)
@@ -105,6 +115,9 @@ def single_decide(snapshot, change):
                                     'input_refs': value['input_refs']}, 'scout')
             return decision
         phase['plan'] = plan(value, enrollment)
+        if phase['input'].get('form') in ('one-shot','ticket') or phase['input']['workflow']=='debug':
+            if len(value['packages']) != 1:
+                raise Problem('invalid_plan','This input requires exactly one package.')
         package = phase['plan']['packages'][0]
         phase['lane_id'], phase['package_row_id'] = change['lane_id'], change['package_row_id']
         decision['plan'] = value
@@ -116,18 +129,36 @@ def single_decide(snapshot, change):
         queue('plan', 'frontier', {'workflow':'code', 'spec':phase['spec'], 'repo':repo,
             'base_sha':phase['base_sha'], 'checks':enrollment['checks'],
             'phase_check_ids':enrollment['phase_check_ids'], 'scout_findings':value}, 'planner')
-    elif step == 'produce':
+    elif step in ('produce','debug'):
         _object(value, {'report', 'candidate'})
         report(value['report'])
         candidate = validate('Candidate', value['candidate'], object_format=enrollment.get('object_format', 'sha1'))
         ref = f"refs/heads/wp/{phase['id']}/{package['id']}/{attempt_id}/candidate"
+        if step == 'debug':
+            if candidate != phase.get('debug_checkpoint',{}).get('candidate') or not phase.get('debug_passed') or value['report'] != phase['debug_checkpoint']['report']:
+                raise Problem('invalid_candidate','Debug final must equal the exact passing checkpoint/report.')
+            ref = candidate['attempt_ref']
         if candidate['kind'] != 'code' or candidate['repo'] != repo or candidate['base_sha'] != phase['base_sha'] or candidate['attempt_ref'] != ref:
             raise Problem('invalid_candidate', 'Candidate differs from production ownership.')
         phase.update(candidate=candidate, creator=attempt_id, report=value['report'], state='verification')
-        queue('verify', 'verifier', {'candidate': candidate, 'criteria': criteria, 'checks': enrollment['checks']})
+        if step == 'debug':
+            phase['evidence'] = phase['debug_evidence']
+            queue('review','frontier',{'candidate':candidate,'criteria':criteria,'evidence':phase['debug_evidence'],'creator':attempt_id},'reviewer')
+        else:
+            queue('verify', 'verifier', {'candidate': candidate, 'criteria': criteria, 'checks': enrollment['checks']})
     elif step == 'verify':
         candidate = job['input']['candidate']
-        if not evidence(value, candidate, job['input']['criteria'], attempt_id):
+        if job['input'].get('debug_attempt_id'):
+            passed = evidence(value,candidate,job['input']['criteria'],attempt_id)
+            phase.update(debug_passed=passed,debug_evidence=value)
+            if not passed and phase['debug_checkpoint']['turn'] >= change.get('debug_turns',10):
+                phase.update(state='parked',reason='Debug turn budget exhausted.')
+                action = 'stop'
+            else:
+                action = 'finish_debug' if passed else 'continue_debug'
+            decision['command'] = {'attempt_id':job['input']['debug_attempt_id'],'action':action,
+                                   'checkpoint':phase['debug_checkpoint'], 'evidence':value}
+        elif not evidence(value, candidate, job['input']['criteria'], attempt_id):
             repair(value)
         elif job['input'].get('integration'):
             phase['integration_evidence'] = value
@@ -206,7 +237,7 @@ def single_decide(snapshot, change):
 
 def decide(snapshot, change):
     """Dispatch phase scheduling without sharing mutable package projections."""
-    if snapshot.get('schedule') or (change.get('job', {}).get('step') == 'plan'
+    if snapshot.get('schedule') or (snapshot.get('input',{}).get('form') == 'phase' and change.get('job', {}).get('step') == 'plan'
             and change.get('final', {}).get('kind') == 'completed'
             and isinstance(change['final'].get('value'), dict)
             and len(change['final']['value'].get('packages', [])) > 1):

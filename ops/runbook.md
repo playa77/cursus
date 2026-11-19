@@ -376,3 +376,25 @@ and obtain scoped release-tag/publication authorization. A failed/missing probe,
 unknown remote result or absent actual credential keeps M1 unqualified. Preserve
 all existing claims and journals for the recovery package rather than deleting
 state to rerun a qualification scenario.
+
+## M2 recovery controls (WP-11)
+
+A disconnect or missed heartbeat never releases a claim. Preserve the generation
+and journal. Reconnect first reconciles held claims and replays contiguous events;
+a known grant without launch intent can start once. A changed boot identity proves
+that old processes stopped. Same-boot launches without terminal/process evidence
+remain unknown; an absent PID alone is not proof. Do not delete journal files.
+
+Submit operator actions through `cursus action --input PATH`. Use
+`declare_unrecoverable` with attempt_id and a reason to park an uncertain attempt.
+Only `abandon` on an already parked unknown can invalidate it and permit a bounded
+replacement. First isolate any possible old execution. Delayed results from an
+abandoned attempt are stale audit only. Publication intents require read-only
+reconciliation; abandonment cannot waive uncertain remote effects. PR absence
+after an ambiguous creation is insufficient proof to blindly create again.
+
+`cancel` takes phase_id, cancels queued work and sends stop commands to held
+attempts. A phase remains canceling until held execution and publication effects
+resolve. `steer` takes the original active pi attempt_id and text. Commands are
+journaled before dispatch and correlated by command ID; uncertain delivery is
+never automatically injected again. Inspect command results in committed events.
