@@ -6,7 +6,7 @@
 
 Build a small orchestrator of our own that turns one spec into a finished project phase. The output is reviewed pull requests, or non-code deliverables. Cheap pi workers do the work; frontier models only plan and review.
 
-Name: Cursus. Brief version 1.2.0.
+Name: Cursus. Brief version 1.2.1.
 
 ## Goal and operator contract
 
@@ -231,7 +231,7 @@ Defaults, all changeable in the role registry:
 - **Stack.** FastAPI (MIT) on uvicorn (BSD), Jinja2 templates (BSD), htmx (BSD) for interaction, and Server-Sent Events for live worker logs. No Node toolchain and no separate front-end build.
 - **Network.** It is served on VPS-B on localhost only and published on the tailnet with `tailscale serve` (HTTPS).
 - **Login.** Tailscale's identity headers plus an allowlist with your account, so there is no separate login.
-- **Browser delivery.** The operator opens a private tailnet address in an existing browser on MyPC or the Chromebook. The frontend is server-rendered, with no installed client, React bundle, or frontend build step. A separate ReUI pass provides the visual reference. Architecture and technical specifications define browser behavior, permissions, and contracts. Visual design belongs to the ReUI pass.
+- **Browser delivery.** The operator opens a private tailnet address in an existing browser on MyPC or the Chromebook. The frontend is server-rendered, with no installed client, React bundle, or frontend build step. A separate Hermes design pass uses Proper UI as a read-only reference catalog and produces the visual handoff for operator approval. Architecture and technical specifications define browser behavior, permissions, and contracts. The design catalog and its connector are external to the deployed project.
 
 **Why.** It needs the fewest dependencies and works in any browser. It also keeps the whole system in one language and one deployable.
 
@@ -255,4 +255,5 @@ Ideas only, no code or dependencies:
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.2.1 | 2026-11-19 | Replaced ReUI with a separate Hermes design pass using Proper UI references. The output is an operator-approved handoff for the existing browser stack. |
 | 1.2.0 | 2026-11-19 | Replaced lease-expiry requeue with durable ownership and outcome reconciliation. Recorded trusted-repository scope, PR merge authority, debugging and non-coding completion boundaries, and the browser-only ReUI handoff. |

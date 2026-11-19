@@ -1,14 +1,14 @@
 # Cursus — Technical Specification
 
 **Document** 2 of the Cursus specification set  
-**Version** 0.1.1  
+**Version** 0.1.2  
 **Date** 2026-11-19  
 **Status** Approved  
-**Baseline** Cursus — Design Document v0.1.0, §§1–11, approved for progression by the operator. Project Brief Cursus v1.2.0 supplies the original milestone requirements.
+**Baseline** Cursus — Design Document v0.1.1, §§1–11. The operator approved progression from the original design and directed the design-catalog substitution. Project Brief Cursus v1.2.1 supplies the milestone requirements.
 
 ## 1. Implementation Scope
 
-In this specification, **D1 §n** means **Cursus — Design Document v0.1.0 §n**. **R01–R12** cite D1 §2.2. Unlabeled requirements implement that baseline. **[PROPOSED DESIGN DECISION]** identifies technical choices introduced here. **[ASSUMPTION]** identifies provisioning input. **[CONFLICT]** identifies an incompatibility and its resolution or blocking gate. This is a specification of behavior, interfaces, and data. It contains no production implementation.
+In this specification, **D1 §n** means **Cursus — Design Document v0.1.1 §n**. **R01–R12** cite D1 §2.2. Unlabeled requirements implement that baseline. **[PROPOSED DESIGN DECISION]** identifies technical choices introduced here. **[ASSUMPTION]** identifies provisioning input. **[CONFLICT]** identifies an incompatibility and its resolution or blocking gate. This is a specification of behavior, interfaces, and data. It contains no production implementation.
 
 | ID | Deliverable | Trace |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ In this specification, **D1 §n** means **Cursus — Design Document v0.1.0 §n*
 | S08 | Built-in marketing, grant, and business-development delivery | R08 |
 | S09 | Backup, recovery, readiness, retention, observability, and real-work qualification | R04–R05, R10–R12 |
 
-One operator, one orchestrator process, one runner host, one database. M5 and a second runner are outside this implementation. Use existing browsers on MyPC and Chromebook. UI visuals, layout and component selection come from the separate ReUI design pass. No frontend build, desktop/mobile app, plugin loader, provider abstraction, in-session agents, paid routing, public endpoints, or autonomous publication of non-code outputs. Agent and verifier commands are scoped to approved trusted repositories and authorized task types.
+One operator, one orchestrator process, one runner host, one database. M5 and a second runner are outside this implementation. Use existing browsers on MyPC and Chromebook. UI visuals, layout and component selection come from the operator-approved output of the separate Hermes design pass. Proper UI supplies lookup references in that pass. Cursus adds no registry, connector or frontend build dependency. No frontend build, desktop/mobile app, plugin loader, provider abstraction, in-session agents, paid routing, public endpoints, or autonomous publication of non-code outputs. Agent and verifier commands are scoped to approved trusted repositories and authorized task types.
 
 ## 2. Project Structure
 
@@ -156,7 +156,7 @@ JSON for runner exchanges and the operator CLI; server-rendered HTML/form repres
 | GET `/phases/{id}/events` | Last-Event-ID or cursor → EventPage streamed as SSE | First query committed events after cursor. Send cursor as SSE id. Wait for notification or 5s poll, then query again. On retention/reset emit reset and close. Send comments for keepalive. |
 | GET `/artifacts/{id}` | ID → validated bytes | Operator-only download for ready artifacts authorized by their phase. Escape filename; download as attachment, never active inline HTML. |
 
-Browser behavior includes reading committed history, reconnecting SSE without duplicate application, submitting an interview reply, viewing pending versus confirmed cancellation and steering, recording recovery reasons and accessing exact PR or file results. Use htmx and minimal same-origin browser code where required to open SSE and resync. UI visual specification belongs to ReUI. Browser actions have no arbitrary shell, credential admin or target merge controls.
+Browser behavior includes reading committed history, reconnecting SSE without duplicate application, submitting an interview reply, viewing pending versus confirmed cancellation and steering, recording recovery reasons and accessing exact PR or file results. Use htmx and minimal same-origin browser code where required to open SSE and resync. The operator-approved design handoff defines UI visuals. Use it to implement server-rendered templates and local assets within the contracts in this section. Browser actions have no arbitrary shell, credential admin or target merge controls.
 
 ### 6.3 Runner endpoints
 
@@ -429,5 +429,6 @@ Every named call below takes its contract from §8.1 or the additional contracts
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.1.2 | 2026-11-19 | Replaced the ReUI visual handoff with the separately approved Hermes/Proper UI handoff and updated the Design Document reference. Runtime and APIs retain their v0.1.1 contracts. |
 | 0.1.1 | 2026-11-19 | Corrected restore admission to allow read-only GitHub reconciliation in drain. Defined the durable publication descriptors consumed by restore the debate rationale result used by T04, and local operator CLI arguments. |
 | 0.1.0 | 2026-11-19 | Initial technical specification for Cursus — Design Document v0.1.0. |

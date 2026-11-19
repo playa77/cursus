@@ -3,10 +3,10 @@
 | Field | Value |
 | --- | --- |
 | Document | 1 of the Cursus specification set |
-| Version | 0.1.0 |
+| Version | 0.1.1 |
 | Date | 2026-11-19 |
 | Status | Approved |
-| Baseline | Project Brief Cursus v1.2.0 and confirmed interview rounds 1–3 |
+| Baseline | Project Brief Cursus v1.2.1, confirmed interview rounds 1–3, and the operator's decision to replace ReUI |
 
 ## 1. Overview & Goals
 
@@ -14,13 +14,13 @@ Cursus takes a single operator's spec through planning, execution, verification,
 
 VPS-B coordinates work and serves the private browser control surface. VPS-A executes pi and the three frontier CLIs. The authoritative coordination record survives a control-plane restart and lets the existing runner reconcile work after a disconnect. The project should remain a small Python application and runner with PostgreSQL as its only coordination store.
 
-This document fixes system behavior, authority, and operating boundaries. The technical specification will define implementation contracts. The separate ReUI pass supplies the visual reference for the browser surface.
+This document fixes system behavior, authority, and operating boundaries. The technical specification will define implementation contracts. A separate Hermes design pass supplies the visual reference for the browser surface. Hermes uses Proper UI as a lookup catalog for that pass.
 
 ## 2. Requirements Summary
 
 ### 2.1 Sources and precedence
 
-**B** refers to Project Brief Cursus v1.2.0 and the named section following it. **I** refers to confirmed interview decisions recorded in that revision, including the absence of a shipped frontend client. Requirements below are binding. Paragraphs tagged **[PROPOSED DESIGN DECISION]** need approval with this draft. **[ASSUMPTION]** identifies an operating premise. **[CONFLICT]** records a mismatch and its disposition.
+**B** refers to Project Brief Cursus v1.2.1 and the named section following it. **I** refers to confirmed interview decisions recorded in that revision, including the absence of a shipped frontend client. Requirements below are binding. Paragraphs tagged **[PROPOSED DESIGN DECISION]** need approval with this draft. **[ASSUMPTION]** identifies an operating premise. **[CONFLICT]** records a mismatch and its disposition.
 
 ### 2.2 Binding requirements
 
@@ -35,7 +35,7 @@ This document fixes system behavior, authority, and operating boundaries. The te
 | R07 | Only trusted, operator-authorized GitHub repositories. Cursus may push its work branches, integrate accepted work on integration branches, and open PRs. Final merge belongs to the operator. Coding and debugging end with verified PRs. | B Topology; B Goal and operator contract; I | §§3–7, 9–10 |
 | R08 | Marketing, grants, and business development/planning ship as built-in workflows sharing the core. Deliver reviewed files. Publication, submission, and outreach are outside Cursus authority. A general plugin system is outside v1. | B Goal and operator contract; B Scope; B Milestones; I | §§3–7, 9–10 |
 | R09 | Optional adversarial review for plans and specs. Three distinct frontier seats, fresh sessions, recorded structured objections and verdicts, and a hard cap of three rounds. Spec-mode questions go through interview intake. | B Decisions / Adversarial review protocol | §§3–6, 9 |
-| R10 | Existing browser over a private address, with FastAPI, uvicorn, Jinja2, htmx, and SSE. No installed client, frontend build, or React bundle. UI visuals belong to the later ReUI reference. Show live progress, logs, parked work and available spend data. | B Decisions / Control surface stack; B What the system must do; I | §§3–4, 6–9 |
+| R10 | Existing browser over a private address, with FastAPI, uvicorn, Jinja2, htmx, and SSE. No installed client, frontend build, or React bundle. UI visuals belong to the separately approved design reference. Show live progress, logs, parked work and available spend data. | B Decisions / Control surface stack; B What the system must do; I | §§3–4, 6–9 |
 | R11 | Use Python for Cursus, complete files, thorough comments and error handling, American English, SemVer and changelog from first commit. Keep actively maintained permissive dependencies few. Target a small fraction of the roughly 100k-line ceiling. Under 500 lines per file is the norm, and over 1,000 signals refactoring. Each module maps to a brief function. | B Scope | §§4, 8, 10 |
 | R12 | Demonstrate five-package autonomous delivery on real work, restart/disconnect recovery, collision-free parallel work, iterative debugging to a fix, and usable marketing and grant deliverables. Tag usable milestones. Nightly PostgreSQL dump via Hermes. | B Success criteria; B Milestones; B Decisions / Coordination state store | §§8–9 |
 
@@ -112,7 +112,7 @@ The runner prepares a read-only snapshot of the candidate and its evidence for r
 
 **[PROPOSED DESIGN DECISION]** Keep runner leases out of the wire contract. Each claim has a unique attempt identity plus its assigned runner, tracked through reconciliation. A lost response cannot cause the same runner to start a job twice. The technical specification must distinguish an unacknowledged claim that never started from an uncertain execution and describe positive evidence required to clear either.
 
-The browser contract includes intake, current and historical progress, live worker logs, parked reasons and allowed recovery, steering for eligible sessions, and output handoff. It uses same-origin server rendering and SSE. Layout, colors, navigation composition, and components are delegated to the ReUI pass.
+The browser contract includes intake, current and historical progress, live worker logs, parked reasons and allowed recovery, steering for eligible sessions, and output handoff. It uses same-origin server rendering and SSE. Layout, colors, navigation composition, and components are delegated to the Hermes design pass.
 
 ## 7. Security Architecture
 
@@ -176,13 +176,13 @@ Use a versioned Python deployment, review and lock actively maintained permissiv
 | Direct subprocess calls and one internal event format | Reuse native CLI auth and execution while giving the orchestrator one durable event contract. CLI-specific parsing and fixed command construction belong in the runner. |
 | Attempt-isolated Git working state and serialized integration | Parallel production stays independent, and package evidence identifies exact inputs. **[COMPLEXITY JUSTIFICATION]** A durable publication intent bridges PostgreSQL and GitHub, where one shared transaction is unavailable. |
 | Built-in workflows and versioned role inputs | Support first-release non-code workflows and reproducible role changes using reviewable source. |
-| Private server-rendered browser surface | One deployable on VPS-B serves both operator devices. The ReUI pass determines the visual reference and the deployed pages use approved browser contracts. |
+| Private server-rendered browser surface | One deployable on VPS-B serves both operator devices. Cursus — Implementation Roadmap v0.1.1 §4 (WP-16) uses the operator-approved visual reference and implements the approved browser contracts. Proper UI and its connector are confined to the separate design workflow. |
 
 ## 11. Open Questions & Assumptions
 
 **[ASSUMPTION]** The operator has the requested subscriptions, controls the tailnet and allowed GitHub repositories, and can provision credentials for the VPS users. Cursus has outbound connectivity from VPS-A to required providers and GitHub. The runner's local disk and spool ordinarily survive network interruptions. A server loss can remove unacknowledged data and require the §9 recovery action.
 
-**[CONFLICT]** Brief v1.2.0 names `agy -p --output-format json` and requires live worker events. Google documents `json` as a single completion object and `stream-json` as incremental events. **[PROPOSED DESIGN DECISION]** Keep mandatory direct invocation through `agy -p` and use `--output-format stream-json` subject to the installed-version M1 test. [Google Antigravity headless mode](https://antigravity.google/docs/cli/headless/)
+**[CONFLICT]** Brief v1.2.1 names `agy -p --output-format json` and requires live worker events. Google documents `json` as a single completion object and `stream-json` as incremental events. **[PROPOSED DESIGN DECISION]** Keep mandatory direct invocation through `agy -p` and use `--output-format stream-json` subject to the installed-version M1 test. [Google Antigravity headless mode](https://antigravity.google/docs/cli/headless/)
 
 | Verification gate | Proof required and consequence if absent |
 | --- | --- |
@@ -196,4 +196,5 @@ Use a versioned Python deployment, review and lock actively maintained permissiv
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.1.1 | 2026-11-19 | Specified the separate Hermes and Proper UI design-reference workflow. No browser runtime contract changed. |
 | 0.1.0 | 2026-11-19 | Initial draft grounded in Project Brief Cursus v1.2.0 and the confirmed interview. |

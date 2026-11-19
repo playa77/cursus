@@ -1,12 +1,12 @@
 # Cursus — Implementation Roadmap
 
 **Document** 3 of the Cursus specification set  
-**Version** 0.1.0  
+**Version** 0.1.1  
 **Date** 2026-11-19  
 **Status** Approved  
-**Normative baseline** Cursus — Design Document v0.1.0 and Cursus — Technical Specification v0.1.1
+**Normative baseline** Cursus — Design Document v0.1.1 and Cursus — Technical Specification v0.1.2
 
-In this roadmap, **D1 §n** refers to **Cursus — Design Document v0.1.0 §n**. **D2 §n** refers to **Cursus — Technical Specification v0.1.1 §n**. S01–S09 and A1–A7 refer to D2 §§1 and 14. T01–T10 refer to D2 §15.2. All paths are repository-relative.
+In this roadmap, **D1 §n** refers to **Cursus — Design Document v0.1.1 §n**. **D2 §n** refers to **Cursus — Technical Specification v0.1.2 §n**. S01–S09 and A1–A7 refer to D2 §§1 and 14. T01–T10 refer to D2 §15.2. All paths are repository-relative.
 
 ## 1. Roadmap Overview
 
@@ -22,7 +22,7 @@ Execute one work package per agent session in listed order. For each session, lo
 
 **[CONFLICT]** D2 v0.1.0 blocked all claims in restore drain while publication recovery required a runner-side job. D2 v0.1.1 §§6.3, 9 and 15.2 limit drain admission to read-only publication reconciliation after runner recovery. WP-19 implements and tests that corrected contract. WP-13 also uses the explicitly defined rationale response in D2 v0.1.1 §8.2. D2 v0.1.1 §13 pins the CLI parameters used by the checkpoint commands.
 
-**External inputs.** The documents close the implementation contracts. Live qualification still requires operator-controlled VPS access, provider subscriptions and native credentials, authorized GitHub test/work repos and inputs, and an approved ReUI visual reference for WP-16. These are provisioning or design inputs already required by D1 §§7–8, 11 and D2 §§4, 12–14. Do not invent account secrets, real-work inputs or a design to clear a gate. Continue other dependency-independent work if an external gate is blocked.
+**External inputs.** The documents close the implementation contracts. Live qualification still requires operator-controlled VPS access, provider subscriptions and native credentials, authorized GitHub test/work repos and inputs, and an approved visual reference from the separate Hermes design pass for WP-16. Proper UI supplies catalog references for that pass. These are provisioning or design inputs already required by D1 §§7–8, 11 and D2 §§4, 12–14. Do not invent account secrets, real-work inputs or a design to clear a gate. Continue other dependency-independent work if an external gate is blocked.
 
 ## 2. Global Conventions
 
@@ -59,7 +59,7 @@ Required for each WP:
 | WP-13 | M2 | Guided interviews and structured debate | WP-12 | Frontier invocation qualification and existing operator action path | — |
 | WP-14 | M2 | Qualify phased, recovery, debug and debate paths | WP-13 | Active real phase, separate VPS processes and qualified roles | — |
 | WP-15 | M3 | Artifact ingest, access and evidence handoff | WP-14 | Active verification attempt and file-emitting evidence path | — |
-| WP-16 | M3 | Server-rendered browser and SSE | WP-15 | Approved ReUI reference, committed operator events, downloadable evidence | — |
+| WP-16 | M3 | Server-rendered browser and SSE | WP-15 | Approved Hermes design handoff, committed operator events, downloadable evidence | — |
 | WP-17 | M3 | Qualify the tailnet browser release | WP-16 | Real Serve identity, MyPC/Chromebook, active and delivered phases | — |
 | WP-18 | M4 | Built-in non-code workflows | WP-17 | Verified artifact transport, working review, enrolled workflow inputs | — |
 | WP-19 | M4 | Observability, backup, retention and restore | WP-18 | Real pipeline-produced records/files, previous remote intent, backup storage | — |
@@ -266,12 +266,12 @@ The listed graph strictly points backward. WP-05–07 are preparation branches o
 
 ### WP-16 — Server-rendered browser and SSE · M3
 
-**Depends on** WP-15 and the approved ReUI reference.  
+**Depends on** WP-15 and the approved Hermes design handoff (static preview, DESIGN.md, references.md and review.md).  
 **Objective** Expose existing operator actions and live committed state through the private web address.
 
 - **Scope** Update `src/cursus/bootstrap.py`, `src/cursus/http.py`, `src/cursus/control.py`, `src/cursus/store.py`, `ops/runbook.md`; create `src/cursus/templates/base.html`, `src/cursus/templates/index.html`, `src/cursus/templates/phase.html`, `src/cursus/templates/attempt.html`, `src/cursus/templates/problem.html`, `src/cursus/static/htmx.min.js`, `src/cursus/static/htmx.LICENSE`, `src/cursus/static/events.js`, `src/cursus/static/cursus.css`, and `tests/integration/test_browser.py`. Excludes designing the visual reference, frontend build and client installation.
 - **Spec** D1 §§6–8; D2 §§3, 6.1–6.2, 7, 9–10, 15 T09.
-- **Tasks** 1. Translate the supplied reference to server-rendered templates and local htmx. 2. Wire authorized forms and real workflow states, IDs and handoff links. 3. Stream committed events by cursor with keepalive, replay and reset. 4. Expose progress, pending/parked dispositions, evidence downloads and PR links. 5. Enforce Serve identity, exact origin and CSRF.
+- **Tasks** 1. Translate the approved static preview and DESIGN.md into server-rendered templates and local htmx. Consult the handoff's reference and review notes where needed. Keep catalog software and any prototype-only assets outside the deployment. 2. Wire authorized forms and real workflow states, IDs and handoff links. 3. Stream committed events by cursor with keepalive, replay and reset. 4. Expose progress, pending/parked dispositions, evidence downloads and PR links. 5. Enforce Serve identity, exact origin and CSRF.
 - **Contracts** Consumes production phases, commands, evidence and route authorization; externally approved visual reference. Produces server-rendered browser actions, authorized SSE and artifact/PR access.
 - **Acceptance** Browser request path can submit/read/answer/steer/cancel where permitted. Reconnect never duplicates a committed event, expired cursors resync, unauthorized actions fail, and no frontend build is required.
 - **Verify** `python -m unittest discover -s tests/integration -p 'test_browser.py'`. Use committed states from exercised intake/recovery/evidence paths; assert the actual SSE cursor and output responses.
@@ -402,4 +402,5 @@ The v1 release is complete when all 20 work packages meet their acceptance check
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.1.1 | 2026-11-19 | Replaced WP-16's ReUI requirement with the approved Hermes/Proper UI handoff and updated the normative document versions. |
 | 0.1.0 | 2026-11-19 | Initial roadmap for the v0.1.0 design and v0.1.1 technical specification. |
