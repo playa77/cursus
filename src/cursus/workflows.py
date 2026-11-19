@@ -7,46 +7,20 @@ from cursus.execution import report, review
 
 
 def admitted(value):
-    if (value['workflow'] != 'code' or value['source']['kind'] == 'interview'
-            or value['plan_debate'] or value['spec_debate']):
+    if value['workflow'] not in ('code','debug'):
         raise Problem('unsupported_milestone', 'This workflow requires a later milestone.')
 
 
 def plan(value, enrollment):
-    _object(value, {'packages', 'phase_check_ids'})
-    if not isinstance(value['packages'], list) or len(value['packages']) != 1:
-        raise Problem('unsupported_milestone', 'M1 requires exactly one package.')
-    package = value['packages'][0]
-    _object(package, {'id', 'dependencies', 'objective', 'inputs', 'criteria'})
-    if (not isinstance(package['id'], str) or not package['id'] or
-            any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in package['id'])):
-        raise Problem('invalid_plan', 'Invalid package identity.')
-    if package['dependencies'] != [] or not isinstance(package['objective'], str) or not package['objective'].strip():
-        raise Problem('invalid_plan', 'Invalid dependencies/objective.')
-    if not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
-        raise Problem('invalid_plan', 'Missing package inputs/criteria.')
+    validate('Plan', value)
     checks = {c['id'] for c in enrollment['checks']}
     if value['phase_check_ids'] != enrollment['phase_check_ids']:
         raise Problem('invalid_plan', 'Plan must retain every enrolled phase check.')
-    seen = set()
-    for item in package['criteria']:
-        _object(item, {'id', 'requirement', 'check'})
-        if not isinstance(item['id'], str) or not item['id'] or item['id'] in seen or not isinstance(item['requirement'], str):
-            raise Problem('invalid_plan', 'Invalid/duplicate criterion.')
-        seen.add(item['id'])
-        check = item['check']
-        if check.get('kind') == 'command':
-            _object(check, {'kind', 'command_id', 'expected_exit'}, {'required_literal'})
-            if check['command_id'] not in checks or type(check['expected_exit']) is not int or not 0 <= check['expected_exit'] <= 255:
-                raise Problem('invalid_plan', 'Unknown command or invalid expected exit.')
-            if 'required_literal' in check and not isinstance(check['required_literal'], str):
-                raise Problem('invalid_plan', 'Invalid literal.')
-        elif check.get('kind') == 'review':
-            _object(check, {'kind', 'pass_rule', 'evidence'})
-            if not isinstance(check['pass_rule'], str) or not check['pass_rule'].strip() or not isinstance(check['evidence'], list) or not check['evidence']:
-                raise Problem('invalid_plan', 'Review needs observable pass rule and evidence.')
-        else:
-            raise Problem('unsupported_milestone', 'M1 code supports command/review criteria.')
+    for package in value['packages']:
+        for criterion in package['criteria']:
+            check = criterion['check']
+            if check['kind'] == 'command' and check['command_id'] not in checks:
+                raise Problem('invalid_plan', 'Unknown enrolled command.')
     return value
 
 
@@ -67,7 +41,7 @@ def evidence(value, candidate, criteria, attempt_id):
     return all(e['passed'] for e in value)
 
 
-def decide(snapshot, change):
+def single_decide(snapshot, change):
     if change['kind'] == 'submit':
         value = change['input']
         admitted(value)
@@ -78,10 +52,22 @@ def decide(snapshot, change):
     phase = deepcopy(snapshot)
     job, final, attempt_id = change['job'], change['final'], change['attempt_id']
     _object(final, {'kind'}, {'value', 'classification', 'reason'})
+    if job['step'] == 'reconcile_publication' and final['kind'] == 'completed':
+        value = final['value']
+        original = dict(job, step=job['input']['intent']['kind'])
+        if value.get('kind') == 'no_effect':
+            phase.update(state='delivery')
+            phase.pop('reason',None)
+            return {'phase':phase, 'next':{k:v for k,v in original.items() if k not in ('id','phase_id')}}
+        return single_decide(phase, dict(change, job=original, final={'kind':'completed','value':value['result']}))
     if final['kind'] != 'completed':
         if final['kind'] not in ('failed', 'unknown', 'interrupted', 'canceled'):
             raise Problem('invalid_variant', 'Unknown final disposition.')
         phase.update(state='parked', reason=final.get('classification', final.get('reason', 'Execution unresolved.')))
+        if final.get('classification') == 'publication_unknown' and job.get('publication_id'):
+            return {'phase':phase, 'next':{'step':'reconcile_publication','slot':'repository',
+                'publication_id':job['publication_id'], 'input':job['input'],
+                **{k:job[k] for k in ('package_id','group_id') if k in job}}}
         return {'phase': phase}
     _object(final, {'kind', 'value'})
     value, step = final['value'], job['step']
@@ -97,8 +83,11 @@ def decide(snapshot, change):
         if package.get('id'):
             decision['next']['package_id'] = package['id']
     def produce():
-        queue('produce', 'worker', {'repo': repo, 'base_sha': phase['base_sha'], 'spec': phase['spec'],
-            'package': package, 'findings': phase.get('repair_findings', [])}, 'worker')
+        if phase['input']['workflow']=='debug':
+            for key in ('debug_checkpoint','debug_passed','debug_evidence','debug_reproduced'):
+                phase.pop(key,None)
+        queue('debug' if phase['input']['workflow']=='debug' else 'produce', 'worker', {'repo': repo, 'base_sha': phase['base_sha'], 'spec': phase['spec'],
+            'package': package, 'findings': phase.get('repair_findings', [])}, 'debug' if phase['input']['workflow']=='debug' else 'worker')
         phase['state'] = 'execution'
     def repair(reason):
         count = phase.get('repair_count', 0)
@@ -117,7 +106,7 @@ def decide(snapshot, change):
         if source['kind'] == 'repo' and value.get('source_commit') != source['commit']:
             raise Problem('invalid_result', 'Resolved source commit differs.')
         phase.update(base_sha=value['base_sha'], spec=value['text'], state='planning')
-        queue('plan', 'frontier', {'workflow': 'code', 'spec': value['text'], 'repo': repo,
+        queue('plan', 'frontier', {'workflow': phase['input']['workflow'], 'spec': value['text'], 'repo': repo,
                                  'base_sha': value['base_sha'], 'checks': enrollment['checks'],
                                  'phase_check_ids': enrollment['phase_check_ids']}, 'planner')
     elif step == 'plan':
@@ -130,6 +119,9 @@ def decide(snapshot, change):
                                     'input_refs': value['input_refs']}, 'scout')
             return decision
         phase['plan'] = plan(value, enrollment)
+        if phase['input'].get('form') in ('one-shot','ticket') or phase['input']['workflow']=='debug':
+            if len(value['packages']) != 1:
+                raise Problem('invalid_plan','This input requires exactly one package.')
         package = phase['plan']['packages'][0]
         phase['lane_id'], phase['package_row_id'] = change['lane_id'], change['package_row_id']
         decision['plan'] = value
@@ -138,21 +130,44 @@ def decide(snapshot, change):
         _object(value, {'findings','source_references'})
         if not isinstance(value['findings'], list) or not isinstance(value['source_references'], list):
             raise Problem('invalid_result', 'Scout requires findings/source references.')
-        queue('plan', 'frontier', {'workflow':'code', 'spec':phase['spec'], 'repo':repo,
+        queue('plan', 'frontier', {'workflow':phase['input']['workflow'], 'spec':phase['spec'], 'repo':repo,
             'base_sha':phase['base_sha'], 'checks':enrollment['checks'],
             'phase_check_ids':enrollment['phase_check_ids'], 'scout_findings':value}, 'planner')
-    elif step == 'produce':
+    elif step in ('produce','debug'):
         _object(value, {'report', 'candidate'})
         report(value['report'])
         candidate = validate('Candidate', value['candidate'], object_format=enrollment.get('object_format', 'sha1'))
         ref = f"refs/heads/wp/{phase['id']}/{package['id']}/{attempt_id}/candidate"
+        if step == 'debug':
+            if candidate != phase.get('debug_checkpoint',{}).get('candidate') or not phase.get('debug_passed') or value['report'] != phase['debug_checkpoint']['report']:
+                raise Problem('invalid_candidate','Debug final must equal the exact passing checkpoint/report.')
+            ref = candidate['attempt_ref']
         if candidate['kind'] != 'code' or candidate['repo'] != repo or candidate['base_sha'] != phase['base_sha'] or candidate['attempt_ref'] != ref:
             raise Problem('invalid_candidate', 'Candidate differs from production ownership.')
         phase.update(candidate=candidate, creator=attempt_id, report=value['report'], state='verification')
-        queue('verify', 'verifier', {'candidate': candidate, 'criteria': criteria, 'checks': enrollment['checks']})
+        if step == 'debug':
+            phase['evidence'] = phase['debug_evidence']
+            queue('review','frontier',{'candidate':candidate,'criteria':criteria,'evidence':phase['debug_evidence'],'creator':attempt_id},'reviewer')
+        else:
+            queue('verify', 'verifier', {'candidate': candidate, 'criteria': criteria, 'checks': enrollment['checks']})
     elif step == 'verify':
         candidate = job['input']['candidate']
-        if not evidence(value, candidate, job['input']['criteria'], attempt_id):
+        if job['input'].get('debug_attempt_id'):
+            passed = evidence(value,candidate,job['input']['criteria'],attempt_id)
+            phase.update(debug_passed=passed,debug_evidence=value)
+            if not passed:
+                phase['debug_reproduced']=True
+            if passed and not phase.get('debug_reproduced'):
+                phase.update(state='parked',reason='Debug requires executed reproduction evidence before accepting a fix.')
+                action='stop'
+            elif not passed and phase['debug_checkpoint']['turn'] >= change.get('debug_turns',10):
+                phase.update(state='parked',reason='Debug turn budget exhausted.')
+                action = 'stop'
+            else:
+                action = 'finish_debug' if passed else 'continue_debug'
+            decision['command'] = {'attempt_id':job['input']['debug_attempt_id'],'action':action,
+                                   'checkpoint':phase['debug_checkpoint'], 'evidence':value}
+        elif not evidence(value, candidate, job['input']['criteria'], attempt_id):
             repair(value)
         elif job['input'].get('integration'):
             phase['integration_evidence'] = value
@@ -176,12 +191,12 @@ def decide(snapshot, change):
             queue('inspect_target', 'repository', {'repo': repo})
         else:
             phase.update(review=value, state='integration')
-            queue('stage_integration', 'repository', {'repo': repo, 'expected_head': phase['base_sha'],
+            queue('stage_integration', 'repository', {'repo': repo, 'expected_head': phase.get('integration_head', phase['base_sha']),
                                                      'candidate': phase['candidate']})
     elif step == 'stage_integration':
         _object(value, {'candidate', 'patch_identity', 'candidate_patch_identity'})
         staged = validate('Candidate', value['candidate'], object_format=enrollment.get('object_format', 'sha1'))
-        if staged['repo'] != repo or staged['base_sha'] != phase['base_sha'] or staged['attempt_ref'] != f"refs/heads/cursus-stage/{phase['id']}/default/{attempt_id}":
+        if staged['repo'] != repo or staged['base_sha'] != phase.get('integration_head', phase['base_sha']) or staged['attempt_ref'] != f"refs/heads/cursus-stage/{phase['id']}/{job.get('group_id', 'default')}/{attempt_id}":
             raise Problem('invalid_candidate', 'Staged identity differs.')
         validate('Digest', value['patch_identity'])
         validate('Digest', value['candidate_patch_identity'])
@@ -194,12 +209,19 @@ def decide(snapshot, change):
                                     'checks': enrollment['checks'], 'integration': True})
     elif step == 'inspect_target':
         _object(value, {'base_sha'})
-        if value['base_sha'] != phase['base_sha']:
-            phase.update(state='parked', reason='Target drift requires M2 revalidation.')
+        if value['base_sha'] != phase.get('target_sha',phase['base_sha']):
+            count=phase.get('drift_count',0)
+            if count >= change['repair_retries']:
+                phase.update(state='parked',reason='Target drift revalidation budget exhausted.')
+            else:
+                phase.update(drift_count=count+1,target_sha=value['base_sha'],
+                             integration_head=phase['staged']['head_sha'],state='integration')
+                queue('stage_integration','repository',{'repo':repo,'expected_head':phase['staged']['head_sha'],
+                    'candidate':phase['staged'],'drift_target':value['base_sha']})
         else:
             intent = {'id': change['intent_id'], 'phase_id': phase['id'], 'repo': repo,
-                      'head_ref': f"refs/heads/cursus/{phase['id']}/default", 'head_sha': phase['staged']['head_sha'],
-                      'target_sha': phase['base_sha'], 'expected_old': None, 'kind': 'advance_integration'}
+                      'head_ref': f"refs/heads/cursus/{phase['id']}/{job.get('group_id', 'default')}", 'head_sha': phase['staged']['head_sha'],
+                      'target_sha': phase.get('target_sha',phase['base_sha']), 'expected_old': phase.get('remote_head'), 'kind': 'advance_integration'}
             phase.update(intent=intent, state='delivery')
             decision['intent'] = intent
             queue('advance_integration', 'repository', {'repo': repo, 'intent': intent})
@@ -227,3 +249,25 @@ def decide(snapshot, change):
     else:
         raise Problem('unsupported_milestone', 'Step is unavailable in M1.')
     return decision
+
+
+def decide(snapshot, change):
+    """Dispatch phase scheduling without sharing mutable package projections."""
+    job = change.get('job', {})
+    completed = change.get('final', {}).get('kind') == 'completed'
+    inputs = snapshot.get('input', {})
+    conversation = job.get('step') in ('interview','debate')
+    conversation |= job.get('step') == 'resolve_input' and (inputs.get('source',{}).get('kind')=='interview' or inputs.get('spec_debate',False))
+    value = change.get('final',{}).get('value',{})
+    conversation |= (job.get('step') == 'plan' and completed and inputs.get('plan_debate',False)
+                     and not snapshot.get('plan_approved') and isinstance(value,dict) and value.get('kind') != 'scout_request')
+    if conversation:
+        from cursus.conversations import decide as converse
+        return converse(snapshot,change)
+    if snapshot.get('schedule') or (snapshot.get('input',{}).get('form') == 'phase' and change.get('job', {}).get('step') == 'plan'
+            and change.get('final', {}).get('kind') == 'completed'
+            and isinstance(change['final'].get('value'), dict)
+            and (len(change['final']['value'].get('packages', [])) > 1 or 'delivery_groups' in change['final']['value'])):
+        from cursus.scheduling import decide_phase
+        return decide_phase(snapshot, change)
+    return single_decide(snapshot, change)

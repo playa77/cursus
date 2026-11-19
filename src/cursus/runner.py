@@ -134,6 +134,11 @@ class Runner:
         self.repository, self.execution = repository, execution
         self.reconciled = False
         self.activation = str(uuid4())
+        self.active = {}
+        self.command_queues = {}
+        self.boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        self.replay_lock = asyncio.Lock()
+        self.tasks = set()
 
     def record(self, kind, value):
         return self.journal.record(kind, value)
@@ -152,11 +157,29 @@ class Runner:
             launched = any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records)
             final = any(r['kind'] == 'event' and r['value']['attempt_id'] == attempt_id
                         and r['value']['kind'] == 'final' for r in self.journal.records)
+            starts = [r['value'] for r in self.journal.records if r['kind']=='process_context' and r['value']['attempt_id']==attempt_id]
+            stopped = starts and starts[-1]['boot_id'] != self.boot_id
             observations.append({'attempt_id': attempt_id,
-                                 'kind': 'terminal_pending' if final else 'unknown' if launched else 'never_started',
+                                 'kind': 'terminal_pending' if final else 'live' if attempt_id in self.active else 'stopped' if stopped else 'unknown' if launched else 'never_started',
                                  'reason': 'Durable journal observation.'})
         directive = await self.exchange(f'runners/{self.id}/reconcile', {
             'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending})
+        for attempt_id,disposition in directive['dispositions'].items():
+            if disposition=='stop-stale' and attempt_id in self.command_queues:
+                prior=any(r['kind']=='stale_stop' and r['value']==attempt_id for r in self.journal.records)
+                if not prior:
+                    self.record('stale_stop',attempt_id)
+                    await self.command_queues[attempt_id].put({'id':str(uuid4()),'attempt_id':attempt_id,'action':'stop'})
+        held_ids = {c['attempt_id'] for c in directive['held_claims']}
+        resolved = {r['value']['payload']['command_id'] for r in self.journal.records
+                    if r['kind']=='event' and r['value']['kind']=='command_result'}
+        for record in list(self.journal.records):
+            if record['kind']=='command_intent':
+                command = record['value']
+                if command['id'] not in resolved and command['attempt_id'] in held_ids and command['attempt_id'] not in self.active:
+                    await self.event(command['attempt_id'],'command_result',
+                        {'command_id':command['id'],'disposition':'uncertain','reason':'Prior RPC delivery has no durable result.'})
+                    resolved.add(command['id'])
         self.record('directive', directive)
         self.reconciled = directive['reconciled']
         return directive
@@ -189,6 +212,10 @@ class Runner:
         return event
 
     async def replay(self):
+        async with self.replay_lock:
+            await self._replay()
+
+    async def _replay(self):
         positions = {}
         for record in self.journal.records:
             if record['kind'] == 'ack':
@@ -226,11 +253,29 @@ class Runner:
             'attempt_id': attempt_id, 'step': job['step'], 'outcome': outcome}))
 
     async def dispatch(self, claim):
+        token, slot = None, None
+        if claim['job']['step'] in ('produce','debug'):
+            slots = range(2 if self.execution.allow_test_identity else len(self.execution.worker_slots))
+            slot = next((i for i in slots if i not in self.execution.worker_leases),None)
+            if slot is None:
+                raise Problem('capacity','No isolated worker identity is free.')
+            self.execution.worker_leases.add(slot)
+            token = self.execution.worker_context.set(0 if self.execution.allow_test_identity else slot)
+        try:
+            return await self._dispatch(claim)
+        finally:
+            if token is not None:
+                self.execution.worker_context.reset(token)
+                self.execution.worker_leases.remove(slot)
+
+    async def _dispatch(self, claim):
         job, attempt_id = claim['job'], claim['attempt_id']
         if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
+        self.record('process_context', {'attempt_id':attempt_id,'boot_id':self.boot_id,'activation':self.activation})
         self.record('launch', attempt_id)
-        self.active_slot = job['slot']
+        self.active[attempt_id] = job['slot']
+        self.command_queues[attempt_id] = asyncio.Queue()
         self.progress('started', job, attempt_id)
         await self.event(attempt_id, 'started', {'service_activation': self.activation,
                                               'time': __import__('datetime').datetime.now(
@@ -238,23 +283,44 @@ class Runner:
         async def log(payload):
             # Agent text is sanitized by Execution before reaching persistence.
             await self.event(attempt_id, 'log', payload)
+        async def lifecycle(pid):
+            stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
+            self.record('process',{'attempt_id':attempt_id,'pid':pid,'start_ticks':stat[19],
+                'boot_id':self.boot_id,'activation':self.activation})
+        async def command_result(value):
+            await self.event(attempt_id,'command_result',value)
         try:
             step = job['step']
-            if step == 'produce':
+            if step in ('produce','debug'):
                 data = job['input']
                 path = await asyncio.to_thread(self.repository.workspace, data['repo'], data['base_sha'], attempt_id)
                 configured = self.execution.configured(job['invocation'])
                 self.assign(path, configured)
-                result = await self.execution.run(job, path, attempt_id, log)
-                candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
-                value = {'report': result, 'candidate': candidate}
+                if step == 'debug':
+                    async def checkpoint(turn, report):
+                        checkpoint_job = dict(job,input=dict(job['input'],checkpoint_turn=turn))
+                        candidate = await asyncio.to_thread(self.repository.capture,checkpoint_job,attempt_id,path,report)
+                        value = {'candidate':candidate,'turn':turn,'report':report}
+                        await self.event(attempt_id,'debug_checkpoint',value)
+                        await self.replay()
+                        return value
+                    result = await self.execution.run(job,path,attempt_id,log,
+                        self.command_queues[attempt_id],command_result,checkpoint,lifecycle)
+                    if (self.repository.git(path,'status','--porcelain') or
+                            self.repository.git(path,'rev-parse','HEAD').decode().strip() != result['candidate']['head_sha']):
+                        raise Problem('invalid_candidate','Workspace changed after passing checkpoint.')
+                    value = {'report':result['report'],'candidate':result['candidate']}
+                else:
+                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result, lifecycle=lifecycle)
+                    candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
+                    value = {'report': result, 'candidate': candidate}
             elif step in ('verify', 'review'):
                 path = await asyncio.to_thread(self.repository.snapshot, job['input']['candidate'],
                                                attempt_id, step == 'review')
                 configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
                 self.assign(path, configured, readonly=step == 'review')
                 value = await self.execution.run(job, path, attempt_id, log)
-            elif step in ('plan', 'scout'):
+            elif step in ('plan', 'scout', 'interview', 'debate'):
                 if step == 'scout':
                     data = job['input']
                     candidate = {'repo': data['repo'], 'head_sha': data['base_sha']}
@@ -267,16 +333,34 @@ class Runner:
                 value = await asyncio.to_thread(self.repository.perform, job, attempt_id)
             final = {'kind': 'completed', 'value': value}
         except Problem as exc:
-            final = {'kind': 'unknown' if exc.code in ('publication_unknown', 'unknown_stop') else 'failed',
+            final = {'kind': 'canceled' if exc.code == 'canceled' else 'unknown' if exc.code in ('publication_unknown', 'unknown_stop') else 'failed',
                      'classification': exc.code, 'reason': exc.message}
         except (OSError, ValueError):
             final = {'kind': 'failed', 'classification': 'execution_error', 'reason': 'Runner operation failed.'}
-        self.active_slot = None
+        self.active.pop(attempt_id, None)
+        self.command_queues.pop(attempt_id, None)
         self.progress('finished', job, attempt_id, final['kind'])
         await self.event(attempt_id, 'final', final)
         await self.replay()
         self.record('retire', claim['request_id'])
         return final
+
+    async def apply_commands(self, commands):
+        for command in sorted(commands, key=lambda c:c['action'] != 'stop'):
+            if any(r['kind']=='command_intent' and r['value']['id']==command['id'] for r in self.journal.records):
+                continue
+            queue = self.command_queues.get(command['attempt_id'])
+            if queue is None:
+                granted = any(r['kind']=='grant' and r['value']['attempt_id']==command['attempt_id'] for r in self.journal.records)
+                launched = any(r['kind']=='launch' and r['value']==command['attempt_id'] for r in self.journal.records)
+                if command['action']=='stop' and granted and not launched:
+                    self.record('command_intent',command)
+                    await self.event(command['attempt_id'],'command_result',{'command_id':command['id'],'disposition':'stopped'})
+                    await self.event(command['attempt_id'],'final',{'kind':'canceled','reason':'Grant was canceled before launch.'})
+                    await self.replay()
+                continue
+            self.record('command_intent',command)
+            await queue.put(command)
 
     async def serve(self):
         heartbeat = asyncio.create_task(self.heartbeat())
@@ -284,7 +368,9 @@ class Runner:
             await self.work_loop()
         finally:
             heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+            for task in self.tasks:
+                task.cancel()
+            await asyncio.gather(heartbeat,*self.tasks, return_exceptions=True)
 
     async def heartbeat(self):
         failures = 0
@@ -292,11 +378,12 @@ class Runner:
             await asyncio.sleep(10)
             try:
                 slots = dict.fromkeys(('worker','verifier','frontier','repository'), 0)
-                if getattr(self, 'active_slot', None):
-                    slots[self.active_slot] = 1
-                await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
-                    'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.activation,
-                    'health':'executing' if getattr(self, 'active_slot', None) else 'ready'})
+                for slot in self.active.values():
+                    slots[slot] += 1
+                directive = await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
+                    'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.boot_id,
+                    'health':'executing' if self.active else 'ready'})
+                await self.apply_commands(directive['commands'])
                 failures = 0
             except (OSError, Problem) as exc:
                 self.reconciled = False
@@ -308,6 +395,7 @@ class Runner:
     async def work_loop(self):
         self.activation = str(uuid4())
         failures, fault_started = 0, None
+        tasks = self.tasks
         while True:
             try:
                 if getattr(self, 'intake_denied', False):
@@ -316,25 +404,31 @@ class Runner:
                     await self.reconcile()
                     await self.replay()
                     directive = await self.reconcile()
+                    await self.apply_commands(directive['commands'])
                     for held in directive['held_claims']:
                         launched = any(r['kind'] == 'launch' and r['value'] == held['attempt_id'] for r in self.journal.records)
-                        if not launched:
+                        finished = any(r['kind']=='event' and r['value']['attempt_id']==held['attempt_id'] and r['value']['kind']=='final' for r in self.journal.records)
+                        if not launched and not finished:
                             if not any(r['kind'] == 'grant' and r['value']['attempt_id'] == held['attempt_id'] for r in self.journal.records):
                                 self.record('grant', validate('Claim', held))
                             await self.dispatch(held)
                 if not self.reconciled:
                     raise Problem('recovery_required', 'Unreconciled claims require operator evidence.')
-                await self.exchange(f'runners/{self.id}/heartbeat', {
-                    'slots': dict.fromkeys(('worker','verifier','frontier','repository'), 0),
-                    'spool_bytes': self.journal.path.stat().st_size, 'boot_id': self.activation, 'health': 'ready'})
+                for task in list(tasks):
+                    if task.done():
+                        tasks.remove(task)
+                        await task
                 granted = False
-                # M1 admits a serial package pipeline; each configured lane has
-                # at most one in flight. M2 adds parallel phase scheduling.
+                # Claims remain bounded centrally; local counts avoid polling
+                # a full slot while existing tasks retain process ownership.
                 for slot in ('repository', 'frontier', 'worker', 'verifier'):
-                    claim = await self.claim(slot)
-                    if claim:
-                        granted = True
-                        await self.dispatch(claim)
+                    capacity = 2 if slot == 'worker' else 1
+                    for _ in range(capacity - list(self.active.values()).count(slot)):
+                        claim = await self.claim(slot)
+                        if claim:
+                            granted = True
+                            self.active[claim['attempt_id']] = slot
+                            tasks.add(asyncio.create_task(self.dispatch(claim)))
                 failures, fault_started = 0, None
                 if not granted:
                     await asyncio.sleep(1)

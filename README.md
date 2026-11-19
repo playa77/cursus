@@ -6,9 +6,10 @@ The approved [roadmap](docs/cursus-implementation-roadmap-v0.1.1.md) and
 the staged implementation. This public repository contains no deployment
 credentials or private host inventory.
 
-Version 0.2.0 implements the local single-package code pipeline (WP-03–08).
-Live provisioning and M1 qualification (WP-02/09) remain pending. No milestone
-tag has been created. Boundary fixtures do not prove provider or host capability.
+Version 0.3.0 implements the local code/debug paths through WP-13 and prepares
+WP-14 qualification. User qualification and live testing are deferred until
+further notice; live provisioning and M0/M1/M2 acceptance remain pending.
+No milestone tag has been created. Boundary fixtures do not prove provider or host capability.
 See [qualification evidence](tests/qualification.md).
 
 Requires CPython 3.12+, PostgreSQL 16+, and Git on Linux. Local verification uses
@@ -19,7 +20,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --require-hashes -r requirements.lock
 PIP_NO_INDEX=1 python -m build --wheel --no-isolation
-python -m pip install --no-deps --force-reinstall dist/cursus-0.2.0-*.whl
+python -m pip install --no-deps --force-reinstall dist/cursus-0.3.0-*.whl
 cursus --help
 python -m unittest discover -s tests/unit
 python -m pip check
@@ -42,14 +43,18 @@ cursus status --phase-id UUID
 ```
 
 `submit`, `action`, and `status` use a protected operator Unix socket on the
-control host. Subcommand help is offline. M1 admits one code package from inline
-or pinned repository input; it verifies, reviews, stages, checks and confirms a
-PR without merging. Interviews, debates, parallel phases, debugging, browser
-routes and non-code delivery remain unavailable. Unexpected outcomes park work;
-full reconnect/recovery controls arrive in WP-11.
+control host. Subcommand help is offline. Code phases support dependency graphs,
+parallel workers, independent delivery groups and serialized integration. Debugging retains one pi RPC process across
+independently verified checkpoints. Guided interviews and optional three-seat
+debates use durable revisions. Recovery preserves ownership across disconnects;
+unknown outcomes require evidence or explicit abandonment. Target drift receives
+bounded revalidation before PR delivery. Browser routes and non-code delivery
+remain unavailable until their later work packages.
 
 Architecture records: [packaging](docs/decisions/0001-bootstrap-contracts-and-packaging.md),
 [public provisioning](docs/decisions/0002-public-provisioning-boundary.md),
 [storage and qualification gates](docs/decisions/0003-m1-storage-and-gates.md),
-and [M1 execution](docs/decisions/0004-single-package-publication.md).
+[M1 execution](docs/decisions/0004-single-package-publication.md),
+[M2 scope](docs/decisions/0005-m2-state-and-qualification.md), and
+[debug and conversations](docs/decisions/0006-m2-debug-and-conversations.md).
 See [dependency licenses](docs/dependency-licenses.md) for locked artifact evidence.

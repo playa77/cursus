@@ -44,6 +44,10 @@ if cli == 'pi':
     frame = json.loads(sys.stdin.readline())
     assert frame['type'] == 'prompt'
     Path('result.txt').write_text('done')
+    if 'Task data:' in frame['message']:
+        task = json.loads(frame['message'].split('Task data:')[-1])
+        if 'package' in task:
+            Path(task['package']['id'] + '.txt').write_text('package done')
     print(json.dumps({{'type':'response','id':frame['id'],'success':True}}), flush=True)
     print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content':[{{'type':'text','text':json.dumps(value)}}]}}}}), flush=True)
     print(json.dumps({{'type':'agent_end'}}), flush=True)

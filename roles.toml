@@ -48,3 +48,41 @@ reasoning = "REPLACE_QUALIFIED_REASONING"
 tools = ["read", "list", "search"]
 timeout_seconds = 300
 prompt = "scout.md"
+
+[roles.debug]
+tier = "production"
+cli = "pi"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search", "write", "edit", "bash"]
+timeout_seconds = 1800
+prompt = "debug.md"
+
+
+[roles.advocate]
+tier = "organization"
+cli = "claude"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "advocate.md"
+
+[roles.critic]
+tier = "organization"
+cli = "codex"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "critic.md"
+
+[roles.judge]
+tier = "organization"
+cli = "agy"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "judge.md"

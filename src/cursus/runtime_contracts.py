@@ -5,7 +5,7 @@ from cursus.contracts import (_object, _text, _id, _integer, _enum, _hex,
 
 
 SLOTS = ('worker', 'verifier', 'frontier', 'repository')
-STEPS = ('resolve_input', 'plan', 'scout', 'produce', 'verify', 'review',
+STEPS = ('debug','interview','debate','resolve_input', 'plan', 'scout', 'produce', 'verify', 'review',
          'stage_integration', 'advance_integration', 'inspect_target',
          'reconcile_publication', 'publish_pr')
 
@@ -57,26 +57,65 @@ def criterion(value):
 
 
 def plan(value):
-    _object(value, {'packages','phase_check_ids'})
-    if not isinstance(value['packages'], list) or len(value['packages']) != 1:
-        _fail('unsupported_milestone', 'M1 requires one package.')
-    package = value['packages'][0]
-    _object(package, {'id','dependencies','objective','inputs','criteria'})
-    _text(package['id'])
-    _text(package['objective'])
-    if package['dependencies'] != [] or not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
+    _object(value, {'packages','phase_check_ids'}, {'delivery_groups'})
+    packages = value['packages']
+    if not isinstance(packages, list) or not 1 <= len(packages) <= 100:
+        _fail('invalid_plan', 'Expected one to 100 packages.')
+    ids = []
+    for package in packages:
+        _object(package, {'id','dependencies','objective','inputs','criteria'})
+        name = _text(package['id'])
+        if any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in name):
+            _fail()
+        ids.append(name)
+        _text(package['objective'])
+        if not isinstance(package['dependencies'], list) or not isinstance(package['inputs'], list) or not isinstance(package['criteria'], list) or not package['criteria']:
+            _fail()
+        for item in package['criteria']:
+            criterion(item)
+        if len({c['id'] for c in package['criteria']}) != len(package['criteria']):
+            _fail()
+    if len(set(ids)) != len(ids):
+        _fail('invalid_plan', 'Duplicate package ID.')
+    edges = {p['id']: p['dependencies'] for p in packages}
+    done = set()
+    def visit(name, active):
+        if name not in edges or name in active:
+            _fail('invalid_plan', 'Unknown or cyclic dependency.')
+        if name in done:
+            return
+        deps = edges[name]
+        if any(not isinstance(d, str) for d in deps) or len(set(deps)) != len(deps):
+            _fail()
+        for dep in deps:
+            visit(dep, active | {name})
+        done.add(name)
+    for name in ids:
+        visit(name, set())
+    groups = value.get('delivery_groups', [{'id':'default', 'package_ids':ids}])
+    if not isinstance(groups, list) or not groups:
         _fail()
-    for item in package['criteria']:
-        criterion(item)
-    if len({c['id'] for c in package['criteria']}) != len(package['criteria']):
-        _fail()
+    members, group_ids = [], []
+    for group in groups:
+        _object(group, {'id','package_ids'})
+        name = _text(group['id'])
+        if any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in name):
+            _fail()
+        group_ids.append(name)
+        if not isinstance(group['package_ids'], list) or not group['package_ids']:
+            _fail()
+        members.extend(group['package_ids'])
+        if any(d not in group['package_ids'] for p in packages if p['id'] in group['package_ids'] for d in p['dependencies']):
+            _fail('invalid_plan', 'Delivery groups must be independent.')
+    if len(set(group_ids)) != len(group_ids) or len(members) != len(ids) or set(members) != set(ids):
+        _fail('invalid_plan', 'Groups must partition the plan.')
     if not isinstance(value['phase_check_ids'], list) or not value['phase_check_ids']:
         _fail()
     return value
 
 
 def job(value):
-    _object(value, {'id','phase_id','step','input','slot'}, {'package_id','group_id','invocation','publication_id'})
+    _object(value, {'id','phase_id','step','input','slot'}, {'package_id','group_id','invocation','publication_id','interrupted_count'})
     _id(value['id'])
     _id(value['phase_id'])
     _enum(value['step'], STEPS)
@@ -113,10 +152,18 @@ def event(value):
     _object(value, {'attempt_id','seq','kind','payload'})
     _id(value['attempt_id'])
     _integer(value['seq'])
-    kind = _enum(value['kind'], ('started','log','usage','final'))
+    kind = _enum(value['kind'], ('started','log','usage','command_result','debug_checkpoint','final'))
     data = value['payload']
     if kind == 'final':
         final(data)
+    elif kind == 'debug_checkpoint':
+        _object(data, {'candidate','turn','report'})
+        _integer(data['turn'])
+        _candidate(data['candidate'], 40 if len(data['candidate'].get('head_sha',''))==40 else 64)
+        from cursus.execution import report
+        report(data['report'])
+    elif kind == 'command_result':
+        command_result(data)
     elif kind == 'log':
         _object(data, {'stream','text'})
         _enum(data['stream'], ('stdout','stderr','system'))
@@ -165,3 +212,12 @@ def reply(value):
 VALIDATORS = {'Role': role, 'Invocation': invocation, 'Criterion': criterion,
               'Plan': plan, 'Job': job, 'Claim': claim, 'Final': final, 'Event': event,
               'Ack': ack, 'Reply': reply}
+
+
+def command_result(value):
+    _object(value, {'command_id','disposition'}, {'reason'})
+    _id(value['command_id'])
+    _enum(value['disposition'], ('accepted','rejected','target_finished','uncertain','stopped'))
+    if 'reason' in value:
+        _text(value['reason'])
+    return value

@@ -9,6 +9,7 @@ import subprocess
 import shlex
 import tarfile
 import time
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -55,6 +56,9 @@ class Repository:
         self.enrollments, self.github, self.binary = enrollments, github, git
         self.credential_file = credential_file
         self.worktree_admin = {}
+        self.network_lock = threading.Lock()
+        self.last_network = 0.0
+        self.local_only = all(str(r.get('remote','')).startswith('/') for r in enrollments.values())
         for path in (self.root, self.worktrees, self.reviews):
             path.mkdir(mode=0o711, parents=True, exist_ok=True)
         self.environment = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8',
@@ -73,8 +77,18 @@ class Repository:
             command += ['-c', 'credential.helper=store --file=' + shlex.quote(str(self.credential_file))]
         if Path(directory) in self.worktree_admin:
             command += ['--git-dir=' + self.worktree_admin[Path(directory)], '--work-tree=' + str(directory)]
-        result = subprocess.run([*command, *args], input=data, capture_output=True,
-                                env=self.environment, timeout=120)
+        def invoke():
+            return subprocess.run([*command, *args], input=data, capture_output=True,
+                                  env=self.environment, timeout=120)
+        if args and args[0] in ('fetch','ls-remote','push') and not self.local_only:
+            # Shared across worker captures and the repository lane. Start with
+            # one remote Git request per second; never probe a source's limit.
+            with self.network_lock:
+                time.sleep(max(0,self.last_network + 1 - time.monotonic()))
+                self.last_network = time.monotonic()
+                result = invoke()
+        else:
+            result = invoke()
         if result.returncode not in allowed:
             raise Problem('git_failed', 'Git operation failed; no result is confirmed.')
         return result.stdout
@@ -151,7 +165,11 @@ class Repository:
             raise Problem('invalid_ref', 'Unsafe package ID.')
         ref = f"refs/heads/wp/{job['phase_id']}/{package}/{attempt_id}/candidate"
         if kind == 'stage':
-            ref = f"refs/heads/cursus-stage/{job['phase_id']}/default/{attempt_id}"
+            ref = f"refs/heads/cursus-stage/{job['phase_id']}/{job.get('group_id', 'default')}/{attempt_id}"
+        if job['input'].get('checkpoint_turn') is not None and kind == 'candidate':
+            turn = job['input']['checkpoint_turn']
+            validate('Seq',turn)
+            ref = ref.removesuffix('candidate') + f'checkpoints/{turn}'
         return validate('Ref', ref)
 
     def remote_head(self, repo, ref):
@@ -240,6 +258,8 @@ class Repository:
             result = {'base_sha': base}
             if step == 'resolve_input':
                 source = data['source']
+                if source['kind'] == 'interview':
+                    return result
                 if source['kind'] == 'inline':
                     result['text'] = source['text']
                 else:
@@ -259,7 +279,10 @@ class Repository:
             candidate = data['candidate']
             path = self.workspace(repo, data['expected_head'], attempt_id)
             patch = self.patch(candidate)
-            if patch:
+            if data.get('drift_target'):
+                validate('Sha',data['drift_target'],object_format=self.enrolled(repo).get('object_format','sha1'))
+                self.git(path,'merge','--no-commit','--no-ff',data['drift_target'])
+            elif patch:
                 self.git(path, 'apply', '--index', '--binary', '-', data=patch)
             self.git(path, 'commit', '--allow-empty', '-m', 'Cursus integration')
             head = self.git(path, 'rev-parse', 'HEAD').decode().strip()
@@ -273,9 +296,23 @@ class Repository:
             if job.get('publication_id') != intent['id'] or intent['phase_id'] != job['phase_id'] or intent['repo'] != repo:
                 raise Problem('forbidden', 'Publication intent identity mismatch.')
             ref, head = intent['head_ref'], intent['head_sha']
-            owned = f"refs/heads/cursus/{job['phase_id']}/default"
+            owned = f"refs/heads/cursus/{job['phase_id']}/{job.get('group_id', 'default')}"
             if ref != owned:
                 raise Problem('forbidden', 'Intent ref is outside owned lane.')
+            if step == 'reconcile_publication':
+                if intent['kind'] == 'advance_integration':
+                    current = self.remote_head(repo,ref)
+                    if current == head:
+                        return {'kind':'confirmed','result':{'ref':ref,'sha':head}}
+                    if current == intent['expected_old']:
+                        return {'kind':'no_effect'}
+                    raise Problem('publication_mismatch','Remote head differs from both expected outcomes.')
+                if self.remote_head(repo,ref) != head or self.fetch(repo) != intent['target_sha']:
+                    raise Problem('publication_mismatch','Read-only PR reconciliation found drift.')
+                result = self.matching_pr(repo,ref,head)
+                if result is None:
+                    raise Problem('publication_unknown','PR absence does not prove an ambiguous request had no effect.')
+                return {'kind':'confirmed','result':result}
             if step == 'advance_integration':
                 return self.push(repo, ref, head, intent['expected_old'], owned)
             if self.remote_head(repo, ref) != head:

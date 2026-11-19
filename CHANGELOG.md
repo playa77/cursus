@@ -2,12 +2,37 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
-## [Unreleased]
+
+## [0.3.0] - 2026-11-19
+
+Public-source M2 implementation. User qualification and live testing are deferred
+until further notice; no M2 tag or acceptance claim.
 
 ### Added
 
 - WP-09: live M1 qualification procedure, per-boundary evidence checklist and
   explicit operator-input gates. Qualification remains unrun; no M1 tag.
+- WP-10: validated package DAGs and independent delivery groups; parallel runner
+  tasks, per-package candidate/evidence state, serialized integration and dependent
+  dispatch from committed heads. Conflicting patches park safely; target drift triggers bounded merge, fresh
+  verification and review before publication.
+- ADR 0005 records the implementation scope and explicit live qualification deferral.
+- WP-11: original-attempt commands, cancel/unknown/abandon guards, lost-grant and
+  lost-ack replay, boot-change stop evidence, bounded interrupted retries and
+  read-only publication reconciliation. Includes reachability projection without timeout-based ownership release.
+- WP-12: continuing pi RPC debug turns, immutable checkpoint refs, separate
+  verifier claims, durable continue/finish commands and exact passing-checkpoint
+  review/PR handoff. Local tests execute a failing then passing check in one
+  process and confirm cancellation. Concurrent workers lease distinct configured
+  identities; the second identity requires its own measured profile.
+- WP-14: prepared real phase/recovery/debug/debate acceptance procedures and
+  private evidence fields. User qualification and live testing remain deferred;
+  no VPS/provider calls or M2 tag.
+- WP-13: revision-bound guided interviews, required-answer admission, fixed
+  three-frontier-seat debate, immutable per-seat transcripts, validated author
+  amendments, spec-question round trips and the three-round unresolved-blocker
+  cap. Direct intake and bounded scout behavior remain available.
+
 
 ## [0.2.0] - 2026-11-19
 
