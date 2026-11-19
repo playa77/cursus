@@ -96,3 +96,111 @@ WP-01 local acceptance is established. WP-02 public-source deliverables are
 complete; live provisioning acceptance is deferred. WP-03 must confirm real
 WP-02 acceptance and an empty authorized PostgreSQL instance before its runtime
 verification. No fixture, branch, commit or tag can substitute for those checks.
+
+## WP-03 — local storage verification
+
+2026-11-19: PostgreSQL 18.6, CPython 3.14.4, disposable local database;
+`test_store.py`: 3 tests passed. Assertions cover twelve concurrent ordered
+commits, digest-equal request replay, changed-payload rejection, rollback with
+no cursor gap, migration replay/digest mismatch and notification/cursor wakeup.
+Live WP-02 prerequisite remains deferred (ADR 0003); this is local evidence only.
+
+## WP-04 — local intake verification
+
+2026-11-19: `test_intake.py`: 1 test passed using a real private Unix HTTP
+socket and migrated PostgreSQL. Submission/replay produce one phase/job;
+changed-key content, unsupported debate and unauthenticated ingress leave state
+unchanged. Combined integration suite: 4 passed. Browser routes remain disabled.
+Role files deliberately require installed-version qualification before deployment.
+
+## WP-05 — local runner transport verification
+
+2026-11-19: `test_runner_transport.py`: 1 test passed over real HTTP/Unix
+transport with runner bearer and generation guards. Empty queue is idle;
+operator intake supplies the sole claimed job; identical request UUID returns
+one claim; durable journal reopens the grant; a sequence gap cannot advance ack.
+Unit regression: 13 passed; integration regression: 5 passed. Full recovery and
+process stop proof are not supplied by this transport-only check.
+
+## WP-06 — local Git/publication boundary verification
+
+2026-11-19: `test_repository.py`: 2 passed. Real bare remote and worktrees
+exercise pinned blob read, candidate capture, staged integration, immutable
+snapshot, conditional ref replay/mismatch and target refusal. REST fixture
+checks exact PR identity, repeat lookup and closed-PR refusal. No real GitHub
+permission or credential claim follows from these tests.
+
+## WP-07 — local execution verification
+
+2026-11-19: `test_execution.py`: 3 tests passed. Four actual executable fixtures
+exercise pi RPC ID/terminal framing, Codex JSONL and Claude/agy final result
+shapes; a parent-only sentinel is absent from children. A real failing verifier
+command produces failed evidence at its supplied candidate. Invalid role/tier,
+incomplete review and absent assistant output cannot pass. These same-UID local
+fixtures do not prove cross-user, native-auth, vendor tools or systemd isolation.
+
+## WP-08 — local connected single-package path
+
+2026-11-19: the production CLI submits through a private HTTP Unix socket to
+migrated PostgreSQL; a runner connects through authenticated HTTP, journals real
+grants, invokes executable CLI boundaries, captures actual Git changes, executes
+repository checks, reviews and publishes against the controlled GitHub seam.
+No Cursus claims/candidates/evidence/intents are seeded by tests.
+
+`test_one_package.py`: 6 tests. Inline and pinned repo sources confirm one PR at
+the exact staged/reviewed head and leave target unchanged. Malformed review,
+missing report, exhausted repair budget and target drift cannot publish. Event
+replay uses process-produced spool records. `test_runner_transport.py` also
+checks digest-equal event replay and conflicting repeated sequence rejection.
+
+The final source regression and wheel results are recorded below after the
+final verification run. Full crash/reconnect, cross-user/service controls,
+provider behavior and real GitHub permissions remain separate qualification.
+
+### Final local verification — 2026-11-19
+
+- Runtime source: `663d64c` (WP-08); installed version: 0.2.0; CPython 3.14.4/Linux, PostgreSQL 18.6.
+- Unit discovery: **18 passed**; integration discovery: **17 passed**, no skips.
+  Integration run: approximately 57 seconds, disposable random PostgreSQL
+  schemas, private Unix HTTP sockets, local bare Git and executable CLI fixtures.
+- The control composition smoke starts a separate production bootstrap process,
+  reapplies migrations, submits via the actual operator socket, and confirms
+  SIGTERM stops both listeners and removes its socket.
+- Offline isolated wheel build from the preverified WP-01 wheelhouse passed;
+  non-isolated build, wheel reinstall, offline submit help/version, migration
+  inclusion inspection, compileall, `pip check` and `git diff --check` passed.
+- Tested wheel SHA-256:
+  `76a6978f2315823077b6c82b6a95714c9fac275786555927693bcc86922556db`.
+  The isolated build reproduced the same wheel bytes.
+- No model/provider, real GitHub, SSH, Tailscale or systemd deployment calls.
+  Tests use same-UID executable boundaries; OS isolation remains unqualified.
+
+## WP-09 — live M1 qualification: blocked on operator inputs
+
+Public-source procedure and evidence schema are prepared. **Acceptance is not
+complete.** No VPS deployment, live model invocation, native credential access,
+Serve change, real GitHub mutation or milestone tag was performed in this task.
+ADR 0002's public/private boundary remains in effect. Required operator inputs
+are the private M0 attestation, intended hosts/service identities, qualified
+native test credentials and invocation measurements, an authorized real-work
+repo/spec, and per-run cost/time/termination authorization.
+
+| Gate | Required operator-local evidence | Status |
+| --- | --- | --- |
+| M0 predecessor | Actual WP-02 inventory, all four CLI auth/renewal outcomes, both clients and no-public-ingress evidence | Not supplied |
+| Installed release | Source commit, wheel hash, Python/PostgreSQL/Git versions, committed role/prompts and measured profile digest on both hosts | Not run |
+| pi JSON/RPC | Exact argv/tuple, Go tool call, terminal report, prompt/steer/abort correlation and consumption evidence | Not run |
+| Claude | Headless read-only structured success/failure, forbidden tool/config tests and renewal | Not run |
+| Codex | Headless read-only structured success/failure, clean project config and renewal | Not run |
+| Antigravity | Native cached auth, headless stream success/failure, effective read-only tools and renewal | Not run |
+| OS/service isolation | Distinct UID/GID/groups/homes, denied cross-slot/parent credential access, descendant stop with service/boot/process identities | Not run |
+| Private ingress | Intended listeners/ACLs and both clients' canonical, absent/wrong/duplicate/forged Serve identity probe | Not run |
+| GitHub authorization | Trusted repo, permitted owned refs, target/merge denial, safe repo automation | Not run |
+| Real one-package trace | Actual CLI submit/status, durable phase/attempt/evidence/verdict/intents, one confirmed PR at exact verified head, unchanged target | Not run |
+| M1 release | All prior gates passed at exact reviewed commit, scoped tag authorization, annotated SemVer tag | Deferred; no tag |
+
+Use the private per-CLI form above for literal commands, probe outputs and budgets.
+Record also each negative probe's expected denial and observed effect, rather
+than accepting a success exit code as proof of effective tool restrictions.
+The public workbook intentionally retains `qualification="unqualified"` and
+empty role grants; fixture evidence must never populate live probe evidence.

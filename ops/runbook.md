@@ -201,3 +201,178 @@ if publishing a result. Tag only the exact reviewed commit whose evidence passes
 A local example parse or test fixture cannot clear a live gate. No M0 tag has
 been created by this public-source implementation. Backup/restore procedures
 and Hermes scheduling will be added and tested in WP-19.
+
+## Disposable PostgreSQL integration checks (WP-03)
+
+Set `CURSUS_TEST_DSN` only to an authorized disposable PostgreSQL 16+ database.
+The test user needs CREATE SCHEMA; each test creates a random `cursus_test_*`
+schema, migrates it and drops only that schema. Never point tests at production.
+Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/integration`.
+No credential files or developer-agent environment are used for model execution.
+A missing DSN is a test setup error, not a silently skipped successful check.
+
+## M1 control and local CLI
+
+Deploy the reviewed wheel and committed `roles.toml`/`prompts` together. Pin the
+role commit; startup compares prompt/role bytes to that revision. Replace all
+model/provider placeholders with measured settings. Configure a private DSN and
+runner bearer digest file (0600); control reads these only at startup.
+`cursus control --config /etc/cursus/control.toml` migrates before listening.
+The systemd template gives the operator group socket access. A pre-existing
+socket is a startup failure: verify the previous service stopped before removing
+its stale socket. Do not change permissions to clear a test.
+
+`cursus submit --input /absolute/input.json [--idempotency-key UUID]` wraps Input
+JSON in a submit action. `--socket PATH` selects the protected local socket.
+Read `entity_id` from the reply as PHASE_ID; run
+`cursus status --phase-id UUID`. Persist `request_id` for retries. `action` accepts
+an Action JSON file; `-` reads stdin. All subcommand help is offline. M1 admits
+only code with inline or pinned repo source and no debates/interviews. Unsupported
+features fail closed. The runner listener cannot authorize operator actions.
+
+## Runner-owned repositories (WP-06)
+
+Enroll the same exact owner/repo/target on both hosts. Runner remote URLs are
+computed GitHub HTTPS URLs; local fixture remotes are supplied only by tests.
+Git commands disable system/global config, hooks, external diff and textconv;
+publishing consumes only the separately provisioned credential-store file.
+Never let worker/verifier users access the cache, state or publisher files.
+Expected-head leases are additionally restricted to fast-forward ancestry; no
+history replacement or target publication is authorized. PR creation has no
+automatic retry after an uncertain request. Preserve the intent and reconcile.
+
+## M1 execution and publication (WP-07–08)
+
+The runner enrollment must mirror control enrollment. Its fixed GitHub HTTPS
+remote is computed from owner/name. Configure native credentials separately;
+never supply the developer agent's keys or environment. `roles.toml` pins the
+SHA-256 of the exact qualified capabilities file as `profile_digest`. Runner
+startup verifies that digest and the binary/user/home enrollment. Each launch
+checks binary bytes, role/model/provider/reasoning, exact tool set, approved
+prompt transport and clean-config/read-only arguments. Fill `fixed_argv` with
+the **complete measured command**, including static model and tool flags.
+The implementation recognizes only the documented terminal shapes in the
+capability worksheet; a vendor format change requires source requalification.
+
+A CLI profile may contain `[pi.role_profiles.scout]` or
+`[pi.role_profiles.reviewer]` overrides for distinct measured argv, tools and
+identity. A pi reviewer requires `pi_reviewer.enabled=true`, a separate user/home
+and qualified read-only role profile. Never reuse worker write authority.
+Default organizational roles use Claude and Codex. An initial planner scout
+request has `kind=scout_request`, one `question`, and
+`input_refs=["repository_snapshot"]`; a second scout request parks the plan.
+
+M1 schedules one step at a time; declared capacities are upper bounds. Independent
+10-second heartbeats continue while a CLI executes. Transport has at most two
+in-flight exchanges (one long poll plus heartbeat); the external GitHub REST
+boundary is serial with at least one second between calls. Runner transport
+retries are limited to five failed cycles/120 seconds, with capped exponential
+backoff and jitter; authorization failure stops intake. Provider-internal
+retries remain unknown until measured. No Cursus inference retry/failover exists.
+
+Production and verifier execution drop UID/GID and supplementary groups. The
+explicit child environment contains HOME/USER/LOGNAME/PATH/LANG/TMPDIR only.
+Process groups are bounded by role/check timeouts, terminated before capture,
+and unresolved descendant termination parks ownership. The systemd cgroup is
+the deployment backstop; prove its behavior in WP-09. Trusted Git administration
+uses runner-owned metadata even if a worker changes its workspace `.git` file.
+Review snapshots exclude Git metadata and reject links/special files; verifier
+snapshots are writable only by the verifier. Parent paths must permit traversal
+without exposing cache, state or credentials (see Accounts above).
+
+Workflow progression requires a structured production report, exact immutable
+candidate, complete successful command evidence and independent criterion review.
+It verifies the separate staged tree and all enrolled phase checks before
+committing publication intents. The current M1 path parks on target drift.
+A negative criterion/verdict allows at most two fresh production attempts after
+the initial attempt, each with a separate workspace/ref and fresh checks/review.
+Missing/malformed output parks rather than guessing success. PR handoff includes
+the exact head, repository, number and URL; Cursus has no merge operation.
+
+Journal records are append-only, hash-chained and fsynced under an exclusive
+lock. Preserve the state directory and generation. A torn trailing record can
+be removed only when the earlier prefix is intact. Corrupt history, prior
+unresolved launch intents or uncertain publication are not permission to rerun.
+The spool cap preserves terminal-record reserve; persistence failure stops intake.
+A known unlaunched grant can be recovered after reconciliation. Full cancellation,
+abandonment and uncertain-outcome recovery are WP-11, not M1 operators' ad hoc
+SQL procedures. Do not edit rows, delete journals or manually replay publisher
+commands to clear a parked gate. Services report sanitized IDs/outcomes via
+journald; model logs are sanitized before journal/event storage.
+
+## WP-09 — live M1 qualification procedure
+
+This section prepares qualification; it is not evidence that deployment or any
+probe ran. Keep private machine/account values in the operator-local record.
+Do not tag M1 until every gate in `tests/qualification.md` passes. Carry forward
+M0 evidence and the exact source commit/wheel SHA-256. No new runtime feature is
+introduced during this package.
+
+1. Verify the intended hosts, private listeners, DB role, users, filesystem and
+   systemd boundaries from WP-02. Install the same reviewed wheel/release on both
+   hosts. Use the actual installed CLI versions to fill all qualified profiles,
+   role tuples and literal argv. Measure native login/renewal per identity.
+   Check binary digests and commit the non-secret role/prompt release before
+   setting its revision. Keep credential paths/configuration operator-local.
+2. Before each live probe record maximum launches/turns, one in-flight model
+   process, timeout and termination grace, operator-approved cost ceiling and
+   known/unknown vendor retry behavior. Use operator-provisioned native test
+   credentials, never developer-agent keys. Use an explicit child environment.
+   A timeout/process bound is not an enforced provider spend cap. Stop on auth
+   denial, forbidden approval prompts or throttling; honor Retry-After and do
+   not rotate identity. Record the exact task-owned stop mechanism and outcome.
+3. Measure pi JSON and RPC, actual Go tool execution and final-report framing;
+   in a dedicated bounded RPC probe exercise ID-correlated prompt, active steer,
+   idle prompt and abort. Distinguish accepted steering from demonstrated
+   consumption. Measure Claude, Codex and Antigravity independently, including
+   a required legitimate read, attempted forbidden write/shell/MCP and terminal
+   success/error. Record literal **installed-version** argv and sanitized wire
+   fixtures. If a required signature differs, fix the supported parser/config
+   and rerun affected tests; never declare a guessed flag qualified.
+4. Probe cross-user file/process/credential access and systemd descendant stop.
+   All workers, verifier and reviewer must lack publisher/cache/state/other-slot
+   authority. Verify the verifier can run only its supplied literal check and
+   the reviewer cannot modify the immutable candidate. Inspect actual listener,
+   firewall, Serve and tailnet ACL state; no public app or DB ingress.
+5. On both operator clients use a temporary operator-managed, loopback-only
+   identity probe behind the intended private Serve origin. Record its exact
+   invocation/configuration and safe boolean outcomes. Check the exact canonical
+   Tailscale login, missing/wrong/duplicate identity and injected identity headers.
+   An injected header must not impersonate the operator. Remove the temporary
+   probe after observing its outcome; leave M1 browser routes disabled.
+6. Enroll an explicitly authorized trusted test repo on both hosts. Confirm its
+   GitHub automation cannot update/merge the target as a publication side effect.
+   Set the approved literal phase check argv/cwd/timeout. Record target SHA and
+   GitHub permission observations. Plan the live phase's maximum model launches,
+   repair/scout allowance, concurrency, elapsed-time/cost ceilings and stop path
+   before submission. These ceilings require operator input; none is inferred
+   from public templates or subscription names.
+
+Example Input JSON, after replacing repository and real-work text locally:
+
+```json
+{
+  "workflow": "code",
+  "form": "one-shot",
+  "source": {"kind": "inline", "text": "REPLACE_WITH_AUTHORIZED_SMALL_CHANGE_AND_ACCEPTANCE_CRITERIA"},
+  "repo": {"owner": "REPLACE_OWNER", "name": "REPLACE_REPO", "target_ref": "refs/heads/main"},
+  "plan_debate": false,
+  "spec_debate": false
+}
+```
+
+On VPS-B inspect `systemctl status cursus-control`, then run
+`cursus submit --help` and `cursus submit --input "$M1_INPUT"`, with M1_INPUT an
+absolute file path. Copy reply `entity_id` to PHASE_ID and retain `request_id`.
+Inspect VPS-A `systemctl status cursus-runner`; query
+`cursus status --phase-id "$PHASE_ID"` at a bounded operator-selected interval
+(at least 10 seconds for this qualification), stopping at delivered, parked or
+the predeclared time budget. Record phase/attempt/publication IDs, check evidence,
+creator/reviewer identities, exact PR head/base/URL and the independently observed
+unchanged target. Do not seed state or manually push/PR to rescue acceptance.
+
+Only after all gates pass, review the exact tested source and milestone changelog
+and obtain scoped release-tag/publication authorization. A failed/missing probe,
+unknown remote result or absent actual credential keeps M1 unqualified. Preserve
+all existing claims and journals for the recovery package rather than deleting
+state to rerun a qualification scenario.

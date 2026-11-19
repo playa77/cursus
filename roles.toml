@@ -1,0 +1,50 @@
+schema_version = 1
+# SHA-256 of the qualified capability file, filled at deployment.
+profile_digest = "REPLACE_SHA256_OF_QUALIFIED_PROFILE"
+
+[roles.interviewer]
+tier = "organization"
+cli = "claude"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "interviewer.md"
+
+[roles.planner]
+tier = "organization"
+cli = "claude"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "planner.md"
+
+[roles.worker]
+tier = "production"
+cli = "pi"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search", "write", "edit", "bash"]
+timeout_seconds = 1800
+prompt = "worker.md"
+
+[roles.reviewer]
+tier = "organization"
+cli = "codex"
+model = "REPLACE_QUALIFIED_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "reviewer.md"
+
+[roles.scout]
+tier = "production"
+cli = "pi"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "scout.md"

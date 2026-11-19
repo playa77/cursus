@@ -83,3 +83,17 @@ home = "/var/lib/cursus-identities/verifier"
 enabled = false
 user = "cursus-pi-reviewer"
 home = "/var/lib/cursus-identities/pi-reviewer"
+
+# Mirror the exact approved enrollment from VPS-B.
+[[repositories]]
+owner = "REPLACE_GITHUB_OWNER"
+name = "REPLACE_TRUSTED_REPO"
+object_format = "sha1"
+allowed_target_refs = ["refs/heads/main"]
+phase_check_ids = ["unit"]
+
+[[repositories.checks]]
+id = "unit"
+argv = ["/opt/cursus/venv/bin/python", "-m", "unittest", "discover", "-s", "tests/unit"]
+cwd = "."
+timeout_seconds = 300

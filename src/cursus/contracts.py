@@ -302,6 +302,8 @@ def validate(contract: str, value: Any, *, object_format: str = "sha1") -> Any:
         "Candidate": lambda v: _candidate(v, length),
         "Input": lambda v: _input(v, length), "Action": lambda v: _action(v, length),
     }
+    from cursus.runtime_contracts import VALIDATORS
+    validators.update(VALIDATORS)
     if contract not in validators:
         _fail("unsupported_contract", "Contract is not available in this milestone.")
     # Detach the result and prohibit Python-only values even on in-process calls.

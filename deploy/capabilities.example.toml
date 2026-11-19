@@ -35,6 +35,7 @@ binary_digest = "REPLACE_SHA256"
 user = "cursus-claude"
 home = "/var/lib/cursus-identities/claude"
 model = "REPLACE_QUALIFIED_CLAUDE_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
 qualified_roles = []
 fixed_argv = []
 prompt_transport = "unqualified"
@@ -54,6 +55,7 @@ binary_digest = "REPLACE_SHA256"
 user = "cursus-codex"
 home = "/var/lib/cursus-identities/codex"
 model = "REPLACE_QUALIFIED_CODEX_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
 qualified_roles = []
 fixed_argv = []
 prompt_transport = "unqualified"
@@ -73,6 +75,7 @@ binary_digest = "REPLACE_SHA256"
 user = "cursus-agy"
 home = "/var/lib/cursus-identities/agy"
 model = "REPLACE_QUALIFIED_AGY_MODEL"
+reasoning = "REPLACE_QUALIFIED_REASONING"
 qualified_roles = []
 fixed_argv = []
 prompt_transport = "unqualified"
@@ -84,3 +87,21 @@ failure_signature = "unqualified"
 turn_terminal_signature = "unqualified"
 probe_evidence = []
 renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
+
+# WP-07 consumption contract:
+# profile_digest in roles.toml is SHA-256 of these exact qualified bytes.
+# fixed_argv is the complete literal installed-version invocation including
+# model/provider/reasoning/tool flags. clean_config_argv disables discovered
+# project extensions; organization roles also require read_only_argv.
+# prompt_transport: stdin, argument (one appended prompt), or rpc (pi only).
+# Production pi RPC emits correlated response, message_end assistant text and
+# agent_end; Codex emits item.completed agent_message and turn.completed;
+# Claude/agy emit result subtype=success. Any different installed wire format
+# requires a parser change and requalification, never a guessed success flag.
+# WP-09 activation gate: all four CLIs, both operator clients, OS/systemd
+# boundaries and the real PR trace require private observed evidence. This
+# public file remains unqualified; setting a string cannot establish proof.
+# Optional role-specific measured overrides use [pi.role_profiles.scout] or
+# [pi.role_profiles.reviewer]; override the full fixed_argv, tool_allowlist,
+# qualified_roles and user/home where applicable. Read-only roles require
+# read_only_argv and clean_config_argv; never inherit worker write tools.
