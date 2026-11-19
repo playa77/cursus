@@ -79,7 +79,8 @@ def role_release(service):
         if result.returncode or result.stdout != item.read_bytes():
             fail('Role/prompt files differ from the pinned release.')
     registry = tomllib.loads(path.read_text())
-    keys(registry, ('schema_version', 'roles'))
+    keys(registry, ('schema_version', 'roles', 'profile_digest'))
+    validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
     for name, role in registry['roles'].items():
@@ -98,7 +99,7 @@ def role_release(service):
             fail()
         role['prompt_text'] = prompt.read_text()
         role['name'] = name
-    return registry['roles']
+    return registry
 
 
 def load(process_kind, path):
@@ -125,7 +126,9 @@ def load(process_kind, path):
         keys(settings['backup'], ('root', 'off_host_destination'))
         absolute(settings['backup']['root'])
         enrollment(settings['repositories'])
-        settings['roles'] = role_release(service)
+        release = role_release(service)
+        settings['roles'] = release['roles']
+        settings['profile_digest'] = release['profile_digest']
         settings['dsn'] = secret(service['dsn_file'])
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
@@ -145,6 +148,7 @@ def load(process_kind, path):
         if sha256(profile).hexdigest() != service['capabilities_digest']:
             fail('Capability digest mismatch.')
         settings['profiles'] = tomllib.loads(profile.decode())
+        settings['profiles']['digest'] = service['capabilities_digest']
         if settings['profiles'].get('qualification') != 'qualified':
             fail('Capability profile is not qualified.')
         origin = service['origin']

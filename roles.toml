@@ -1,4 +1,6 @@
 schema_version = 1
+# SHA-256 of the qualified capability file, filled at deployment.
+profile_digest = "REPLACE_SHA256_OF_QUALIFIED_PROFILE"
 
 [roles.interviewer]
 tier = "organization"
@@ -36,3 +38,13 @@ reasoning = "REPLACE_QUALIFIED_REASONING"
 tools = ["read", "list", "search"]
 timeout_seconds = 300
 prompt = "reviewer.md"
+
+[roles.scout]
+tier = "production"
+cli = "pi"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING"
+tools = ["read", "list", "search"]
+timeout_seconds = 300
+prompt = "scout.md"

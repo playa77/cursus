@@ -6,6 +6,9 @@ Notable changes are recorded here using Semantic Versioning.
 
 ### Added
 
+- WP-07: direct pinned CLI execution with explicit child environments, RPC/JSONL
+  framing, bounded process groups, real verifier evidence and strict review.
+
 - WP-06: runner-owned Git worktrees, pinned blob reads, exact candidate/stage
   refs, conditional integration updates and conservative exact PR lookup.
 

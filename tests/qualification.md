@@ -129,3 +129,12 @@ exercise pinned blob read, candidate capture, staged integration, immutable
 snapshot, conditional ref replay/mismatch and target refusal. REST fixture
 checks exact PR identity, repeat lookup and closed-PR refusal. No real GitHub
 permission or credential claim follows from these tests.
+
+## WP-07 — local execution verification
+
+2026-11-19: `test_execution.py`: 3 tests passed. Four actual executable fixtures
+exercise pi RPC ID/terminal framing, Codex JSONL and Claude/agy final result
+shapes; a parent-only sentinel is absent from children. A real failing verifier
+command produces failed evidence at its supplied candidate. Invalid role/tier,
+incomplete review and absent assistant output cannot pass. These same-UID local
+fixtures do not prove cross-user, native-auth, vendor tools or systemd isolation.
