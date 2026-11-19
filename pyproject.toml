@@ -1,0 +1,23 @@
+[build-system]
+requires = ["flit_core==4.2.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "cursus"
+version = "0.1.0"
+description = "Private, evidence-driven work coordination"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+  "fastapi==0.165.0",
+  "uvicorn==0.54.0",
+  "Jinja2==3.1.6",
+  "asyncpg==0.32.0",
+]
+
+[project.scripts]
+cursus = "cursus.bootstrap:main"
+
+[tool.flit.module]
+name = "cursus"
