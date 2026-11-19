@@ -3,7 +3,7 @@
 **Document** 3 of the Cursus specification set  
 **Version** 0.1.0  
 **Date** 2026-11-19  
-**Status** Draft  
+**Status** Approved  
 **Normative baseline** Cursus — Design Document v0.1.0 and Cursus — Technical Specification v0.1.1
 
 In this roadmap, **D1 §n** refers to **Cursus — Design Document v0.1.0 §n**. **D2 §n** refers to **Cursus — Technical Specification v0.1.1 §n**. S01–S09 and A1–A7 refer to D2 §§1 and 14. T01–T10 refer to D2 §15.2. All paths are repository-relative.
@@ -403,5 +403,3 @@ The v1 release is complete when all 20 work packages meet their acceptance check
 | Version | Date | Changes |
 | --- | --- | --- |
 | 0.1.0 | 2026-11-19 | Initial roadmap for the v0.1.0 design and v0.1.1 technical specification. |
-
-Review this roadmap. I will revise on request.
