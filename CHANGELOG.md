@@ -6,6 +6,9 @@ Notable changes are recorded here using Semantic Versioning.
 
 ### Added
 
+- WP-05: generation-scoped runner reconciliation, claims and event sequence
+  ingestion, authenticated transport, exclusive hash-chained fsynced journal.
+
 - WP-04: strict startup settings, pinned role/prompt release, private operator
   socket, durable code intake/status and offline-discoverable CLI commands.
 

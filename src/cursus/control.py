@@ -68,3 +68,23 @@ class Control:
 
     async def wait(self, deadline, cursor=None):
         return await self.store.wait(deadline, cursor)
+
+    async def runner_request(self, runner_id, route, data, generation, request_id):
+        from cursus.transport import request
+        return await request(self, runner_id, route, data, generation, request_id)
+
+    async def maintain(self, trigger):
+        if trigger != 'boot':
+            return
+        async def close_admission(tx):
+            rows = await tx.connection.fetch('SELECT payload FROM runners')
+            from cursus.store import payload
+            for row in rows:
+                runner = payload(row)
+                runner['reconciled'] = False
+                await tx.save('runners', runner)
+            return {'closed': True}
+        return await self.store.transact('control', 'boot', identity(), {}, close_admission)
+
+    async def completed(self, tx, attempt, final):
+        raise Problem('unsupported_milestone', 'Execution results are not enabled yet.')

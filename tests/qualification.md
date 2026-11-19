@@ -112,3 +112,12 @@ socket and migrated PostgreSQL. Submission/replay produce one phase/job;
 changed-key content, unsupported debate and unauthenticated ingress leave state
 unchanged. Combined integration suite: 4 passed. Browser routes remain disabled.
 Role files deliberately require installed-version qualification before deployment.
+
+## WP-05 — local runner transport verification
+
+2026-11-19: `test_runner_transport.py`: 1 test passed over real HTTP/Unix
+transport with runner bearer and generation guards. Empty queue is idle;
+operator intake supplies the sole claimed job; identical request UUID returns
+one claim; durable journal reopens the grant; a sequence gap cannot advance ack.
+Unit regression: 13 passed; integration regression: 5 passed. Full recovery and
+process stop proof are not supplied by this transport-only check.
