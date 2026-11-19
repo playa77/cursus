@@ -201,3 +201,12 @@ if publishing a result. Tag only the exact reviewed commit whose evidence passes
 A local example parse or test fixture cannot clear a live gate. No M0 tag has
 been created by this public-source implementation. Backup/restore procedures
 and Hermes scheduling will be added and tested in WP-19.
+
+## Disposable PostgreSQL integration checks (WP-03)
+
+Set `CURSUS_TEST_DSN` only to an authorized disposable PostgreSQL 16+ database.
+The test user needs CREATE SCHEMA; each test creates a random `cursus_test_*`
+schema, migrates it and drops only that schema. Never point tests at production.
+Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/integration`.
+No credential files or developer-agent environment are used for model execution.
+A missing DSN is a test setup error, not a silently skipped successful check.

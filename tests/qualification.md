@@ -96,3 +96,11 @@ WP-01 local acceptance is established. WP-02 public-source deliverables are
 complete; live provisioning acceptance is deferred. WP-03 must confirm real
 WP-02 acceptance and an empty authorized PostgreSQL instance before its runtime
 verification. No fixture, branch, commit or tag can substitute for those checks.
+
+## WP-03 — local storage verification
+
+2026-11-19: PostgreSQL 18.6, CPython 3.14.4, disposable local database;
+`test_store.py`: 3 tests passed. Assertions cover twelve concurrent ordered
+commits, digest-equal request replay, changed-payload rejection, rollback with
+no cursor gap, migration replay/digest mismatch and notification/cursor wakeup.
+Live WP-02 prerequisite remains deferred (ADR 0003); this is local evidence only.

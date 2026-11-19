@@ -6,6 +6,9 @@ Notable changes are recorded here using Semantic Versioning.
 
 ### Added
 
+- WP-03: PostgreSQL migrations, ordered transactions, atomic idempotency and
+  committed reads/wakeups; disposable-database integration checks.
+
 - WP-02: public control/runner provisioning examples, an explicitly unqualified
   capability worksheet, host/identity/tailnet procedures and a qualification log.
 - ADR 0002 keeps private deployment inventory and live evidence operator-local.
