@@ -6,6 +6,9 @@ Notable changes are recorded here using Semantic Versioning.
 
 ### Added
 
+- WP-04: strict startup settings, pinned role/prompt release, private operator
+  socket, durable code intake/status and offline-discoverable CLI commands.
+
 - WP-03: PostgreSQL migrations, ordered transactions, atomic idempotency and
   committed reads/wakeups; disposable-database integration checks.
 

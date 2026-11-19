@@ -21,13 +21,13 @@ from tests.support import workspace
 
 
 class BootstrapTests(unittest.TestCase):
-    def test_help_is_offline_and_exposes_no_runtime_commands(self):
+    def test_help_is_offline_and_lists_m1_commands(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(SystemExit) as result:
                 main(["--help"])
         self.assertEqual(result.exception.code, 0)
-        self.assertIn("M0", output.getvalue())
-        self.assertNotIn("submit", output.getvalue())
+        self.assertIn("submit", output.getvalue())
+        self.assertIn("status", output.getvalue())
 
     def test_installed_entry_point_and_module(self):
         binary = Path(sys.executable).parent / "cursus"

@@ -104,3 +104,11 @@ verification. No fixture, branch, commit or tag can substitute for those checks.
 commits, digest-equal request replay, changed-payload rejection, rollback with
 no cursor gap, migration replay/digest mismatch and notification/cursor wakeup.
 Live WP-02 prerequisite remains deferred (ADR 0003); this is local evidence only.
+
+## WP-04 — local intake verification
+
+2026-11-19: `test_intake.py`: 1 test passed using a real private Unix HTTP
+socket and migrated PostgreSQL. Submission/replay produce one phase/job;
+changed-key content, unsupported debate and unauthenticated ingress leave state
+unchanged. Combined integration suite: 4 passed. Browser routes remain disabled.
+Role files deliberately require installed-version qualification before deployment.

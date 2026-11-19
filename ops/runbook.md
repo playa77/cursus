@@ -210,3 +210,22 @@ schema, migrates it and drops only that schema. Never point tests at production.
 Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/integration`.
 No credential files or developer-agent environment are used for model execution.
 A missing DSN is a test setup error, not a silently skipped successful check.
+
+## M1 control and local CLI
+
+Deploy the reviewed wheel and committed `roles.toml`/`prompts` together. Pin the
+role commit; startup compares prompt/role bytes to that revision. Replace all
+model/provider placeholders with measured settings. Configure a private DSN and
+runner bearer digest file (0600); control reads these only at startup.
+`cursus control --config /etc/cursus/control.toml` migrates before listening.
+The systemd template gives the operator group socket access. A pre-existing
+socket is a startup failure: verify the previous service stopped before removing
+its stale socket. Do not change permissions to clear a test.
+
+`cursus submit --input /absolute/input.json [--idempotency-key UUID]` wraps Input
+JSON in a submit action. `--socket PATH` selects the protected local socket.
+Read `entity_id` from the reply as PHASE_ID; run
+`cursus status --phase-id UUID`. Persist `request_id` for retries. `action` accepts
+an Action JSON file; `-` reads stdin. All subcommand help is offline. M1 admits
+only code with inline or pinned repo source and no debates/interviews. Unsupported
+features fail closed. The runner listener cannot authorize operator actions.
