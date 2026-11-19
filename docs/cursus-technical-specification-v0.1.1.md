@@ -3,7 +3,7 @@
 **Document** 2 of the Cursus specification set  
 **Version** 0.1.1  
 **Date** 2026-11-19  
-**Status** Draft  
+**Status** Approved  
 **Baseline** Cursus — Design Document v0.1.0, §§1–11, approved for progression by the operator. Project Brief Cursus v1.2.0 supplies the original milestone requirements.
 
 ## 1. Implementation Scope
@@ -431,5 +431,3 @@ Every named call below takes its contract from §8.1 or the additional contracts
 | --- | --- | --- |
 | 0.1.1 | 2026-11-19 | Corrected restore admission to allow read-only GitHub reconciliation in drain. Defined the durable publication descriptors consumed by restore the debate rationale result used by T04, and local operator CLI arguments. |
 | 0.1.0 | 2026-11-19 | Initial technical specification for Cursus — Design Document v0.1.0. |
-
-Review this technical specification. I will revise on request. When approved, I can optionally produce Document 3 — an Implementation Roadmap decomposing the project into work packages a coding agent can execute end-to-end. Do you want Document 3?
