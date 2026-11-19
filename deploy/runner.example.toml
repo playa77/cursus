@@ -1,0 +1,85 @@
+# Public provisioning template. M0 does not start a runner or CLI subprocess.
+schema_version = 1
+process_kind = "runner"
+
+[service]
+# Trusted parent needs UID/GID switching; no repo code runs as this identity.
+user = "root"
+origin = "https://REPLACE_VPS_B.REPLACE_TAILNET.ts.net"
+runner_id = "REPLACE_RUNNER_UUID"
+bearer_file = "/etc/cursus/runner/bearer"
+state_root = "/var/lib/cursus-runner/state"
+spool_root = "/var/lib/cursus-runner/spool"
+repository_root = "/var/lib/cursus-runner/repositories"
+worktree_root = "/var/lib/cursus-runner/worktrees"
+review_root = "/var/lib/cursus-runner/reviews"
+capabilities_file = "/etc/cursus/runner/capabilities.toml"
+capabilities_digest = "REPLACE_SHA256_OF_QUALIFIED_PROFILE"
+# No DSN or PostgreSQL client belongs on the runner.
+
+[publisher]
+git_binary = "/usr/bin/git"
+git_credential_file = "/etc/cursus/runner/publisher-git-credential"
+github_credential_file = "/etc/cursus/runner/publisher-github-credential"
+# Provision these via an operator-approved opaque client; never copy credentials
+# from a developer agent, CLI home, prompt or repository.
+
+[capacity]
+worker = 2
+verifier = 1
+frontier = 1
+repository = 1
+
+[limits]
+long_poll_seconds = 30
+heartbeat_seconds = 10
+spool_bytes = 2147483648
+
+# Binaries must be approved, absolute, version-pinned installations. The
+# placeholder paths below are not assertions about any vendor's install layout.
+[cli.pi]
+binary = "/opt/cursus-cli/REPLACE_PI_VERSION/bin/pi"
+user = "cursus-pi-1"
+home = "/var/lib/cursus-identities/pi-1"
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING_VALUE"
+
+[cli.claude]
+binary = "/opt/cursus-cli/REPLACE_CLAUDE_VERSION/bin/claude"
+user = "cursus-claude"
+home = "/var/lib/cursus-identities/claude"
+model = "REPLACE_QUALIFIED_CLAUDE_MODEL"
+
+[cli.codex]
+binary = "/opt/cursus-cli/REPLACE_CODEX_VERSION/bin/codex"
+user = "cursus-codex"
+home = "/var/lib/cursus-identities/codex"
+model = "REPLACE_QUALIFIED_CODEX_MODEL"
+
+[cli.agy]
+binary = "/opt/cursus-cli/REPLACE_AGY_VERSION/bin/agy"
+user = "cursus-agy"
+home = "/var/lib/cursus-identities/agy"
+model = "REPLACE_QUALIFIED_AGY_MODEL"
+
+[[worker_slots]]
+id = "worker-1"
+user = "cursus-pi-1"
+home = "/var/lib/cursus-identities/pi-1"
+
+[[worker_slots]]
+id = "worker-2"
+user = "cursus-pi-2"
+home = "/var/lib/cursus-identities/pi-2"
+
+[verification]
+user = "cursus-verifier"
+home = "/var/lib/cursus-identities/verifier"
+
+# A distinct pi reviewer is optional; if enabled, it needs its own native login
+# and read-only qualification. Default reviewer remains the Codex identity.
+[pi_reviewer]
+enabled = false
+user = "cursus-pi-reviewer"
+home = "/var/lib/cursus-identities/pi-reviewer"

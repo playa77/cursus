@@ -32,5 +32,7 @@ services are introduced in later work packages.
 
 [ADR 0001](docs/decisions/0001-bootstrap-contracts-and-packaging.md) records package
 and contract choices; [dependency licenses](docs/dependency-licenses.md) records
-artifact inspection. Deployment examples and a provisioning runbook arrive in WP-02.
-A public template does not prove live authentication or release readiness.
+artifact inspection. The [deployment examples](deploy/control.example.toml),
+[runbook](ops/runbook.md), and [qualification checklist](tests/qualification.md)
+cover WP-02 public-source provisioning. Live host/native-auth checks remain
+operator-local and unverified; no M0 release tag has been created.

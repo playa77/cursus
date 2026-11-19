@@ -1,0 +1,86 @@
+# Measurement worksheet, not a qualified profile. Empty values grant no role.
+# WP-07 implements profile validation/consumption; WP-09 qualifies M1 behavior.
+# Record actual installed-version tokens, never turn these notes into guessed flags.
+schema_version = 1
+qualification = "unqualified"
+evidence_record = "REPLACE_OPERATOR_LOCAL_EVIDENCE_PATH"
+
+[pi]
+binary = "/opt/cursus-cli/REPLACE_PI_VERSION/bin/pi"
+version = "REPLACE_MEASURED_VERSION"
+binary_digest = "REPLACE_SHA256"
+user = "cursus-pi-1"
+home = "/var/lib/cursus-identities/pi-1"
+qualified_roles = []
+provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
+model = "deepseek-v4.1-flash"
+reasoning = "REPLACE_QUALIFIED_REASONING_VALUE"
+fixed_argv = []
+one_shot_argv = []
+rpc_argv = []
+prompt_transport = "unqualified"
+tool_allowlist = []
+clean_config_argv = []
+success_signature = "unqualified"
+failure_signature = "unqualified"
+turn_terminal_signature = "unqualified"
+control_correlation = "unqualified"
+probe_evidence = []
+renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
+
+[claude]
+binary = "/opt/cursus-cli/REPLACE_CLAUDE_VERSION/bin/claude"
+version = "REPLACE_MEASURED_VERSION"
+binary_digest = "REPLACE_SHA256"
+user = "cursus-claude"
+home = "/var/lib/cursus-identities/claude"
+model = "REPLACE_QUALIFIED_CLAUDE_MODEL"
+qualified_roles = []
+fixed_argv = []
+prompt_transport = "unqualified"
+tool_allowlist = []
+read_only_argv = []
+clean_config_argv = []
+success_signature = "unqualified"
+failure_signature = "unqualified"
+turn_terminal_signature = "unqualified"
+probe_evidence = []
+renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
+
+[codex]
+binary = "/opt/cursus-cli/REPLACE_CODEX_VERSION/bin/codex"
+version = "REPLACE_MEASURED_VERSION"
+binary_digest = "REPLACE_SHA256"
+user = "cursus-codex"
+home = "/var/lib/cursus-identities/codex"
+model = "REPLACE_QUALIFIED_CODEX_MODEL"
+qualified_roles = []
+fixed_argv = []
+prompt_transport = "unqualified"
+tool_allowlist = []
+read_only_argv = []
+clean_config_argv = []
+success_signature = "unqualified"
+failure_signature = "unqualified"
+turn_terminal_signature = "unqualified"
+probe_evidence = []
+renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
+
+[agy]
+binary = "/opt/cursus-cli/REPLACE_AGY_VERSION/bin/agy"
+version = "REPLACE_MEASURED_VERSION"
+binary_digest = "REPLACE_SHA256"
+user = "cursus-agy"
+home = "/var/lib/cursus-identities/agy"
+model = "REPLACE_QUALIFIED_AGY_MODEL"
+qualified_roles = []
+fixed_argv = []
+prompt_transport = "unqualified"
+tool_allowlist = []
+read_only_argv = []
+clean_config_argv = []
+success_signature = "unqualified"
+failure_signature = "unqualified"
+turn_terminal_signature = "unqualified"
+probe_evidence = []
+renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"

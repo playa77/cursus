@@ -2,6 +2,15 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- WP-02: public control/runner provisioning examples, an explicitly unqualified
+  capability worksheet, host/identity/tailnet procedures and a qualification log.
+- ADR 0002 keeps private deployment inventory and live evidence operator-local.
+  Live M0 provisioning/authentication checks and the release tag remain deferred.
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
