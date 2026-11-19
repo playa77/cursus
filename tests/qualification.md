@@ -121,3 +121,11 @@ operator intake supplies the sole claimed job; identical request UUID returns
 one claim; durable journal reopens the grant; a sequence gap cannot advance ack.
 Unit regression: 13 passed; integration regression: 5 passed. Full recovery and
 process stop proof are not supplied by this transport-only check.
+
+## WP-06 — local Git/publication boundary verification
+
+2026-11-19: `test_repository.py`: 2 passed. Real bare remote and worktrees
+exercise pinned blob read, candidate capture, staged integration, immutable
+snapshot, conditional ref replay/mismatch and target refusal. REST fixture
+checks exact PR identity, repeat lookup and closed-PR refusal. No real GitHub
+permission or credential claim follows from these tests.

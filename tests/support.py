@@ -110,3 +110,58 @@ class SocketService:
         await self.task
         self.socket.close()
         self.path.unlink(missing_ok=True)
+
+
+class GitRemote:
+    """A trusted bare remote plus a request-contract GitHub fixture."""
+    def __init__(self, root):
+        import subprocess
+        import os
+        self.root = root
+        self.remote = root / 'remote.git'
+        self.seed = root / 'seed'
+        self.prs, self.requests = [], []
+        self.environment = {'PATH': '/usr/bin:/bin', 'GIT_CONFIG_NOSYSTEM': '1',
+                            'GIT_CONFIG_GLOBAL': '/dev/null', 'LANG': 'C.UTF-8'}
+        def git(path, *args):
+            return subprocess.run(['/usr/bin/git', '-c', 'core.hooksPath=/dev/null',
+                                   '-c', 'user.name=Fixture', '-c', 'user.email=fixture@localhost',
+                                   '-C', str(path), *args], env=self.environment,
+                                  capture_output=True, check=True).stdout.decode().strip()
+        self.git = git
+        self.remote.mkdir()
+        git(self.remote, 'init', '--bare', '--initial-branch=main')
+        self.seed.mkdir()
+        git(self.seed, 'init', '--initial-branch=main')
+        (self.seed / 'spec.md').write_text('Make the requested change.')
+        (self.seed / 'check.py').write_text('from pathlib import Path\nassert Path("result.txt").read_text() == "done"\n')
+        git(self.seed, 'add', '.')
+        git(self.seed, 'commit', '-m', 'Initial')
+        self.base = git(self.seed, 'rev-parse', 'HEAD')
+        git(self.seed, 'remote', 'add', 'origin', str(self.remote))
+        git(self.seed, 'push', 'origin', 'main')
+
+    def request(self, method, path, body=None):
+        from urllib.parse import urlsplit, parse_qs
+        from cursus.contracts import Problem
+        self.requests.append((method, path, body))
+        if not path.startswith('/repos/fixture/repo/pulls'):
+            raise AssertionError('Unauthorized REST endpoint')
+        if method == 'GET':
+            return self.prs.copy()
+        if method != 'POST' or set(body) != {'head', 'base', 'title', 'body'}:
+            raise AssertionError('Unauthorized REST operation')
+        head = self.git(self.remote, 'rev-parse', 'refs/heads/' + body['head'])
+        number = len(self.prs) + 1
+        item = {'number': number, 'html_url': f'https://github.com/fixture/repo/pull/{number}',
+                'state': 'open', 'merged_at': None,
+                'head': {'ref': body['head'], 'sha': head, 'repo': {'full_name': 'fixture/repo'}},
+                'base': {'ref': body['base'], 'repo': {'full_name': 'fixture/repo'}}}
+        self.prs.append(item)
+        return item
+
+    def repository(self, ws):
+        from cursus.repository import Repository
+        enrollment = {('fixture', 'repo'): {'remote': str(self.remote), 'object_format': 'sha1',
+                                          'allowed_target_refs': ['refs/heads/main']}}
+        return Repository(ws.root / 'cache', ws.worktrees, ws.root / 'reviews', enrollment, self)

@@ -6,6 +6,9 @@ Notable changes are recorded here using Semantic Versioning.
 
 ### Added
 
+- WP-06: runner-owned Git worktrees, pinned blob reads, exact candidate/stage
+  refs, conditional integration updates and conservative exact PR lookup.
+
 - WP-05: generation-scoped runner reconciliation, claims and event sequence
   ingestion, authenticated transport, exclusive hash-chained fsynced journal.
 

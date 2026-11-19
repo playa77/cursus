@@ -229,3 +229,14 @@ Read `entity_id` from the reply as PHASE_ID; run
 an Action JSON file; `-` reads stdin. All subcommand help is offline. M1 admits
 only code with inline or pinned repo source and no debates/interviews. Unsupported
 features fail closed. The runner listener cannot authorize operator actions.
+
+## Runner-owned repositories (WP-06)
+
+Enroll the same exact owner/repo/target on both hosts. Runner remote URLs are
+computed GitHub HTTPS URLs; local fixture remotes are supplied only by tests.
+Git commands disable system/global config, hooks, external diff and textconv;
+publishing consumes only the separately provisioned credential-store file.
+Never let worker/verifier users access the cache, state or publisher files.
+Expected-head leases are additionally restricted to fast-forward ancestry; no
+history replacement or target publication is authorized. PR creation has no
+automatic retry after an uncertain request. Preserve the intent and reconcile.
