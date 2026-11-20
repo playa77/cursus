@@ -10,8 +10,9 @@ def identity():
 
 
 class Control:
-    def __init__(self, settings, store, decide=workflows.decide):
+    def __init__(self, settings, store, decide=workflows.decide, artifacts=None):
         self.settings, self.store, self.decide = settings, store, decide
+        self.artifacts = artifacts
 
     def enrolled(self, repo):
         for item in self.settings['repositories']:
@@ -78,6 +79,13 @@ class Control:
     async def query(self, principal, route, entity_id=None, cursor=0):
         if principal != 'local_operator':
             raise Problem('forbidden', 'Operator authorization required.')
+        if route.startswith('browser/'):
+            route = route.removeprefix('browser/')
+            if route not in ('overview', 'phases', 'attempts'):
+                raise Problem('not_found', 'Resource unavailable.')
+            if entity_id:
+                validate('Id', entity_id)
+            return await self.store.browser_view(route, entity_id)
         table = {'phases': 'phases', 'attempts': 'attempts', 'overview': 'phases', 'events': 'events'}.get(route)
         if table is None:
             raise Problem('not_found', 'Resource unavailable.')
@@ -144,6 +152,9 @@ class Control:
             await tx.save('phases',phase)
             await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",job['id'])
             return
+        if job['step'] == 'verify' and final['kind'] == 'completed':
+            from cursus.artifact_control import verify_ready
+            await verify_ready(tx, attempt, final['value'])
         planning_value = final.get('value',{})
         if job['step']=='debate' and not (isinstance(planning_value,dict) and 'packages' in planning_value):
             planning_value = phase.get('debate',{}).get('document',{})

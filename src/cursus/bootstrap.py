@@ -43,7 +43,9 @@ async def service(args):
         try:
             store = Store(pool)
             await store.migrate()
-            control = Control(settings, store)
+            from cursus.artifacts import Artifacts
+            artifacts = Artifacts(settings['service']['artifact_root'])
+            control = Control(settings, store, artifacts=artifacts)
             if hasattr(control, 'maintain'):
                 await control.maintain('boot')
             async def maintenance():
@@ -52,7 +54,8 @@ async def service(args):
                     await control.maintain('tick')
             timer = asyncio.create_task(maintenance())
             try:
-                await serve(settings, control)
+                from cursus.browser import environment
+                await serve(settings, control, environment())
             finally:
                 timer.cancel()
                 await asyncio.gather(timer,return_exceptions=True)

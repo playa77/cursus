@@ -57,3 +57,19 @@ Each entry records the wheel SHA-256, followed by the bundled license path and i
 The initially considered setuptools 84.2.1 wheel contains LGPL autocommand and MPL validate-pyproject notices. It is excluded from the lock and build. flit_core 4.2.0 has no runtime dependencies and avoids those bundled components. The four runtime dependencies are prescribed by D2 §3; remaining packages are their mandatory closure or the build frontend/backend closure. No runtime modules import them until their assigned WP.
 
 To renew: resolve the four direct dependencies plus build/flit_core in an isolated supported Python environment, download candidate wheels, inspect every direct/transitive bundled license and notice before selecting versions, then pin the complete closure. Retrieve each selected release’s PyPI JSON once (one request at a time, at least one second apart, 15s timeout, no retries) and allowlist its non-yanked artifact SHA-256 values. Check downloaded bytes against those hashes. Re-run the locked install, wheel build, clean install, and tests. Update this record, pyproject pins, ADR and changelog together. Cross-Python resolution must be checked on the deployment interpreter; local verification here uses CPython 3.14.4 only.
+
+## WP-16 local browser asset
+
+Vendored htmx **2.0.4**, from the pinned upstream tag, with its **Zero-Clause
+BSD** license. This is the only third-party browser runtime; there is no frontend
+build or remote asset request. `allowEval` and inline script processing are off.
+
+- [Runtime source](https://github.com/bigskysoftware/htmx/blob/v2.0.4/dist/htmx.min.js)
+  → `src/cursus/static/htmx.min.js`, SHA-256
+  `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447`.
+- [License source](https://github.com/bigskysoftware/htmx/blob/v2.0.4/LICENSE)
+  → `src/cursus/static/htmx.LICENSE`, SHA-256
+  `d3d2456f76414f2456104660ebd65aff1c04cd7966b942bdabd63f3cdb316a38`.
+
+The deployed CSS is the handoff's original Cursus stylesheet with production
+bindings; no Proper UI catalog software or prototype JavaScript is shipped.

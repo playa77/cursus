@@ -6,21 +6,23 @@ The approved [roadmap](docs/cursus-implementation-roadmap-v0.1.1.md) and
 the staged implementation. This public repository contains no deployment
 credentials or private host inventory.
 
-Version 0.3.0 implements the local code/debug paths through WP-13 and prepares
-WP-14 qualification. User qualification and live testing are deferred until
-further notice; live provisioning and M0/M1/M2 acceptance remain pending.
+Version 0.4.0 implements the source work through WP-16, including durable
+verification artifacts and the accepted private browser design. User qualification
+and live testing are deferred until the end of M3 (WP-17); live provisioning and
+M0/M1/M2/M3 acceptance remain pending.
 No milestone tag has been created. Boundary fixtures do not prove provider or host capability.
 See [qualification evidence](tests/qualification.md).
 
-Requires CPython 3.12+, PostgreSQL 16+, and Git on Linux. Local verification uses
-CPython 3.14.4/PostgreSQL 18.6; other versions and intended hosts are unverified.
+Requires CPython 3.12+, PostgreSQL 16+, and Git on Linux. WP-15/16 local verification uses
+CPython 3.12.14/PostgreSQL 18.6; earlier packages also used CPython 3.14.4.
+Intended deployment hosts remain unverified.
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --require-hashes -r requirements.lock
 PIP_NO_INDEX=1 python -m build --wheel --no-isolation
-python -m pip install --no-deps --force-reinstall dist/cursus-0.3.0-*.whl
+python -m pip install --no-deps --force-reinstall dist/cursus-0.4.0-*.whl
 cursus --help
 python -m unittest discover -s tests/unit
 python -m pip check
@@ -48,13 +50,15 @@ parallel workers, independent delivery groups and serialized integration. Debugg
 independently verified checkpoints. Guided interviews and optional three-seat
 debates use durable revisions. Recovery preserves ownership across disconnects;
 unknown outcomes require evidence or explicit abandonment. Target drift receives
-bounded revalidation before PR delivery. Browser routes and non-code delivery
-remain unavailable until their later work packages.
+bounded revalidation before PR delivery. The private Serve browser exposes existing actions, committed SSE history and
+authorized evidence downloads with local assets and no frontend build. Non-code
+delivery remains unavailable until WP-18.
 
 Architecture records: [packaging](docs/decisions/0001-bootstrap-contracts-and-packaging.md),
 [public provisioning](docs/decisions/0002-public-provisioning-boundary.md),
 [storage and qualification gates](docs/decisions/0003-m1-storage-and-gates.md),
 [M1 execution](docs/decisions/0004-single-package-publication.md),
 [M2 scope](docs/decisions/0005-m2-state-and-qualification.md), and
-[debug and conversations](docs/decisions/0006-m2-debug-and-conversations.md).
+[debug and conversations](docs/decisions/0006-m2-debug-and-conversations.md), and
+[M3 artifacts/browser](docs/decisions/0007-m3-artifacts-and-browser.md).
 See [dependency licenses](docs/dependency-licenses.md) for locked artifact evidence.

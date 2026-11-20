@@ -122,6 +122,33 @@ class HTTPS:
         async with self.capacity:
             return await asyncio.to_thread(send)
 
+    async def upload(self, attempt_id, ref, path):
+        from cursus.runner_files import headers, checked_bytes
+        raw = checked_bytes(ref, path.read_bytes())
+        return await self.binary(f'attempts/{attempt_id}/artifacts/{ref["id"]}', raw, headers(ref))
+
+    async def download(self, ref, claim_id):
+        from cursus.runner_files import checked_bytes
+        raw = await self.binary(f'runner/artifacts/{ref["id"]}?claim_id={claim_id}')
+        return checked_bytes(ref, raw)
+
+    async def binary(self, route, raw=None, extra=None):
+        def send():
+            headers = {'Authorization': 'Bearer ' + self.bearer,
+                       'X-Cursus-Generation': self.generation, 'Idempotency-Key': str(uuid4())}
+            headers.update(extra or {})
+            request = urllib.request.Request(self.origin + '/' + route, data=raw,
+                method='PUT' if raw is not None else 'GET', headers=headers)
+            try:
+                with self.opener.open(request, timeout=35) as response:
+                    value = response.read(32 * 1024 * 1024 + 1)
+                    return decode_json(value) if raw is not None else value
+            except urllib.error.HTTPError as exc:
+                raise Problem('unauthorized' if exc.code in (401,403) else 'transport',
+                              'Artifact transfer rejected.') from None
+        async with self.capacity:
+            return await asyncio.to_thread(send)
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args):
@@ -216,6 +243,8 @@ class Runner:
             await self._replay()
 
     async def _replay(self):
+        from cursus.runner_files import replay
+        await replay(self)
         positions = {}
         for record in self.journal.records:
             if record['kind'] == 'ack':
@@ -317,9 +346,18 @@ class Runner:
             elif step in ('verify', 'review'):
                 path = await asyncio.to_thread(self.repository.snapshot, job['input']['candidate'],
                                                attempt_id, step == 'review')
+                if step == 'review':
+                    from cursus.artifact_control import file_refs
+                    inputs = []
+                    for ref in file_refs(job['input']):
+                        inputs.append((ref, await self.transport.download(ref, attempt_id)))
+                    await asyncio.to_thread(self.repository.evidence_files, path, inputs)
                 configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
                 self.assign(path, configured, readonly=step == 'review')
                 value = await self.execution.run(job, path, attempt_id, log)
+                if step == 'verify':
+                    from cursus.runner_files import evidence
+                    value = evidence(self, attempt_id, value)
             elif step in ('plan', 'scout', 'interview', 'debate'):
                 if step == 'scout':
                     data = job['input']

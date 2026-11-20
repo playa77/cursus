@@ -25,7 +25,8 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                 config['roles'] = {name: dict(invocation(execution, cli, name)['role'], prompt_text='Fixture role.')
                                    for name, cli in [('worker', 'pi'), ('planner', 'claude'), ('reviewer', 'codex')]}
                 config['repositories'][0]['checks'][0]['argv'] = [sys.executable, 'check.py']
-                control = Control(config, db.store)
+                from cursus.artifacts import Artifacts
+                control = Control(config, db.store, artifacts=Artifacts(ws.artifacts))
                 value = code_input()
                 if source == 'repo':
                     value['source'] = {'kind': 'repo', 'owner': 'fixture', 'name': 'repo',

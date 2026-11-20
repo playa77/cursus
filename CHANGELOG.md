@@ -3,6 +3,23 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
+## [0.4.0] - 2026-11-20
+
+Source implementation through WP-16. User qualification and live testing are
+deferred to the end of M3 (WP-17); no milestone acceptance or tag.
+
+### Added
+
+- WP-15: bounded immutable artifact upload, claim-scoped input retrieval,
+  authorized attachment downloads and durable verifier evidence logs. Upload
+  intent/receipt replay gates final delivery; metadata conflicts fail closed.
+- WP-16: server-rendered accepted design, private Serve identity/CSRF/origin
+  checks, durable forms, committed SSE replay/reset, real PR/evidence handoff,
+  local pinned htmx, persistent light/dark/OS themes and accessible log controls.
+- Add event retention watermark migration 002 and committed browser projections.
+- ADR 0007 records M3 artifact/browser decisions and the operator's accepted
+  design and qualification deferral until the end of M3.
+
 ## [0.3.0] - 2026-11-19
 
 Public-source M2 implementation. User qualification and live testing are deferred

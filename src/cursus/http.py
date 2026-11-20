@@ -1,8 +1,4 @@
-"""Separate protected Unix ingress and private runner HTTP ingress.
-
-M1 deliberately exposes no browser surface. A tailnet identity header never
-turns the runner-facing listener into a local operator socket.
-"""
+"""Distinct Unix operator, Serve browser and bearer runner authorization paths."""
 
 import asyncio
 import grp
@@ -13,6 +9,7 @@ import os
 from pathlib import Path
 import socket
 import signal
+import re
 from contextlib import nullcontext
 
 from fastapi import FastAPI, Request
@@ -21,20 +18,34 @@ import uvicorn
 from cursus.contracts import Problem, decode_json, canonical_json, validate, MAX_REQUEST_BYTES
 
 
-def application(control, local=False):
+def application(control, local=False, browser=False, templates=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    browser_surface = None
+
+    def runner_route(request):
+        path = request.url.path
+        return bool(re.fullmatch(r'/(jobs/next|runners/[^/]+/(heartbeat|reconcile)|'
+            r'attempts/[^/]+/(events|artifacts/[^/]+)|runner/artifacts/[^/]+)', path))
 
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
-        code = 409 if exc.code in ('idempotency_conflict', 'sequence_conflict', 'state_conflict') else 422
+        code = 409 if exc.code in ('idempotency_conflict', 'sequence_conflict', 'state_conflict', 'artifact_conflict') else 422
         code = {'forbidden': 403, 'unauthorized': 401, 'not_found': 404,
                 'payload_too_large': 413, 'unavailable': 503}.get(exc.code, code)
+        if browser_surface and not runner_route(request):
+            return browser_surface.render(request, 'problem.html', status=code, problem=exc.as_dict(), title='Problem')
         return JSONResponse(exc.as_dict(), status_code=code, headers={'Cache-Control': 'no-store'})
 
     @app.middleware('http')
     async def guard(request, call_next):
         # Authentication happens before payload decoding, including failures.
-        if not local:
+        if browser_surface and not runner_route(request):
+            try:
+                browser_surface.authorize(request)
+            except Problem as exc:
+                return await problem_handler(request, exc)
+        elif not local:
             tokens = request.headers.getlist('authorization')
             expected = control.settings['bearer_digest']
             token = tokens[0][7:] if len(tokens) == 1 and tokens[0].startswith('Bearer ') else ''
@@ -44,6 +55,12 @@ def application(control, local=False):
                 return JSONResponse({'code': 'forbidden', 'message': 'Local operator ingress required.'}, 403)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'same-origin'
+        if browser_surface and not runner_route(request):
+            response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self'; "
+                "style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; "
+                "base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         return response
 
     async def body(request):
@@ -61,6 +78,13 @@ def application(control, local=False):
         if len(values) != 1:
             raise Problem('invalid_fields', 'One Idempotency-Key is required.')
         return validate('Id', values[0])
+
+    from cursus.artifact_http import mount
+    mount(app, control, local)
+
+    if browser:
+        from cursus.browser import mount as mount_browser
+        browser_surface = mount_browser(app, control, templates)
 
     if local:
         @app.post('/operator/actions')
@@ -96,7 +120,7 @@ def application(control, local=False):
     return app
 
 
-async def serve(settings, control):
+async def serve(settings, control, templates=None):
     service = settings['service']
     path = Path(service['operator_socket'])
     # Do not unlink an unknown pre-existing socket or change its ownership.
@@ -108,7 +132,7 @@ async def serve(settings, control):
     unix.listen(128)
     unix.setblocking(False)
     configs = [uvicorn.Config(application(control, True), log_level='warning'),
-               uvicorn.Config(application(control), host=service['listen_host'],
+               uvicorn.Config(application(control, browser=True, templates=templates), host=service['listen_host'],
                               port=service['listen_port'], log_level='warning')]
     servers = [uvicorn.Server(item) for item in configs]
     loop = asyncio.get_running_loop()

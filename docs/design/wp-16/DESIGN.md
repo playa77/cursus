@@ -1,6 +1,8 @@
 # Cursus — WP-16 Visual Design Reference (DESIGN.md)
 
-**Status:** Draft for operator review — no implementation decisions are final until this pass is approved.
+**Status:** Accepted by the operator on 2026-11-20 for WP-16 implementation.
+The original review notes below are historical; implementation uses Follow OS as
+the reversible initial theme and retains the accepted violet accent (ADR 0007).
 **Version:** 1.0 · 2026-11-20
 **Inputs honored:** Project Brief v1.2.1 · Design Document v0.1.1 · Technical Specification v0.1.2 · Implementation Roadmap v0.1.1
 **Visual-language baseline:** Proper UI **`dashboard-02`** (app-examples · dashboards) — inspiration and starting point, **not** a pixel-exact specification. Preview: https://properui.dev/preview/variant/app-examples/dashboards/dashboard-02 · Docs: https://properui.dev/components/dashboards/dashboard-02

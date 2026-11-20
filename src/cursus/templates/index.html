@@ -1,0 +1,25 @@
+{% extends 'base.html' %}{% from 'forms.html' import chip,hidden %}
+{% block content %}
+{% if intake %}
+<section class="card"><div class="card__head"><h2 class="card__title">New run</h2></div>
+<form class="intake-form" action="/operator/actions" method="post" hx-post="/operator/actions" hx-swap="none">
+{{ hidden('submit',csrf,request_id()) }}
+<div class="form-grid"><label>Workflow<select name="workflow"><option value="code">Code</option><option value="debug">Debug</option></select></label>
+<label>Code form<select name="form"><option value="phase">Phase</option><option value="one-shot">One-shot</option><option value="ticket">Ticket</option></select></label>
+<label>Repository and target<select name="repository" required>{% for repo in repositories %}{% for ref in repo.allowed_target_refs %}<option value="{{ repo.owner }}|{{ repo.name }}|{{ ref }}">{{ repo.owner }}/{{ repo.name }} · {{ ref }}</option>{% endfor %}{% endfor %}</select></label>
+<label>Specification source<select name="source_kind" id="source-kind"><option value="inline">Inline specification</option><option value="interview">Guided interview</option><option value="repo">Pinned repository file</option></select></label></div>
+<label data-source="inline">Specification<textarea name="text" rows="8" maxlength="262144"></textarea></label>
+<div class="form-grid" data-source="repo" hidden><label>Source owner<input name="source_owner"></label><label>Source repository<input name="source_name"></label><label>Exact commit<input name="source_commit"></label><label>Relative file path<input name="source_path"></label></div>
+<div class="form-options"><label><input name="spec_debate" type="checkbox"> Debate specification</label><label><input name="plan_debate" type="checkbox"> Debate plan</label></div>
+<button class="btn btn--primary" type="submit">Create run</button></form></section>
+{% else %}
+<div class="metrics"><article class="metric"><h2 class="metric__label">Runner slots</h2>{% if metrics.slots %}{% for slot,count in metrics.slots.items() %}<p>{{ slot }} <strong>{{ count }}</strong></p><meter min="0" max="{{ 2 if slot=='worker' else 1 }}" value="{{ count }}" aria-label="{{ slot }} occupied slots">{{ count }}</meter>{% endfor %}{% else %}<p class="metric__big">unknown</p>{% endif %}<p class="metric__note">Reported occupancy</p></article>
+<article class="metric"><h2 class="metric__label">Work queue</h2><p class="metric__big">{{ metrics.queued }} ready · {{ metrics.claimed }} claimed</p><p class="metric__note">Committed queue totals</p></article>
+<article class="metric"><h2 class="metric__label">Runner contact</h2><p>{{ chip('reachable' if metrics.runner.get('reachable') else 'unreachable') if metrics.runner else 'unknown' }}</p><p class="metric__note">Readiness: {{ 'reconciled' if metrics.runner.get('reconciled') else 'not reconciled' }}<br>Last contact: {{ metrics.runner.get('last_contact','unknown') }}<br>Spool: {{ metrics.spool }} bytes</p></article>
+<article class="metric"><h2 class="metric__label">Usage (reported)</h2><p class="metric__big">{{ metrics.usage.input_tokens }} in / {{ metrics.usage.output_tokens }} out</p><p class="metric__note">{% for currency,cost in metrics.usage.costs.items() %}{{ currency }} {{ cost }} reported{% else %}Cost unknown{% endfor %}</p></article></div>
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">{{ 'Attempts' if attempts_page else 'Phases' }}</h2><span class="tablecard__meta">cursor {{ view.cursor }}</span></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Identity</th><th>Workflow / step</th><th>State</th><th>Context</th></tr></thead><tbody>
+{% if attempts_page %}{% for attempt in view.attempts %}<tr data-filter><td><a class="mono" href="/attempts/{{ attempt.id }}">{{ attempt.id }}</a></td><td>{{ attempt.claim.job.step }}</td><td>{{ chip(attempt.status) }}</td><td><a href="/phases/{{ attempt.claim.job.phase_id }}">Phase</a></td></tr>{% else %}<tr><td colspan="4">No attempts yet.</td></tr>{% endfor %}
+{% else %}{% for phase in view.phases %}<tr data-filter><td><a class="mono" href="/phases/{{ phase.id }}">{{ phase.id }}</a></td><td>{{ phase.input.workflow }}</td><td>{{ chip(phase.state) }}</td><td>{{ phase.input.repo.owner }}/{{ phase.input.repo.name }}<br><span class="mono">{{ phase.input.repo.target_ref }}</span></td></tr>{% else %}<tr><td colspan="4">No phases yet. <a href="/?new=1">Create a run</a>.</td></tr>{% endfor %}{% endif %}
+</tbody></table></div><p class="tablecard__foot">Committed state · at most 100 rows.</p></section>
+{% endif %}
+{% endblock %}
