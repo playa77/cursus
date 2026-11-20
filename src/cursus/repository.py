@@ -17,6 +17,12 @@ import urllib.request
 from cursus.contracts import Problem, validate, _path
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirects could forward publisher authority to another origin."""
+    def redirect_request(self, *args):
+        raise Problem('transport', 'Redirects are forbidden.')
+
+
 class GitHub:
     """Single-flight paced REST boundary; no automatic non-idempotent retry."""
     def __init__(self, credential_file):
@@ -35,8 +41,6 @@ class GitHub:
             headers={'Authorization': 'Bearer ' + secret(self.credential_file),
                      'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
                      'X-GitHub-Api-Version': '2022-11-28'})
-        # Redirects could forward publisher authority to another origin.
-        from cursus.runner import NoRedirect
         try:
             with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
                 return json.loads(response.read(1048577))
