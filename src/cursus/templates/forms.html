@@ -1,0 +1,11 @@
+{% macro hidden(kind, csrf, key, fields={}) -%}
+<input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="request_id" value="{{ key }}">
+{% for name,value in fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+{%- endmacro %}
+{% macro chip(state) -%}<span class="chip chip--{{ 'ok' if state in ['delivered','passed','accept','ready','accepted'] else 'warn' if state in ['parked','unknown','pending','canceling','unreachable'] else 'danger' if state in ['canceled','abandoned','failed','rejected'] else 'active' if state in ['active','execution','planning','running','claimed'] else 'neutral' }}">{{ state }}</span>{%- endmacro %}
+{% macro commands(attempt) %}{% for command in attempt.get('commands',{}).values() %}<p aria-live="polite">{{ command.action }}: {{ chip(command.state) }}{% if command.get('result') %} {{ command.result.get('reason','') }}{% endif %}</p>{% endfor %}{% endmacro %}
+{% macro logs(view, phase, attempt=None) %}
+<section class="card"><div class="card__head"><h2 class="card__title">Committed events</h2><div><button type="button" class="btn btn--ghost btn--sm" id="pause-log">Pause autoscroll</button><button type="button" class="btn btn--ghost btn--sm" id="copy-log">Copy</button><button type="button" class="btn btn--secondary btn--sm" id="refresh-state" hidden>Refresh state</button></div></div>
+<pre id="event-log" class="logwell" tabindex="0" aria-label="Committed event log" aria-live="off" data-events="/phases/{{ phase.id }}/events" data-cursor="{{ view.cursor }}" {% if attempt %}data-attempt="{{ attempt.id }}"{% endif %}>{% for event in view.events %}{% if not attempt or event.attempt_id==attempt.id or event.payload.get('attempt_id')==attempt.id %}<span class="event-line event-kind-{{ event.kind }}">{{ event.time }} {{ event.cursor }} {{ event.kind }} {{ event.payload | tojson }}
+</span>{% endif %}{% endfor %}</pre><p class="card__note">Cursor {{ view.cursor }} · reconnect resumes committed history.</p></section>
+{% endmacro %}

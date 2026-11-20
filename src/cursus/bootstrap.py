@@ -54,7 +54,8 @@ async def service(args):
                     await control.maintain('tick')
             timer = asyncio.create_task(maintenance())
             try:
-                await serve(settings, control)
+                from cursus.browser import environment
+                await serve(settings, control, environment())
             finally:
                 timer.cancel()
                 await asyncio.gather(timer,return_exceptions=True)

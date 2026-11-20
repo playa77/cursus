@@ -54,6 +54,8 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(OSError):
                 await rt['runner'].dispatch(claim)
             self.assertEqual((await rt['control'].query('local_operator', 'attempts', claim['attempt_id']))['items'][0]['status'], 'active')
+            await rt['control'].action('local_operator',str(uuid4()),dict(kind='declare_unrecoverable',
+                attempt_id=claim['attempt_id'],reason='Lost upload acknowledgment; outcome unknown.'))
             # Reopen the fsynced journal as after a runner restart, replay receipts
             # and finals; do not launch the verifier a second time.
             rt['journal'].close()
@@ -106,3 +108,24 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Problem):
                 await wire.binary(f'attempts/{uuid4()}/artifacts/{uuid4()}', b'abc', headers(ref))
             self.assertEqual(list(rt['ws'].artifacts.glob('.upload-*')), [])
+
+    async def test_abandoned_pending_upload_does_not_block_replay(self):
+        async with phase_runtime() as rt:
+            await drive(rt,lambda p:p['state']=='verification')
+            claim=await rt['runner'].claim('verifier')
+            original=rt['runner'].transport.upload
+            async def unavailable(*args):
+                raise OSError('Upload interrupted before response')
+            rt['runner'].transport.upload=unavailable
+            with self.assertRaises(OSError):
+                await rt['runner'].dispatch(claim)
+            for kind in ('declare_unrecoverable','abandon'):
+                await rt['control'].action('local_operator',str(uuid4()),dict(kind=kind,
+                    attempt_id=claim['attempt_id'],reason='Operator isolated lost verifier.'))
+            rt['runner'].transport.upload=original
+            await rt['runner'].reconcile()
+            await rt['runner'].replay()
+            self.assertTrue(any(r['kind']=='artifact_discarded' for r in rt['journal'].records))
+            attempt=(await rt['control'].query('local_operator','attempts',claim['attempt_id']))['items'][0]
+            self.assertEqual(attempt['status'],'abandoned')
+            self.assertEqual((await drive(rt))['state'],'delivered')

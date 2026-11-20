@@ -81,8 +81,9 @@ def code_input():
 
 class SocketService:
     """Real HTTP over a private disposable Unix socket; no ASGI test shortcut."""
-    def __init__(self, control, path, local=True):
+    def __init__(self, control, path, local=True, browser=False):
         self.control, self.path, self.local = control, path, local
+        self.browser = browser
 
     async def __aenter__(self):
         import asyncio
@@ -94,7 +95,7 @@ class SocketService:
         self.path.chmod(0o600)
         self.socket.listen(128)
         self.socket.setblocking(False)
-        self.server = uvicorn.Server(uvicorn.Config(application(self.control, self.local),
+        self.server = uvicorn.Server(uvicorn.Config(application(self.control, self.local, self.browser),
                                                     log_level='error', lifespan='off'))
         self.task = asyncio.create_task(self.server.serve(sockets=[self.socket]))
         for _ in range(100):

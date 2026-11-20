@@ -45,7 +45,7 @@ class StoreTests(unittest.IsolatedAsyncioTestCase):
             await self.store.transact('operator', 'submit', key, {'changed': True}, unused)
 
     async def test_migration_integrity_and_wakeup(self):
-        self.assertEqual(await self.store.migrate(), 1)
+        self.assertEqual(await self.store.migrate(), 2)
         raw = files('cursus').joinpath('migrations/001_initial.sql').read_bytes()
         with self.assertRaises(Problem):
             await self.store.migrate([('001_initial.sql', raw + b'\n-- changed')])

@@ -135,10 +135,17 @@ class Store:
                 position = await connection.fetchval('SELECT cursor FROM coordination')
                 if table == 'events':
                     rows = await connection.fetch(
-                        'SELECT cursor,kind,payload FROM events WHERE cursor>$1 '
+                        'SELECT cursor,kind,time,attempt_id,payload FROM events WHERE cursor>$1 '
                         'AND ($2::uuid IS NULL OR phase_id=$2) ORDER BY cursor LIMIT 100',
                         cursor, identity)
-                    return {'cursor': position, 'items': [dict(row, payload=payload(row)) for row in rows]}
+                    floor = await connection.fetchval('SELECT event_floor FROM coordination')
+                    return {'cursor': rows[-1]['cursor'] if rows else position,
+                            'snapshot_cursor': position, 'floor': floor,
+                            'reset': cursor < floor or cursor > position,
+                            'items': [dict(cursor=row['cursor'], kind=row['kind'],
+                                time=row['time'].isoformat(),
+                                attempt_id=str(row['attempt_id']) if row['attempt_id'] else None,
+                                payload=payload(row)) for row in rows]}
                 if table in ('specs', 'plans'):
                     rows = await connection.fetch(f'SELECT payload FROM {table} WHERE phase_id=$1 '
                                                   'ORDER BY revision', identity)
@@ -147,6 +154,48 @@ class Store:
                 else:
                     rows = await connection.fetch(f'SELECT payload FROM {table} LIMIT 100')
                 return {'cursor': position, 'items': [payload(row) for row in rows]}
+
+    async def browser_view(self, route, identity=None):
+        """One committed snapshot for state, controls, logs and ready downloads."""
+        async with self.pool.acquire() as connection:
+            async with connection.transaction(isolation='repeatable_read', readonly=True):
+                position = await connection.fetchval('SELECT cursor FROM coordination')
+                entity = None
+                if route in ('phases', 'attempts'):
+                    entity = payload(await connection.fetchrow(
+                        f'SELECT payload FROM {route} WHERE id=$1', identity))
+                    if not entity:
+                        raise Problem('not_found', 'Resource unavailable.')
+                phase_id = (entity['claim']['job']['phase_id'] if route == 'attempts'
+                            else identity if route == 'phases' else None)
+                phase = (payload(await connection.fetchrow('SELECT payload FROM phases WHERE id=$1', phase_id))
+                         if phase_id else None)
+                counts = await connection.fetch("SELECT state,count(*) AS count FROM jobs GROUP BY state")
+                usage = await connection.fetch("SELECT payload FROM events WHERE kind='usage' "
+                    "AND ($1::uuid IS NULL OR phase_id=$1) AND ($2::uuid IS NULL OR attempt_id=$2)",
+                    phase_id, identity if route == 'attempts' else None)
+                result = dict(cursor=position, entity=entity, phase=phase,
+                              queue_counts={r['state']:r['count'] for r in counts},
+                              usage=[payload(r)['payload'] for r in usage])
+                for table in ('phases', 'attempts', 'jobs', 'runners', 'artifacts'):
+                    condition = ''
+                    args = []
+                    if phase_id and table in ('attempts', 'jobs'):
+                        condition, args = ' WHERE phase_id=$1', [phase_id]
+                    elif phase_id and table == 'artifacts':
+                        condition, args = " WHERE payload->>'phase_id'=$1", [phase_id]
+                    columns = 'payload,state' if table == 'jobs' else 'payload'
+                    rows = await connection.fetch(f'SELECT {columns} FROM {table}{condition} ORDER BY id LIMIT 100', *args)
+                    result[table] = [dict(payload(r), state=r['state']) if table == 'jobs' else payload(r) for r in rows]
+                if phase_id:
+                    rows = await connection.fetch('SELECT cursor,kind,time,attempt_id,payload FROM events '
+                        'WHERE phase_id=$1 ORDER BY cursor DESC LIMIT 100', phase_id)
+                    result['events'] = [dict(cursor=r['cursor'], kind=r['kind'], time=r['time'].isoformat(),
+                        attempt_id=str(r['attempt_id']) if r['attempt_id'] else None, payload=payload(r))
+                        for r in reversed(rows)]
+                else:
+                    result['events'] = []
+                return result
 
     async def wait(self, deadline, cursor=None):
         # Register before checking the cursor; notifications are advisory and a

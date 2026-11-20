@@ -19,7 +19,9 @@ Reserve immutable artifact metadata and phase budget under the coordination
 transaction, stage/hash/fsync bytes outside it, then recheck claim ownership and
 commit ready metadata. Persist runner upload intent and exact evidence bytes
 before final spool entries; replay transfers before sending finals. A lost receipt
-reuses the same file ID and digest. Flat server-computed paths, no-follow opens,
+reuses the same file ID and digest. Reconciliation marks stale uploads discarded
+without pretending receipt; their stale final audit cannot advance the phase.
+Current unknown owners may still submit independently validated late evidence. Flat server-computed paths, no-follow opens,
 atomic links and held verified descriptors protect immutable downloads. Staged
 reservations survive interruptions and count against the phase cap; maintenance
 of orphan reservations remains WP-19. Verifier results require ready owned logs.

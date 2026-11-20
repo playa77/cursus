@@ -79,6 +79,13 @@ class Control:
     async def query(self, principal, route, entity_id=None, cursor=0):
         if principal != 'local_operator':
             raise Problem('forbidden', 'Operator authorization required.')
+        if route.startswith('browser/'):
+            route = route.removeprefix('browser/')
+            if route not in ('overview', 'phases', 'attempts'):
+                raise Problem('not_found', 'Resource unavailable.')
+            if entity_id:
+                validate('Id', entity_id)
+            return await self.store.browser_view(route, entity_id)
         table = {'phases': 'phases', 'attempts': 'attempts', 'overview': 'phases', 'events': 'events'}.get(route)
         if table is None:
             raise Problem('not_found', 'Resource unavailable.')

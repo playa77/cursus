@@ -491,3 +491,67 @@ and the PR must point to the reviewed passing result. For debate, record three
 actual CLI identities plus fresh seat attempts and durable amendments/transcript.
 Only after all live gates pass may a separately authorized reviewed M2 tag be
 created. Do not substitute these fixture tests for live qualification.
+
+## M3 browser and evidence (WP-15/16)
+
+Source implementation is available through WP-16. User qualification and all
+live testing are deferred until the end of M3 (WP-17), including prior pending
+M0/M1/M2 gates. Run the existing qualification checklist then; do not infer live
+acceptance or create milestone tags from fixture tests.
+
+The control service starts the existing protected Unix socket for JSON CLI
+commands and a loopback listener for Serve browser and bearer runner traffic.
+Configure `service.external_origin` as the exact private HTTPS origin (no trailing
+slash), and `service.operator_login` as the exact canonical Serve login. The
+browser checks the Host, exactly one `Tailscale-User-Login`, and exact Origin on
+writes. Serve must overwrite injected identity headers; only trusted dedicated
+host services may reach the loopback backend. These OS/proxy properties require
+actual WP-17 qualification, not just application header fixtures. Never publish
+the loopback port or enable public Funnel. Keep runner bearer configuration and
+operator socket access unchanged.
+
+After deploying the committed package and role release, restart control at an
+appropriate checkpoint. Migration 002 adds the retained-event floor without
+rewriting earlier migration history. Reconcile the runner before new claims.
+Browser sessions expire after eight hours and invalidate on control restart;
+reload the page to obtain fresh CSRF/session state. Forms retain request UUIDs
+for repeat submissions. The session cookie is host-only, Secure, HttpOnly and
+SameSite Strict. Themes initially follow the OS; the content theme
+control remembers an explicit light/dark/system choice. All assets are local.
+
+The overview shows committed phases, attempts, queue/runner state and reported
+usage. Phase pages expose open questions, eligible steering, cancellation,
+recovery dispositions, PR handoff and ready evidence downloads. Cancellation
+remains pending until confirmed stops and remote effects are resolved. Recovery
+controls require evidence/reason and explicit confirmation; an unreachable
+runner still holds its claims. No browser maintenance or merge action exists.
+When a new event arrives while a form contains a draft, use **Refresh state**
+after preserving/submitting that draft. The event panel supports pause/copy.
+SSE resumes by committed ID; an expired or future cursor resets to a snapshot.
+Tables show at most 100 entities and event panels the latest 100 snapshot events;
+new streaming text is bounded in the DOM. Detailed CLI reads remain available.
+
+`service.artifact_root` must be a private control-owned directory on a local
+filesystem with fsync/atomic-link support. Each verification creates a runner-owned
+JSON evidence file, uploads it by immutable attempt/file ID and commits ready
+metadata before its final can advance. A reviewer fetches only logs declared in
+its current claim and verifies the digest before starting. Operator downloads
+are attachments (`application/octet-stream`, `nosniff`) with `X-Cursus-Sha256`.
+Limits: 32 MiB/file, 256 MiB/phase; staged reservations consume the phase budget.
+Interrupted transfers retry the same immutable ID/metadata and exact bytes.
+Runner upload intents and files remain in its protected spool until later
+retention work (WP-19); monitor disk use. Do not manually edit or delete the
+journal, staged reservations or evidence to clear a limit.
+
+Local M3 regression commands use only the authorized disposable PostgreSQL and
+executable/Git/HTTP boundary fixtures:
+
+```bash
+python -m unittest discover -s tests/integration -p 'test_artifacts.py'
+python -m unittest discover -s tests/integration -p 'test_browser.py'
+```
+
+At WP-17, qualify both operator devices, actual Serve identity/header isolation,
+TLS cookies/origin and CSRF, SSE disconnect/replay/reset, pending/cancel/recovery
+states, and a digest-matching evidence file from a real completed run. Include
+the deferred earlier live qualification before claiming the M3 release.

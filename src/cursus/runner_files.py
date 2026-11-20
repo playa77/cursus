@@ -37,11 +37,17 @@ def evidence(runner, attempt_id, value):
 
 
 async def replay(runner):
-    receipts = {r['value']['id'] for r in runner.journal.records if r['kind'] == 'artifact_receipt'}
+    receipts = {r['value']['id'] for r in runner.journal.records if r['kind'] in ('artifact_receipt','artifact_discarded')}
+    directives = [r['value'] for r in runner.journal.records if r['kind']=='directive']
+    dispositions = directives[-1].get('dispositions',{}) if directives else {}
     for record in list(runner.journal.records):
         if record['kind'] != 'artifact_pending' or record['value']['file']['id'] in receipts:
             continue
         item = record['value']
+        if dispositions.get(item['attempt_id']) in ('stop-stale','ignore-stale'):
+            runner.record('artifact_discarded', dict(id=item['file']['id'], reason='Reconciled stale attempt.'))
+            receipts.add(item['file']['id'])
+            continue
         result = await runner.transport.upload(item['attempt_id'], item['file'], Path(item['path']))
         if validate('FileRef', result) != item['file']:
             raise Problem('artifact_conflict', 'Upload receipt differs from evidence.')

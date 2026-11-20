@@ -296,3 +296,53 @@ interrupted body streams, wrong digest/metadata, unsafe decoded names and oversi
 lengths did not expose ready files. After a lost committed-upload receipt, reopening
 the fsynced journal replayed the transfer/final with the original attempt and
 exactly one verifier launch. Tests never inserted artifact metadata manually.
+
+## WP-16 source verification — 2026-11-20
+
+Design acceptance is recorded in DESIGN.md and ADR 0007. Source work through
+WP-16 is implemented as package **0.4.0**. Live/user qualification is deferred to
+the end of M3 (WP-17), including the outstanding earlier gates. No milestone tag,
+provider inference, GitHub publication or deployment was performed by these tests.
+
+Final environment: CPython **3.12.14**, PostgreSQL **18.6**, hash-locked dependencies.
+The complete integration collection passed in three bounded unittest batches:
+
+- **23 passed:** artifacts (4), browser (5), debug (5), execution (3), intake (2),
+  Store (3), runner transport (1).
+- **20 passed:** one-package (6), phase scheduling (5), recovery (7), repository (2).
+- **5 passed:** interview/debate.
+
+Total **48 integration tests passed**. Following the final test cleanup and late
+unknown-owner assertion, browser discovery passed again (**5**) and the changed
+artifact recovery case passed (**1**). Unit discovery: **18 passed**. Compileall
+and `git diff --check` passed. The 0.4.0 wheel built and installed; dependency
+compatibility passed, offline installed CLI help/version worked, and isolated
+installed-package checks found Jinja templates, local htmx/license and migration
+002. An earlier monolithic regression run ended without a complete summary; the
+bounded batches above supersede it. Initial fixture artifact-root/migration
+expectations and reviewer snapshot preparation were corrected before final passes.
+
+Browser HTTP checks exercised real committed intake, answers, eligible steering,
+pending cancellation and confirmed stop, unknown ownership and reasoned
+abandonment, usage projections, PR handoff and SHA-256-matching artifact download.
+Checked exact/missing/duplicate/wrong Serve identities, wrong Host and Origin,
+bearer substitution, forged CSRF, repeated and conflicting action UUIDs, escaped
+log data, local assets, real SSE IDs/replay, more than 100 events without cursor
+skips, and reset for invalidated/future cursor. Migration 002 provides the retained
+cursor floor; actual retention maintenance belongs to WP-19. Disconnect cleanup
+is shielded to finish short database reads/listener release.
+
+Artifact recovery additionally covers replay after abandonment: stale uploads
+are durably discarded, stale finals remain audit-only, and a replacement can
+finish. Independently validated late logs resolve a current unknown verifier
+without launching it again. Reviewers retrieve digest-checked logs only through
+their current claim and receive read-only evidence files before execution.
+
+Visual inspection used credential-free headless **Google Chrome 156.0.8078.47**
+against a local fixture Serve proxy and a real fixture-produced delivered phase.
+Inspected native screenshots: overview light 1440×900; phase light 1366×768;
+phase dark 1440×900; intake light 1366×768. Observed the accepted fixed sidebar,
+centered stacked content, theme control, compact tables, lifecycle rail, exact PR
+handoff and evidence rows without horizontal page overflow. This is local visual
+QA, not qualification of real Serve forwarding, OS identities, MyPC/Chromebook,
+provider behavior, screen readers or production readiness. Those remain WP-17.
