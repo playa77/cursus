@@ -105,6 +105,9 @@ class NativeSetup:
 
     def podman(self,*args,**kwargs):
         kwargs.setdefault('timeout',30)
+        # Rootless Podman re-enters cwd after dropping privileges; the caller’s
+        # private home may be inaccessible to cursus-runner.
+        kwargs.setdefault('cwd',self.root)
         return subprocess.run([*self.prefix,*map(str,args)],check=True,**kwargs)
 
     def own_dir(self,path):
@@ -159,7 +162,7 @@ class NativeSetup:
     def recover(self):
         if not self.ledger.exists():return
         state=json.loads(self.ledger.read_text())
-        exists=subprocess.run([*self.prefix,'container','exists',state['name']],capture_output=True,timeout=20)
+        exists=subprocess.run([*self.prefix,'container','exists',state['name']],capture_output=True,timeout=20,cwd=self.root)
         if exists.returncode==1:
             self.ledger.unlink();return
         if exists.returncode:raise RuntimeError('Cannot inspect prior native onboarding container; reservation retained')
@@ -278,7 +281,7 @@ print(json.dumps(result))
         command=[*self.prefix,'exec','--interactive',identity,'/usr/bin/timeout',
                  '--signal=TERM','--kill-after=10s','120s',*argv]
         process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,start_new_session=True,
+                                 stderr=subprocess.PIPE,start_new_session=True,cwd=self.root,
                                  env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8'})
         selector=selectors.DefaultSelector()
         output=bytearray(); diagnostics=bytearray(); pending=bytearray()
@@ -378,7 +381,7 @@ print(json.dumps(result))
         active=subprocess.run(['runuser','-u','cursus-runner','--','env',
                                'XDG_RUNTIME_DIR=/run/user/'+str(self.account.pw_uid),
                                'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(self.account.pw_uid)+'/bus',
-                               'systemctl','--user','is-active','--quiet','cursus-runner'],timeout=20,capture_output=True)
+                               'systemctl','--user','is-active','--quiet','cursus-runner'],timeout=20,capture_output=True,cwd=self.root)
         if active.returncode==0:raise RuntimeError('Drain and stop the active runner before changing native login domains.')
         if active.returncode not in (3,4):raise RuntimeError('Cannot establish runner inactivity; fix its user manager before native setup.')
         lifecycle=Path(self.config['service']['state_root'])/'execution/containers.json'

@@ -40,7 +40,7 @@ approved OS runtime helpers; Cursus libraries remain permissive (ADR 0009).
 | 3 | Intent and immutable ID journal/ledger, host UID/GID/image checks; collision and missing-ledger tests. | Runtime identity/descendant probes on VPS-A. |
 | 4 | Create/remove fault and idempotent retry tests; result delivery separate from cleanup; exact unknown-final receipt ordering test. | Intended-filesystem power-loss/stop behavior. |
 | 5 | `PendingClaimTests`: actual held claim resumes through runner service after resources return, same attempt, no reconnect. | Host pressure behavior. |
-| 6 | Separate provider claim test (six claims), verifier reserve test, five continuing debug cases with competing reservations. | Actual cgroup enforcement/maximum-load sizing; no simultaneous-max promise. |
+| 6 | Separate provider claim test (six claims), all-lanes admission test (four pi plus six frontier sessions and one verifier), actual memory/disk pressure tests (ADR 0014), five continuing debug cases with competing reservations. | Actual cgroup enforcement/maximum-load sizing; no simultaneous-max promise. |
 | 7 | No copies; exclusive explicit domains; invalid overlap and incomplete capability rejection. | Native provider concurrent renewal/persistence/recovery remains unqualified; startup requires attestation at requested ceiling. |
 | 8 | Rootless keep-id/non-root command contract, ownership and image checks; prohibited mount tests. | Actual UID/userns/mount/cgroup effects. |
 | 9 | Browser/health lifecycle and waiting/cleanup reasons with timestamps; durable cleanup backlog. | Fresh intended-host readiness/diagnostic walkthrough. |
