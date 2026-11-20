@@ -9,6 +9,11 @@ from cursus import __version__
 from cursus.contracts import Problem, decode_json, validate
 
 
+def default_socket():
+    import os
+    return (os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') + '/cursus/operator.sock'
+
+
 def parser():
     root = argparse.ArgumentParser(prog='cursus', description='Private evidence-driven work coordination.')
     root.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
@@ -20,7 +25,7 @@ def parser():
     command.add_argument('--config', help='service config; only its [execution] section is read')
     for name in ('submit', 'action', 'status'):
         command = commands.add_parser(name)
-        command.add_argument('--socket', default='/run/cursus/operator.sock')
+        command.add_argument('--socket', default=default_socket(), help='operator socket (default: your runtime directory)')
         if name == 'status':
             selection = command.add_mutually_exclusive_group()
             selection.add_argument('--phase-id')

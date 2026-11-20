@@ -21,6 +21,16 @@ from tests.support import workspace
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_operator_socket_defaults_to_the_users_runtime_directory(self):
+        import os
+        from unittest.mock import patch
+        from cursus.bootstrap import parser
+        with patch.dict(os.environ, {'XDG_RUNTIME_DIR': '/run/user/4242'}):
+            self.assertEqual(parser().parse_args(['status']).socket, '/run/user/4242/cursus/operator.sock')
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(parser().parse_args(['status']).socket, f'/run/user/{os.getuid()}/cursus/operator.sock')
+        self.assertEqual(parser().parse_args(['status', '--socket', '/x/s']).socket, '/x/s')
+
     def test_help_is_offline_and_lists_m1_commands(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(SystemExit) as result:
