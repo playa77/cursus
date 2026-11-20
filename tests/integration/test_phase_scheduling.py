@@ -68,7 +68,6 @@ class SchedulingTests(unittest.IsolatedAsyncioTestCase):
     async def test_runner_service_drives_parallel_phase(self):
         value=code_input(); value['form']='phase'
         async with phase_runtime({'claude':packages()},value) as rt:
-            rt['config']['limits']['long_poll_seconds']=.01
             identities=[]
             record=rt['execution'].runtime.record
             def spy(kind,value):

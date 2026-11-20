@@ -72,8 +72,6 @@ Carry-overs for later packages:
 - WP-B: `capabilities_file`/`capabilities_digest`, `qualification`, `profile_digest`,
   `credential_concurrency` (no longer enforced, still required by `capability()`),
   and verification of every CLI's `clean_config_argv` against real installs.
-- WP-C: the controller still supports the capacity-less legacy `frontier` slot
-  path and `Runner` still tolerates `execution=None` for transport-only tests.
 - WP-D: `deploy/cursus-runner.service` still assumes the rootless
   account, Podman, cgroup slice and subuid ranges; a service stop must kill the
   whole control group so orphaned CLI descendants cannot survive.
@@ -133,7 +131,7 @@ ops docs and the acceptance matrix carry an obsolete banner; ADRs 0009, 0011, 00
 and 0015 are marked superseded (0010 and 0012 partly). WP-D no longer deletes these;
 it writes the replacement installer, systemd unit, README and ops docs.
 
-### WP-C1: the single process (design checkpoint)
+### WP-C1: the single process (implemented; design checkpoint first)
 
 Finding: the runner/control protocol is transactional and idempotent (reconcile with
 dispositions, `jobs/next` claims keyed by request id, sequence-checked event digests,
@@ -144,6 +142,36 @@ the runner journal, and replaces HTTPS with an in-process transport calling
 `Control.runner_request` and `artifact_control.upload/download` directly.
 Removing the protocol itself (runner calling the store directly) is a non-goal: it
 would rewrite the recovery guarantees for no operator benefit.
+
+Implemented:
+- [x] `LocalTransport` (in `runner.py`) replaces `HTTPS`/`NoRedirect`: calls
+  `Control.runner_request` and `artifact_control.upload/download` in process, round-trips
+  values through strict JSON as the wire did, and bounds the runner's share of the
+  database pool. Control's real Problem codes now reach the runner (HTTP had flattened
+  them to `transport`); a database failure raises out of the runner and ends the process
+  for a supervised restart.
+- [x] Removed the runner HTTP routes, the bearer guard and digest, `Runner`'s
+  `intake_denied` path, `service.origin/bearer_file/spool_root`, `runner.tailnet_node`,
+  the legacy capacity-less slot defaults, the long-poll branch and the `long_poll_seconds`
+  and `runner_spool_bytes` limits. `capacity` is required everywhere, and the runner
+  requires an execution (host runtime); the no-execution mode served only transport tests.
+- [x] One config: `process_kind = "serve"`, `schema_version = 3`
+  (`deploy/cursus.example.toml`, validated through the real loader in tests). One command:
+  `cursus serve` replaces `control` and `runner`. `bootstrap.run()` supervises
+  maintenance, both HTTP surfaces and the runner; any component ending ends the process.
+  `check_identity` refuses root and a user other than `service.user`.
+- [x] Deleted both two-process units and templates; the replacement unit is WP-D.
+- Acceptance results: unit 57/57, integration 63/63, including an end-to-end test of
+  `run()` (one process, real operator socket, journal, host runtime, PostgreSQL schema,
+  fixture CLIs and Git remote) that delivers a phase and removes its socket on stop.
+- NOT verified: a real `cursus serve` start as a non-root user (the identity check is
+  unit-tested and `run()` is exercised, but no unprivileged account could launch the
+  process here), SIGTERM handling of the real process, any real CLI or login, and the
+  browser surface behind a real reverse proxy.
+- Carry-overs for WP-D: installer, systemd unit (must kill the whole control group on
+  stop so orphaned CLI descendants cannot survive), README and ops rewrite, normative
+  spec revision, version bump. Cosmetic: workflow steps still name the placeholder lane
+  `frontier` before the control plane maps it to the role's CLI lane.
 
 Files: `src/cursus/runner.py`, `src/cursus/transport.py`, `src/cursus/http.py`,
 `src/cursus/control.py`, `src/cursus/bootstrap.py`, `src/cursus/config.py`,

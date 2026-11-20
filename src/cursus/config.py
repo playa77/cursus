@@ -108,7 +108,7 @@ def role_release(service):
     return registry
 
 
-def load(process_kind, path, release_root=None):
+def load(process_kind, path):
     raw = absolute(path).read_bytes()
     try:
         settings = tomllib.loads(raw.decode())
@@ -118,61 +118,41 @@ def load(process_kind, path, release_root=None):
         keys(settings, ('operator_socket',))
         absolute(settings['operator_socket'])
         return settings
-    required = ('schema_version', 'process_kind', 'service', 'limits')
-    if process_kind == 'control':
-        keys(settings, (*required, 'runner', 'repositories', 'backup', 'capacity'))
-        if 'capacity' in settings:
-            capacity(settings['capacity'])
-        service = settings['service']
-        if release_root is not None:
-            staged = absolute(release_root)
-            for key in ('roles_file','prompts_root'):
-                configured = absolute(service[key])
-                if configured.is_relative_to('/opt/cursus/current'):
-                    service[key] = str(staged / configured.relative_to('/opt/cursus/current'))
-        keys(service, ('user', 'group', 'operator_group', 'listen_host', 'listen_port',
-                       'operator_socket', 'external_origin', 'operator_login', 'dsn_file',
-                       'artifact_root', 'roles_file', 'prompts_root', 'role_release_commit'))
-        if service['listen_host'] != '127.0.0.1':
-            fail('Control must bind loopback.')
-        keys(settings['runner'], ('id', 'tailnet_node', 'bearer_digest_file'))
-        validate('Id', settings['runner']['id'])
-        keys(settings['backup'], ('root', 'off_host_destination'))
-        absolute(settings['backup']['root'])
-        enrollment(settings['repositories'])
-        release = role_release(service)
-        settings['roles'] = release['roles']
-        settings['dsn'] = secret(service['dsn_file'])
-        settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
-        origin = service['external_origin']
-    elif process_kind == 'runner':
-        keys(settings, (*required, 'publisher', 'capacity', 'execution', 'repositories'))
-        service = settings['service']
-        keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
-                       'repository_root', 'worktree_root', 'review_root'))
-        validate('Id', service['runner_id'])
-        for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
-            absolute(service[key])
-        enrollment(settings['repositories'])
-        keys(settings['publisher'], ('git_binary', 'git_credential_file', 'github_credential_file'))
-        for configured in settings['publisher'].values():
-            absolute(configured)
-        capacity(settings['capacity'])
-        execution_settings(settings['execution'])
-        settings['bearer'] = secret(service['bearer_file'])
-        origin = service['origin']
-    else:
+    if process_kind != 'serve':
         fail('Unsupported process kind.')
-    if settings['schema_version'] != (2 if process_kind == 'runner' or 'capacity' in settings else 1) or settings['process_kind'] != process_kind:
+    # One host, one process (ADR 0016): control and runner share this file.
+    keys(settings, ('schema_version', 'process_kind', 'service', 'limits', 'runner', 'publisher', 'capacity',
+                    'execution', 'repositories', 'backup'))
+    if settings['schema_version'] != 3 or settings['process_kind'] != 'serve':
         fail()
-    parsed = urlsplit(origin)
+    service = settings['service']
+    keys(service, ('user', 'operator_group', 'listen_host', 'listen_port', 'operator_socket',
+                   'external_origin', 'operator_login', 'dsn_file', 'artifact_root', 'roles_file',
+                   'prompts_root', 'role_release_commit', 'state_root', 'repository_root',
+                   'worktree_root', 'review_root'))
+    if service['listen_host'] != '127.0.0.1':
+        fail('The service must bind loopback.')
+    for key in ('state_root', 'repository_root', 'worktree_root', 'review_root', 'artifact_root'):
+        absolute(service[key])
+    keys(settings['runner'], ('id',))
+    validate('Id', settings['runner']['id'])
+    keys(settings['backup'], ('root', 'off_host_destination'))
+    absolute(settings['backup']['root'])
+    enrollment(settings['repositories'])
+    keys(settings['publisher'], ('git_binary', 'git_credential_file', 'github_credential_file'))
+    for configured in settings['publisher'].values():
+        absolute(configured)
+    capacity(settings['capacity'])
+    execution_settings(settings['execution'])
+    release = role_release(service)
+    settings['roles'] = release['roles']
+    settings['dsn'] = secret(service['dsn_file'])
+    parsed = urlsplit(service['external_origin'])
     if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
         fail('Expected an exact HTTPS origin.')
-    allowed_limits = {'long_poll_seconds','heartbeat_seconds','unreachable_after_missed_heartbeats',
-        'repair_retries','interrupted_retries','debate_rounds','debug_turns','interview_rounds',
-        'request_bytes','spec_bytes','log_event_bytes','events_per_batch','artifact_bytes',
-        'phase_artifact_bytes','runner_spool_bytes'} if process_kind == 'control' else {'long_poll_seconds','heartbeat_seconds','spool_bytes'}
-    keys(settings['limits'], allowed_limits)
+    keys(settings['limits'], ('heartbeat_seconds', 'unreachable_after_missed_heartbeats', 'repair_retries',
+        'interrupted_retries', 'debate_rounds', 'debug_turns', 'interview_rounds', 'request_bytes', 'spec_bytes',
+        'log_event_bytes', 'events_per_batch', 'artifact_bytes', 'phase_artifact_bytes', 'spool_bytes'))
     for name, value in settings['limits'].items():
         positive(value)
         if name == 'debate_rounds' and value > 3:

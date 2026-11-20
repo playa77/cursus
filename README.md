@@ -4,7 +4,8 @@
 > already-signed-in Claude Code, Codex CLI, Antigravity and pi directly on one host, in one
 > process, without containers. **The installation and operation instructions below describe the
 > removed 0.6.0 two-host container design and are obsolete.** `install.sh` is disabled until the
-> replacement lands. Current facts: [ADR 0016](docs/decisions/0016-host-native-single-host.md),
+> replacement lands. Cursus is now one process: `cursus serve --config deploy/cursus.example.toml`
+> (after `cursus preflight`). Current facts: [ADR 0016](docs/decisions/0016-host-native-single-host.md),
 > [the plan](docs/superpowers/plans/2026-11-20-host-native-single-host.md) and `cursus preflight`.
 > There is no isolation: run only against trusted repositories.
 

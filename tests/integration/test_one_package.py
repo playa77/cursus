@@ -7,9 +7,8 @@ import unittest
 from uuid import uuid4
 
 from cursus.control import Control
-from cursus.runner import Journal, Runner
+from cursus.runner import Journal, LocalTransport, Runner
 from tests.support import Database, SocketService, workspace, settings, code_input, GitRemote
-from tests.integration.test_runner_transport import Wire
 from tests.integration.test_execution import CAPACITY, fixture_execution, invocation
 
 
@@ -35,7 +34,7 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                 input_path.write_text(json.dumps(value))
                 journal = Journal(ws.state)
                 try:
-                    async with SocketService(control, ws.root / 'operator.sock'), SocketService(control, ws.root / 'runner.sock', False):
+                    async with SocketService(control, ws.root / 'operator.sock'):
                         env = {'PATH': '/usr/bin:/bin', 'PYTHONPATH': str(Path('src').resolve())}
                         process = await asyncio.create_subprocess_exec(sys.executable, '-m', 'cursus.bootstrap',
                             'submit', '--socket', str(ws.root / 'operator.sock'), '--input', str(input_path),
@@ -44,7 +43,7 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(process.returncode, 0, stderr.decode())
                         phase_id = json.loads(stdout)['entity_id']
                         runner = Runner(config['runner']['id'], journal,
-                            Wire(ws.root / 'runner.sock', journal.generation), repository, execution)
+                            LocalTransport(control, config['runner']['id'], journal.generation), repository, execution)
                         await runner.reconcile()
                         moved=False
                         for _ in range(30):

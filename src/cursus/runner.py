@@ -1,4 +1,4 @@
-"""Durable runner journal and bounded, runner-initiated HTTPS exchange."""
+"""Durable runner journal and the in-process runner/control exchange (ADR 0016)."""
 
 import asyncio
 import fcntl
@@ -6,10 +6,6 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
-import ssl
-import urllib.error
-import urllib.request
-import urllib.parse
 import random
 import time
 import shutil
@@ -144,66 +140,47 @@ class Journal:
         self.lock.close()
 
 
-class HTTPS:
-    def __init__(self, origin, bearer, generation):
-        self.origin, self.bearer, self.generation = origin, bearer, generation
-        if not origin.startswith('https://'):
-            raise Problem('invalid_config', 'Runner requires HTTPS.')
-        self.capacity = asyncio.Semaphore(2)
-        self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context()),
-                                                  NoRedirect())
+class LocalTransport:
+    """The runner's path to the control plane inside one process.
+
+    It keeps the idempotent, sequence-checked protocol (it is what recovers a crash
+    between a database commit and a journal write) but has no network, bearer or
+    redirect surface. Control's real Problem codes now reach the runner; a database
+    failure raises out of the runner, which ends the process for supervised restart.
+    """
+    def __init__(self, control, runner_id, generation):
+        self.control, self.runner_id, self.generation = control, runner_id, generation
+        self.capacity = asyncio.Semaphore(4)  # A bounded share of the database pool.
 
     async def exchange(self, route, value, request_id, method='POST'):
-        def send():
-            url = self.origin + '/' + route
-            if method == 'GET':
-                url += '?' + urllib.parse.urlencode(value)
-            request = urllib.request.Request(url, method=method,
-                data=canonical_json(value) if method != 'GET' else None,
-                headers={'Authorization': 'Bearer ' + self.bearer,
-                         'X-Cursus-Generation': self.generation,
-                         'Idempotency-Key': request_id, 'Content-Type': 'application/json'})
-            try:
-                with self.opener.open(request, timeout=35) as response:
-                    return None if response.status == 204 else decode_json(response.read(1048577))
-            except urllib.error.HTTPError as exc:
-                if exc.code in (401, 403):
-                    raise Problem('unauthorized', 'Runner authorization denied.') from None
-                raise Problem('transport', 'Runner request rejected.') from None
+        # A JSON round trip keeps the strict value shapes the wire used to impose.
+        value = decode_json(canonical_json(value))
         async with self.capacity:
-            return await asyncio.to_thread(send)
+            result = await self.control.runner_request(self.runner_id, route, value, self.generation, request_id)
+        return None if result is None else decode_json(canonical_json(result))
 
     async def upload(self, attempt_id, ref, path):
-        from cursus.runner_files import headers, checked_bytes
+        from cursus.artifact_control import upload
+        from cursus.runner_files import checked_bytes
         raw = checked_bytes(ref, path.read_bytes())
-        return await self.binary(f'attempts/{attempt_id}/artifacts/{ref["id"]}', raw, headers(ref))
+        async def stream():
+            for offset in range(0, len(raw), 65536):
+                yield raw[offset:offset + 65536]
+        async with self.capacity:
+            return await upload(self.control, self.runner_id, self.generation, attempt_id, ref, stream())
 
     async def download(self, ref, claim_id):
+        from cursus.artifact_control import download
         from cursus.runner_files import checked_bytes
-        raw = await self.binary(f'runner/artifacts/{ref["id"]}?claim_id={claim_id}')
-        return checked_bytes(ref, raw)
-
-    async def binary(self, route, raw=None, extra=None):
-        def send():
-            headers = {'Authorization': 'Bearer ' + self.bearer,
-                       'X-Cursus-Generation': self.generation, 'Idempotency-Key': str(uuid4())}
-            headers.update(extra or {})
-            request = urllib.request.Request(self.origin + '/' + route, data=raw,
-                method='PUT' if raw is not None else 'GET', headers=headers)
-            try:
-                with self.opener.open(request, timeout=35) as response:
-                    value = response.read(32 * 1024 * 1024 + 1)
-                    return decode_json(value) if raw is not None else value
-            except urllib.error.HTTPError as exc:
-                raise Problem('unauthorized' if exc.code in (401,403) else 'transport',
-                              'Artifact transfer rejected.') from None
         async with self.capacity:
-            return await asyncio.to_thread(send)
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args):
-        raise Problem('transport', 'Runner redirects are forbidden.')
+            row = await download(self.control, self.runner_id, ref['id'], self.generation, claim_id)
+        def read():
+            source = self.control.artifacts.open(row['attempt_id'], row['file'])
+            try:
+                return source.read()
+            finally:
+                source.close()
+        return checked_bytes(ref, await asyncio.to_thread(read))
 
 
 class Runner:
@@ -219,17 +196,16 @@ class Runner:
         self.tasks = set()
         self.pending_claims = {}
         self.pending_status = {}
-        self.runtime = getattr(execution, 'runtime', None)
-        journal.compaction = self.runtime is not None
-        self.capacities = self.runtime.capacity if self.runtime else dict(worker=2, verifier=1, frontier=1, repository=1)
+        self.runtime = execution.runtime
+        journal.compaction = True
+        self.capacities = self.runtime.capacity
         self.recovered_stops = {r['value'] for r in journal.records if r['kind']=='execution_removed'}
-        if self.runtime:
-            self.runtime.record = self.record
-            identities = {r['value']['attempt']:r['value'] for r in journal.records if r['kind'] in ('execution_intent','execution_identity')}
-            for attempt, item in identities.items():
-                if attempt not in self.recovered_stops and attempt not in self.runtime.entries:
-                    self.runtime.entries[attempt] = dict(item)
-            self.runtime.save()
+        self.runtime.record = self.record
+        identities = {r['value']['attempt']:r['value'] for r in journal.records if r['kind'] in ('execution_intent','execution_identity')}
+        for attempt, item in identities.items():
+            if attempt not in self.recovered_stops and attempt not in self.runtime.entries:
+                self.runtime.entries[attempt] = dict(item)
+        self.runtime.save()
         self.poll_rotation = 0
         self.next_cleanup = 0
 
@@ -240,9 +216,8 @@ class Runner:
         return await self.transport.exchange(route, value, request_id or str(uuid4()), method)
 
     async def reconcile(self):
-        if self.runtime:
-            outcomes = await self.runtime.recover()
-            self.recovered_stops.update(a for a, stopped in outcomes.items() if stopped)
+        outcomes = await self.runtime.recover()
+        self.recovered_stops.update(a for a, stopped in outcomes.items() if stopped)
         retired = {r['value'] for r in self.journal.records if r['kind'] == 'retire'}
         pending = [r['value']['id'] for r in self.journal.records if r['kind'] == 'pending'
                    and r['value']['id'] not in retired]
@@ -262,7 +237,7 @@ class Runner:
                                  'kind': 'live' if attempt_id in self.active else 'stopped' if stopped and not final else 'terminal_pending' if final else 'unknown' if launched else 'never_started',
                                  'reason': 'Durable journal observation.'})
         directive = await self.exchange(f'runners/{self.id}/reconcile', {
-            'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending, **({'capacity': self.capacities} if self.runtime else {})})
+            'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending, 'capacity': self.capacities})
         for attempt_id,disposition in directive['dispositions'].items():
             if disposition=='stop-stale' and attempt_id in self.command_queues:
                 prior=any(r['kind']=='stale_stop' and r['value']==attempt_id for r in self.journal.records)
@@ -280,16 +255,15 @@ class Runner:
                         {'command_id':command['id'],'disposition':'uncertain','reason':'Prior RPC delivery has no durable result.'})
                     resolved.add(command['id'])
         self.record('directive', directive)
-        if self.runtime:
-            for attempt_id, disposition in directive['dispositions'].items():
-                if disposition in ('ignore-stale','stop-stale'):
-                    self.pending_claims.pop(attempt_id, None)
-                    self.pending_status.pop(attempt_id, None)
-                if disposition == 'ignore-stale' and attempt_id not in self.runtime.entries and attempt_id not in self.active:
-                    grant = next((r['value'] for r in self.journal.records if r['kind']=='grant' and r['value']['attempt_id']==attempt_id), None)
-                    if grant:
-                        self.record('workspace_cleanup',dict(attempt=attempt_id,since=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()))
-                        self.record('retire', grant['request_id'])
+        for attempt_id, disposition in directive['dispositions'].items():
+            if disposition in ('ignore-stale','stop-stale'):
+                self.pending_claims.pop(attempt_id, None)
+                self.pending_status.pop(attempt_id, None)
+            if disposition == 'ignore-stale' and attempt_id not in self.runtime.entries and attempt_id not in self.active:
+                grant = next((r['value'] for r in self.journal.records if r['kind']=='grant' and r['value']['attempt_id']==attempt_id), None)
+                if grant:
+                    self.record('workspace_cleanup',dict(attempt=attempt_id,since=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()))
+                    self.record('retire', grant['request_id'])
         self.reconciled = directive['reconciled']
         return directive
 
@@ -349,10 +323,10 @@ class Runner:
                 continue
             final = record['value']
             attempt_id = final['attempt_id']
-            if final['payload']['kind'] == 'unknown' or positions.get(attempt_id,0) < final['seq'] or self.runtime and attempt_id in self.runtime.entries:
+            if final['payload']['kind'] == 'unknown' or positions.get(attempt_id,0) < final['seq'] or attempt_id in self.runtime.entries:
                 continue
             grant = next((r['value'] for r in self.journal.records if r['kind']=='grant' and r['value']['attempt_id']==attempt_id), None)
-            if grant and self.runtime and not any(r['kind']=='workspace_cleanup' and r['value']['attempt']==attempt_id for r in self.journal.records):
+            if grant and not any(r['kind']=='workspace_cleanup' and r['value']['attempt']==attempt_id for r in self.journal.records):
                 self.record('workspace_cleanup',dict(attempt=attempt_id,since=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()))
             if grant and not any(r['kind']=='retire' and r['value']==grant['request_id'] for r in self.journal.records):
                 self.record('retire',grant['request_id'])
@@ -368,13 +342,13 @@ class Runner:
 
     async def dispatch(self, claim):
         attempt = claim['attempt_id']
-        if self.runtime and (len(self.storage_pending()) >= 32 or any(shutil.disk_usage(path).free < self.runtime.settings['disk_reserve_mb'] * 1024 * 1024 for path in (self.repository.root,self.repository.worktrees,self.repository.reviews))):
+        if (len(self.storage_pending()) >= 32 or any(shutil.disk_usage(path).free < self.runtime.settings['disk_reserve_mb'] * 1024 * 1024 for path in (self.repository.root,self.repository.worktrees,self.repository.reviews))):
             self.pending_claims[attempt] = claim
             self.pending_status.setdefault(attempt, dict(attempt=attempt,lane=claim['job']['slot'],state='waiting',since=__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),reason='Storage reserve or cleanup backlog blocks admission; automatic retry.'))
             self.active.pop(attempt,None)
             return None
         execution_job = claim['job']['step'] in ('produce','debug','verify','review','plan','scout','interview','debate')
-        if self.runtime and execution_job and attempt not in self.runtime.entries:
+        if execution_job and attempt not in self.runtime.entries:
             role = claim['job'].get('invocation', {}).get('role', {})
             lane = 'verifier' if claim['job']['step'] == 'verify' else 'worker' if role['cli'] == 'pi' else role['cli']
             if not await self.runtime.reserve(attempt, lane, role.get('cli')):
@@ -386,7 +360,7 @@ class Runner:
         try:
             return await self._dispatch(claim)
         finally:
-            if self.runtime and attempt in self.runtime.entries:
+            if attempt in self.runtime.entries:
                 await asyncio.shield(self.runtime.cleanup(attempt))
                 self.runtime.owned.discard(attempt)
             self.active.pop(attempt, None)
@@ -509,8 +483,6 @@ class Runner:
         return list(dict.fromkeys(r['value']['attempt'] for r in self.journal.records if r['kind']=='workspace_cleanup' and r['value']['attempt'] not in done))
 
     async def cleanup_storage(self):
-        if not self.runtime:
-            return
         for attempt in self.storage_pending()[:4]:
             if attempt in self.runtime.entries or attempt in self.active:
                 continue
@@ -546,7 +518,7 @@ class Runner:
             await asyncio.sleep(1)
             try:
                 await self.replay()
-                if self.runtime and time.monotonic() >= getattr(self, 'next_storage_cleanup',0):
+                if time.monotonic() >= getattr(self, 'next_storage_cleanup',0):
                     self.next_storage_cleanup = time.monotonic() + 10
                     await self.cleanup_storage()
             except (OSError, Problem):
@@ -562,16 +534,13 @@ class Runner:
                     slots[slot] += 1
                 directive = await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
                     'spool_bytes':self.journal.path.stat().st_size, 'boot_id':self.boot_id,
-                    'health':('degraded' if self.runtime and (self.storage_pending() or any(e['state']=='uncertain' for e in self.runtime.entries.values())) else 'waiting' if self.pending_claims else 'executing' if self.active else 'ready'),
-                    **({'execution': self.runtime.status() + list(self.pending_status.values()) + [dict(attempt=a,lane='storage',state='cleanup',since=next(r['value']['since'] for r in self.journal.records if r['kind']=='workspace_cleanup' and r['value']['attempt']==a),reason='Workspace deletion pending; retried automatically every 10s. Inspect filesystem permissions/free space.') for a in self.storage_pending()], 'capacity': self.capacities} if self.runtime else {})})
+                    'health':('degraded' if (self.storage_pending() or any(e['state']=='uncertain' for e in self.runtime.entries.values())) else 'waiting' if self.pending_claims else 'executing' if self.active else 'ready'),
+                    **({'execution': self.runtime.status() + list(self.pending_status.values()) + [dict(attempt=a,lane='storage',state='cleanup',since=next(r['value']['since'] for r in self.journal.records if r['kind']=='workspace_cleanup' and r['value']['attempt']==a),reason='Workspace deletion pending; retried automatically every 10s. Inspect filesystem permissions/free space.') for a in self.storage_pending()], 'capacity': self.capacities})})
                 await self.apply_commands(directive['commands'])
                 failures = 0
             except (OSError, Problem) as exc:
                 self.reconciled = False
                 failures += 1
-                if isinstance(exc, Problem) and exc.code == 'unauthorized':
-                    self.intake_denied = True
-                    return
 
     async def work_loop(self):
         self.activation = str(uuid4())
@@ -579,8 +548,6 @@ class Runner:
         tasks = self.tasks
         while True:
             try:
-                if getattr(self, 'intake_denied', False):
-                    raise Problem('unauthorized', 'Runner authorization denied.')
                 if not self.reconciled:
                     await self.reconcile()
                     await self.replay()
@@ -605,7 +572,7 @@ class Runner:
                             from datetime import datetime, timezone
                             logging.getLogger('cursus.runner').error(json.dumps(dict(time=datetime.now(timezone.utc).isoformat(),service='runner',event='session_task_failed',attempt_id=task.get_name(),classification=type(exc).__name__,reason='Reconciliation required; other sessions remain supervised.')))
                             self.reconciled = False
-                if self.runtime and time.monotonic() >= self.next_cleanup:
+                if time.monotonic() >= self.next_cleanup:
                     self.next_cleanup = time.monotonic() + 10
                     outcomes = await self.runtime.recover()
                     if any(outcomes.values()):
@@ -637,7 +604,7 @@ class Runner:
                     await asyncio.sleep(1)
             except (OSError, Problem) as exc:
                 self.reconciled = False
-                if isinstance(exc, Problem) and exc.code in ('unauthorized', 'recovery_required', 'storage', 'journal_corrupt'):
+                if isinstance(exc, Problem) and exc.code in ('recovery_required', 'storage', 'journal_corrupt'):
                     raise
                 failures += 1
                 fault_started = fault_started or time.monotonic()
