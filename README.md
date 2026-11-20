@@ -1,47 +1,199 @@
 # Cursus
 
-Cursus coordinates coding work: you submit a task, native coding agents work in
-isolated containers, separate checks and review inspect the result, and Cursus
-opens a pull request for you to merge. A private website shows progress and lets
-you download verification evidence. Debug sessions, guided interviews and optional
-three-agent debates are also implemented. Non-code delivery is not implemented yet.
+Cursus runs coding agents in isolated containers, verifies and reviews their
+changes, and gives you a pull request through a private website.
 
-**This is the setup guide for version 0.5.0, configuration schema 2, and the
-container execution branch.** It uses two Ubuntu Server 26.04 machines. Do not
-combine it with the older instructions for root runners or per-agent Linux users.
-[ADR 0009](docs/decisions/0009-container-execution.md) explains that change.
+## Quick install
 
-**Deployment status:** source implementation is available; installation on the
-intended servers, native provider authentication/concurrency and live acceptance
-are still unqualified. The setup scripts do not create a ready-to-use agent image
-or discover working vendor authentication/permission settings. Those are real
-prerequisites, described below. No tested, universal vendor recipe is currently
-shipped. If a required CLI cannot satisfy the documented contract, stop at that
-step: changing `unqualified` to `qualified` cannot fix incompatibility. This guide
-distinguishes commands you can run now from measurements still required before
-an unattended deployment can honestly be called complete.
+**On each Ubuntu Server 26.04 machine, in your normal SSH terminal:**
 
-## Contents
+```bash
+curl -fsSL https://raw.githubusercontent.com/playa77/cursus/main/install.sh | bash
+```
 
-1. [Understand the machines and commands](#1-understand-the-machines-and-commands)
-2. [Collect the information you need](#2-collect-the-information-you-need)
-3. [Prepare both servers and the source release](#3-prepare-both-servers-and-the-source-release)
-4. [Connect the private network](#4-connect-the-private-network)
-5. [Prepare the Python dependencies](#5-prepare-the-python-dependencies)
-6. [Choose the scripted or manual installation path](#6-choose-the-scripted-or-manual-installation-path)
-7. [Prepare accounts and persistent storage](#7-prepare-accounts-and-persistent-storage)
-8. [Prepare the execution image and native logins](#8-prepare-the-execution-image-and-native-logins)
-9. [Measure capabilities and pin the role release](#9-measure-capabilities-and-pin-the-role-release)
-10. [Create private configuration and secrets](#10-create-private-configuration-and-secrets)
-11. [Install using the setup scripts](#11-install-using-the-setup-scripts)
-12. [Install manually](#12-install-manually)
-13. [Start private HTTPS and check the whole system](#13-start-private-https-and-check-the-whole-system)
-14. [Submit and follow your first task](#14-submit-and-follow-your-first-task)
-15. [Operate, upgrade, roll back and recover](#15-operate-upgrade-roll-back-and-recover)
-16. [Troubleshooting](#16-troubleshooting)
-17. [Developer checks and project references](#17-developer-checks-and-project-references)
+Run the **same script** on both servers. Choose **controller** on VPS-B
+(database and website), and **worker** on VPS-A (agent containers). You do not
+need to clone this repository, create `~/cursus-source`, install Python packages,
+prepare a wheelhouse, or change directory first. The installer handles those
+steps. It asks before changing the host and uses `sudo` when necessary.
 
-## 1. Understand the machines and commands
+If your server says `curl: command not found`, install it first:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes curl
+```
+
+Start on B. Keep that SSH terminal open; when it prints a runner UUID and asks
+for A's bearer digest, start the same installer on A in another SSH terminal.
+Enter B's UUID on A, then copy **only the digest printed by A** back to B.
+Secrets themselves stay on their designated server.
+
+**Current prerequisite:** you need a qualified native-CLI execution image and
+its measured `capabilities.toml`. This release does not include a qualified
+four-vendor image or universal provider login recipe. The installer asks for
+that file and refuses to invent successful qualification. It can prepare the
+host before this point, but missing vendor prerequisites mean installation is
+**incomplete**, not a running whole system. See [native CLI prerequisites](#native-cli-prerequisites).
+
+To inspect the script before running it, use this equivalent workflow, which
+also detects a failed download before any script executes:
+
+```bash
+curl -fL --connect-timeout 15 --max-time 120 https://raw.githubusercontent.com/playa77/cursus/main/install.sh -o /tmp/cursus-install.sh
+less /tmp/cursus-install.sh
+bash /tmp/cursus-install.sh
+```
+
+Press `q` to leave `less`. To preview without making changes or additional
+network requests:
+
+```bash
+bash /tmp/cursus-install.sh --host controller --dry-run
+bash /tmp/cursus-install.sh --host worker --dry-run
+```
+
+Downloading the script itself is still a network request. You can run an already
+downloaded script from **any directory**, including an otherwise empty home.
+
+## What the installer does
+
+1. Asks which host you are installing and whether to proceed. Interactive
+   questions use your terminal, so `curl | bash` does not consume the answers.
+2. Checks Ubuntu 26.04, installs bootstrap tools, creates the source checkout if
+   absent, and selects the requested source revision. Existing work is never reset.
+3. Prepares the stable service account, private directories, PostgreSQL on B or
+   rootless Podman/user manager on A. Asks for a measured profile and guides the
+   host configuration if you have not supplied one. Generates the runner bearer
+   without printing it, and accepts publisher credentials through hidden input.
+4. Downloads hash-locked dependencies automatically (or uses your supplied
+   offline wheelhouse), builds and stages an immutable Python release/config.
+5. Validates and activates using the existing drain, migration and runtime
+   checks. An installation failure prints **INSTALLATION INCOMPLETE**; a staged
+   release is not reported as a running service.
+
+Guided controller setup creates a separate, content-addressed local Git release
+of the qualified roles and committed prompts. It pins that commit in the control
+config. It does not ask you to edit installed source or commit host settings to
+GitHub. Existing configurations and secrets are preserved, not overwritten.
+
+The script does not silently enroll Tailscale, change a firewall, spend money on
+model probes, or grant provider capabilities. Those account- and policy-specific
+steps are described below. [ADR 0010](docs/decisions/0010-unified-installer.md)
+records the installer boundary.
+
+## What you need to answer
+
+Have these values ready; private files stay outside the source checkout:
+
+| Question | Answer to supply |
+| --- | --- |
+| Host | `controller` on B; `worker` on A |
+| Capabilities file | Absolute path to your measured schema-2 `capabilities.toml`; use identical qualified bytes on both hosts |
+| B origin | Exact private HTTPS URL from Tailscale, e.g. `https://controller.example.ts.net`, without trailing slash |
+| Operator identity | Exact Tailscale login/email, not display name |
+| Runner UUID | B generates/offers one; use the same UUID on A |
+| GitHub repository | Owner/name and full target ref, e.g. `refs/heads/main` |
+| Verification command | JSON argument array using paths inside the image, e.g. `["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]` only if that is the repository's real test command |
+| Provider capacity | pi 1–4; Claude, Codex and Antigravity independently 1–2; same values on A/B |
+| Resource policy | Explicit memory/CPU/task/tmp/HOME limits and disk/host reserves; explained in [configuration](#private-configuration-and-secrets) |
+| Auth domains | Actual private, runner-owned native auth-only directories and their measured container mount targets |
+| Publisher token on A | Dedicated GitHub credential with the necessary ref/PR rights, subject to target protections; hidden input |
+| A bearer digest on B | The SHA-256 printed by A; never the bearer secret |
+
+If you already have complete configs, use the same entry point without answering
+the worksheet questions:
+
+```bash
+bash /tmp/cursus-install.sh --host controller --config /absolute/control.toml
+bash /tmp/cursus-install.sh --host worker --config /absolute/runner.toml
+```
+
+These two commands belong on **their respective machines**, not both on one
+server. Relative config paths are resolved from your current directory.
+
+Useful options:
+
+| Option | Purpose |
+| --- | --- |
+| `--host controller` / `--host worker` | Skip host-selection question |
+| `--ref FULL_COMMIT` | Obtain a specific reviewed source revision |
+| `--source-dir /absolute/path` | Choose where source is obtained; no directory need exist yet |
+| `--wheelhouse /absolute/wheels` | Use offline locked dependencies instead of downloading |
+| `--stage-only` | Prepare an immutable release without switching or starting services |
+| `--activate-existing --config /absolute/config.toml` | Activate the exact previously staged commit/config |
+| `--non-interactive --yes --host ... --config ...` | Unattended host installation with all prerequisites already provisioned |
+| `--dry-run` | Print a no-change plan without requiring a checkout or configuration |
+| `--help` | Full option list |
+
+Existing source checkouts are never updated/reset automatically. To install a
+new revision without disturbing an old checkout, choose both `--ref FULL_COMMIT`
+and a new `--source-dir /absolute/new-checkout`. For activation of an old staged
+release, select its exact source commit and saved host configuration.
+
+A supplied configuration must be complete and use private regular secret files.
+Unattended mode never reads a token from a shell argument or falls back to a
+prompt. The older `deploy/setup-controller.sh` and `deploy/setup-worker.sh` remain
+compatibility entry points for existing automation; **new installations use only
+`install.sh`**.
+
+## Finish the installation
+
+On B, establish the private Tailscale network as described under
+[private network](#private-network), then start Serve after the backend is active:
+
+```bash
+sudo tailscale serve --bg http://127.0.0.1:8787
+tailscale serve status
+sudo systemctl status cursus-control --no-pager
+sudo /opt/cursus/current/venv/bin/cursus status --deployment
+```
+
+On A, inspect its service through the stable account's user manager:
+
+```bash
+CURSUS_RUNNER_UID=$(id -u cursus-runner)
+sudo runuser -u cursus-runner -- env XDG_RUNTIME_DIR="/run/user/$CURSUS_RUNNER_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$CURSUS_RUNNER_UID/bus" systemctl --user status cursus-runner --no-pager
+```
+
+Open B's exact private HTTPS URL on your PC while signed in to Tailscale.
+Expect the Cursus overview and fresh authenticated runner contact. A service
+being `active` is not proof that provider login, native tool restrictions,
+resource containment or end-to-end publication passed. Use the
+[whole-system checks](#start-private-https-and-check-the-whole-system), then
+[first task](#submit-and-follow-your-first-task).
+
+**Trouble with the reported `cd` error?** You do not need that command for the
+scripted path. Run the installer above directly from `devops@server:~$`. For a
+manual install, the [source acquisition step](#prepare-both-servers-and-the-source-release)
+explicitly creates the checkout before entering it.
+
+## Detailed reference and manual installation
+
+The rest of this README is the reference/manual path. **You do not have to perform
+all of it before running the installer.** Scripted users should consult the
+sections needed for their network/provider setup, configuration choices and
+verification. Manual users follow the preparation/configuration sections in
+order, then [manual installation](#install-manually).
+
+- [Machines and terminology](#understand-the-machines-and-commands)
+- [Deployment information](#collect-the-information-you-need)
+- [Manual server/source preparation](#prepare-both-servers-and-the-source-release)
+- [Private network](#private-network)
+- [Manual Python dependencies](#prepare-the-python-dependencies)
+- [Manual accounts and storage](#prepare-accounts-and-persistent-storage)
+- [Native CLI prerequisites](#native-cli-prerequisites)
+- [Capability measurement and role release](#measure-capabilities-and-pin-the-role-release)
+- [Private configuration and secrets](#private-configuration-and-secrets)
+- [Manual installation](#install-manually)
+- [Whole-system checks](#start-private-https-and-check-the-whole-system)
+- [First task](#submit-and-follow-your-first-task)
+- [Operations, upgrade and rollback](#operate-upgrade-roll-back-and-recover)
+- [Troubleshooting](#troubleshooting)
+- [Developer checks and references](#developer-checks-and-project-references)
+
+## Understand the machines and commands
+
 
 | Name in this guide | What it is | What runs there |
 | --- | --- | --- |
@@ -79,7 +231,8 @@ a bounded authorized task produces real verification evidence and one reviewed
 PR, and recovery/credential/isolation checks pass. A green systemd status alone
 is insufficient.
 
-## 2. Collect the information you need
+## Collect the information you need
+
 
 Create a private deployment notebook on your PC, outside this repository. Record
 non-secret values and results; keep actual credentials in the relevant native
@@ -96,7 +249,7 @@ login or password manager. You need:
 | GitHub owner, repository, target branch | Start with a repository you own and authorize Cursus to change through PRs |
 | Repository check command | A real test/build command that works inside the execution image without downloads |
 | Provider accounts and selected CLI builds | All four providers; verify plan access and supported unattended login first |
-| Capacity, resource and disk policy | Choose the explicit ceilings and budgets in §10; they are not inferred from advertised RAM |
+| Capacity, resource and disk policy | Choose the explicit ceilings and budgets in [private configuration and secrets](#private-configuration-and-secrets); they are not inferred from advertised RAM |
 | Provider test budget | Decide maximum invocations, elapsed time, concurrency and money before any live prompt |
 | Backup destination and retention | A private location independent of B; backup scheduling/restore automation is not supplied yet |
 
@@ -106,7 +259,8 @@ validated fixed disk-size recommendation; choose a reserve and monitor actual
 use. Keep administrative recovery access through your provider while changing
 network settings. Do not replace an existing firewall policy blindly.
 
-## 3. Prepare both servers and the source release
+## Prepare both servers and the source release
+
 
 **On A and B**, check the operating system and hardware:
 
@@ -151,7 +305,7 @@ git status --short
 ```
 
 Expected: the requested commit and no status output. Use a private operator
-checkout for the role customization in §9. Do not commit secrets or machine
+checkout for the role customization in [measure capabilities and pin the role release](#measure-capabilities-and-pin-the-role-release). Do not commit secrets or machine
 inventory. Re-run `git rev-parse HEAD` after that customization: the **final**
 commit, not the original public commit, becomes `CURSUS_RELEASE` for installation.
 Use that same final commit on both hosts.
@@ -160,7 +314,8 @@ If you reconnect later, variables from the old terminal are gone. Return with
 `cd "$HOME/cursus-source"`, then set `CURSUS_RELEASE=$(git rev-parse HEAD)`.
 Never set it before checking that you are in the intended repository.
 
-## 4. Connect the private network
+## Private network
+
 
 **On your PC:** install the Tailscale client from the vendor, sign in to the
 intended tailnet, and verify the device appears in its Machines page.
@@ -194,11 +349,12 @@ the Tailscale console's policy tests; enrollment alone does not restrict peers.
 
 Do not open public ports 8787 or 5432. Keep B's application on `127.0.0.1` and
 PostgreSQL local. **Do not enable Tailscale Funnel**: Serve is private to the
-tailnet, Funnel is public. Serve is started only after B's backend works in §13.
+tailnet, Funnel is public. Serve is started only after B's backend works in [start private https and check the whole system](#start-private-https-and-check-the-whole-system).
 See [the Serve documentation](https://tailscale.com/docs/features/tailscale-serve)
 for its enrollment and private HTTPS behavior.
 
-## 5. Prepare the Python dependencies
+## Prepare the Python dependencies
+
 
 Do this on **each target host**, or on a matching OS/architecture/Python machine
 and transfer its wheelhouse to that host. A wheelhouse prepared for a different
@@ -224,23 +380,8 @@ prepare a reviewed wheelhouse for the target; do not remove hash checking.
 This does not log in to any model provider or start Cursus. Python dependency
 installation and native agent installation are separate tasks.
 
-## 6. Choose the scripted or manual installation path
+## Prepare accounts and persistent storage
 
-Both paths use the same config, image, profiles, accounts and immutable release
-layout. Both need §§7–10 first; neither can invent provider capability evidence.
-
-| Path | Use it when | What you do after preparation |
-| --- | --- | --- |
-| Setup scripts | The hosts are Ubuntu 26.04 and you want repeatable staging/activation | §11, then §13 onward; skip §12 |
-| Manual | You need to see/control every install step | §12, then §13 onward; skip §11 |
-
-The scripts install host packages/accounts and build a private-configured release.
-They do **not** enroll Tailscale, set access policies, build the agent image,
-perform provider login, provision publisher credentials, prepare your artifact
-root, finish role profiles or set up backups. Running a dry-run is useful but is
-not proof of a working installation.
-
-## 7. Prepare accounts and persistent storage
 
 These commands assume **new dedicated hosts**, with no existing Cursus accounts.
 If `getent passwd cursus-runner` on A or `getent passwd cursus-control` on B
@@ -310,17 +451,18 @@ sudo -u postgres createuser --no-superuser --no-createdb --no-createrole cursus-
 sudo -u postgres createdb --owner=cursus-control cursus
 ```
 
-The scripted path creates them during staging. If either already exists, inspect
+The unified installer creates them automatically. If either already exists, inspect
 its ownership and privileges with your database administrator; do not drop it or
 continue against an unrelated database. Use local peer authentication: Linux
 `cursus-control` connects as database `cursus-control` with no password argument.
 
-## 8. Prepare the execution image and native logins
+## Native CLI prerequisites
+
 
 **On A.** Podman stores images separately for each Linux user. An image loaded as
 root is not automatically visible to `cursus-runner`; use `runner podman ...`.
 
-### 8.1 Image contents
+### Image contents
 
 Build a reviewed Linux image matching A's architecture containing:
 
@@ -378,7 +520,7 @@ For a differently tagged imported image, substitute its tag. Save the full
 `sha256:` plus 64 hex digits as `containers.image` and the capability `image`.
 A tag is insufficient because tags can move. Runtime never pulls automatically.
 
-### 8.2 Authentication directories
+### Authentication directories
 
 Each simultaneous provider invocation needs its own disjoint **native auth-only
 directory**. For example, a pi ceiling of two needs `pi-1` and `pi-2`, even if all
@@ -412,7 +554,8 @@ repository. Do not proceed to activation until these records and working logins
 exist. Login may require opening a vendor URL on PC; the runtime must later work
 without a browser, approval prompt, copied credentials or interactive input.
 
-## 9. Measure capabilities and pin the role release
+## Measure capabilities and pin the role release
+
 
 A capability profile records **observed behavior**, not desired behavior. Use
 `deploy/capabilities.example.toml` as a worksheet. Preserve measurements outside
@@ -489,9 +632,10 @@ Changing the image, executable, flags, model, permissions, profile bytes or
 credential concurrency invalidates affected measurements and may need a new
 committed role release. There is no automatic compatibility discovery.
 
-## 10. Create private configuration and secrets
+## Private configuration and secrets
 
-### 10.1 Copy and edit configuration
+
+### Copy and edit configuration
 
 **B:**
 
@@ -515,7 +659,7 @@ Set all of the following; do not leave any `REPLACE_*` text:
 | --- | --- | --- |
 | B service | `external_origin` | Exact `https://` B tailnet DNS origin, no path/trailing slash |
 | B service | `operator_login` | Exact Tailscale login of the one authorized operator |
-| B service | `role_release_commit` | Final committed qualified role release from §9 |
+| B service | `role_release_commit` | Final committed qualified role release from [measure capabilities and pin the role release](#measure-capabilities-and-pin-the-role-release) |
 | B runner | `id`, `tailnet_node` | Shared runner UUID and actual A tailnet node |
 | B backup | `off_host_destination` | Your private backup destination; this field does not schedule backups |
 | A service | `origin`, `runner_id` | Same B HTTPS origin and runner UUID |
@@ -530,7 +674,7 @@ shown unless you also deliberately adapt the service units and all references.
 Schema 2 is required. Keep the template's other limits initially; they bound
 requests, retries and artifacts rather than authorizing spending.
 
-### 10.2 Choose capacity and resources explicitly
+### Choose capacity and resources explicitly
 
 `worker` means all simultaneous pi invocations, including scout/debug. It must
 be 1–4. Each of `claude`, `codex`, `agy` must independently be 1–2.
@@ -557,7 +701,7 @@ waiting/unknown containers continue to consume reservations. Increasing a ceilin
 does not increase the hardware budget. Choose policy values, then measure
 workloads; this repository does not establish safe universal numeric defaults.
 
-### 10.3 Enroll a repository and its checks
+### Enroll a repository and its checks
 
 On **both** configs, replace the entire example enrollment with the same trusted
 GitHub repository and target, for example `refs/heads/main`. A check's `argv[0]`
@@ -574,7 +718,7 @@ merging or directly updating the enrolled target. Cursus only publishes its own
 work/integration refs and creates PRs. Token permissions alone usually do not
 express that complete branch restriction; test the effective repository rules.
 
-### 10.4 Create the runner bearer without displaying it
+### Create the runner bearer without displaying it
 
 **A:** generate the secret file under the stable runner account:
 
@@ -618,7 +762,7 @@ sudo -u cursus-control psql --no-psqlrc --dbname='postgresql:///cursus?host=/var
 Expected: `cursus-control` and `cursus`. Do not weaken PostgreSQL authentication
 or put the DSN on A if this fails.
 
-### 10.5 Provision publication credentials and capability file
+### Provision publication credentials and capability file
 
 **A:** provision a dedicated GitHub publisher credential through your approved
 secret-management/native enrollment flow. It needs repository access for Cursus
@@ -644,91 +788,14 @@ sudo install -m 600 -o cursus-runner -g cursus-runner "$HOME/cursus-deployment/c
 Keep credential management and replacement separate from Cursus workspaces.
 The stable runner consumes them; session containers must never receive them.
 
-## 11. Install using the setup scripts
+## Install manually
 
-Skip §12 after this section. On **each host**, return to the final clean source
-checkout and define:
 
-```bash
-cd "$HOME/cursus-source"
-CURSUS_RELEASE=$(git rev-parse HEAD)
-git status --short
-```
-
-Expected: no changes. The configuration, wheelhouse and private evidence must
-remain outside this checkout. Do not put them there to make relative paths easier.
-
-### 11.1 Preview, then stage
-
-**B:**
-
-```bash
-sh deploy/setup-controller.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/control.toml" --wheelhouse "$HOME/cursus-deployment/wheels" --dry-run
-sudo sh deploy/setup-controller.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/control.toml" --wheelhouse "$HOME/cursus-deployment/wheels" --apply
-```
-
-**A:**
-
-```bash
-sh deploy/setup-worker.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/runner.toml" --wheelhouse "$HOME/cursus-deployment/wheels" --dry-run
-sudo sh deploy/setup-worker.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/runner.toml" --wheelhouse "$HOME/cursus-deployment/wheels" --apply
-```
-
-Without `--apply`, scripts only print a plan; `--dry-run` makes that explicit.
-Do not combine both flags. Staging installs required packages, checks/creates
-stable accounts, builds the wheel/venv offline and stores the exact config under:
-
-```text
-/opt/cursus/releases/FULL_COMMIT-FIRST_16_HEX_OF_CONFIG_SHA256/
-  source/          committed source, roles and prompts
-  venv/            isolated installed Python package
-  wheels/          built Cursus wheel
-  config.toml      private host-specific config
-  complete.json    completed-stage marker
-```
-
-Each host has its own `/opt/cursus/current` symlink, which is not switched during
-staging. A completed identical stage is reusable. An incomplete stage is retained
-for inspection and blocks blind reuse. Success ends with `Completed installation`.
-This means **staged**, not started. Check B's authenticated database connection
-using §10.4 now.
-
-### 11.2 Activate B, then A
-
-**B:**
-
-```bash
-sudo sh deploy/setup-controller.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/control.toml" --activate-existing --apply
-sudo systemctl status cursus-control --no-pager
-```
-
-Activation validates pinned roles/config/secrets, switches `current`, installs
-the system service and starts it. B applies database migrations before listening.
-Complete §13's Serve setup on B before starting A so A can reach its HTTPS origin.
-
-**A:**
-
-```bash
-sudo sh deploy/setup-worker.sh --release "$CURSUS_RELEASE" --config "$HOME/cursus-deployment/runner.toml" --activate-existing --apply
-runner systemctl --user status cursus-runner --no-pager
-```
-
-Worker activation checks exact Podman version, rootless cgroup support, local
-image and native concurrency profile. It generates aggregate/agent/verifier
-execution slices from the configured budgets and enables the user service.
-It does not run paid provider qualification for you. Proceed to §13 checks.
-
-For upgrades, activation requires drain and no unresolved attempts/queued jobs;
-see §15 before using these commands on an active installation. Never run a legacy
-root/system runner alongside the new user service.
-
-## 12. Install manually
-
-This is the alternative to §11. It preserves the same release layout, private
-config and systemd boundaries. Complete §§7–10 first, including the manual DB
+This is the alternative to the unified installer above. It preserves the same release layout, private
+config and systemd boundaries. Complete the manual account, image, profile and configuration sections first, including the manual DB
 creation. Run on **both** hosts unless a step says otherwise.
 
-### 12.1 Build the immutable release
+### Build the immutable release
 
 From the final clean source checkout, set the host-specific values:
 
@@ -781,7 +848,7 @@ sudo "$CURSUS_STAGE/venv/bin/cursus" --version
 Expected: version 0.5.0, no missing requirements. Root owns source/venv; the
 service user may read them but must not edit installed code.
 
-### 12.2 Validate before switching
+### Validate before switching
 
 **Both**, validate as the actual service user; this consumes secret files
 opaquely and prints no settings:
@@ -813,7 +880,7 @@ On **both**, create the completed marker only after these checks succeed:
 sudo "$CURSUS_STAGE/venv/bin/python" -c 'import json,sys; from pathlib import Path; p=Path(sys.argv[1])/"complete.json"; f=p.open("x"); json.dump({"commit":sys.argv[2]},f); f.close()' "$CURSUS_STAGE" "$CURSUS_RELEASE"
 ```
 
-### 12.3 Install B's unit and A's resource slices
+### Install B's unit and A's resource slices
 
 **B:**
 
@@ -852,10 +919,10 @@ collapse the verifier reserve into the agent slice. Podman needs delegated
 user namespaces/cgroups: do not add `NoNewPrivileges` or `RestrictNamespaces`
 to the runner service to imitate B's stricter controller unit.
 
-### 12.4 Switch and start (new installation)
+### Switch and start (new installation)
 
 The following commands are for **first installation only**. On both hosts,
-verify `/opt/cursus/current` does not already exist. For an upgrade, use §15's
+verify `/opt/cursus/current` does not already exist. For an upgrade, use [operate, upgrade, roll back and recover](#operate-upgrade-roll-back-and-recover)'s
 drain/migration checks and scripted activation of this staged release instead;
 manual installation is not permission to bypass those gates.
 
@@ -876,7 +943,7 @@ sudo systemctl enable --now cursus-control
 sudo systemctl status cursus-control --no-pager
 ```
 
-Set up Serve in §13 before starting **A**:
+Set up Serve in [start private https and check the whole system](#start-private-https-and-check-the-whole-system) before starting **A**:
 
 ```bash
 runner systemctl --user daemon-reload
@@ -885,9 +952,10 @@ runner systemctl --user enable --now cursus-runner
 runner systemctl --user status cursus-runner --no-pager
 ```
 
-## 13. Start private HTTPS and check the whole system
+## Start private HTTPS and check the whole system
 
-### 13.1 Check B locally, then enable Serve
+
+### Check B locally, then enable Serve
 
 **B:**
 
@@ -921,7 +989,7 @@ Tailscale login is the browser identity. A bearer token is for the runner, not
 browser login. Direct browser access to `http://B:8787` is neither required nor
 supported. Session tokens are invalidated by a controller restart; reload then.
 
-### 13.2 Confirm A's authenticated contact
+### Confirm A's authenticated contact
 
 **A**, after activation:
 
@@ -937,7 +1005,7 @@ ceilings. An empty Podman list while idle is normal. Unknown/cleanup-pending
 executions, old heartbeats or unexpected waiting reasons must be resolved before
 submitting real work. Do not print raw credential-bearing diagnostics publicly.
 
-### 13.3 Acceptance checklist
+### Acceptance checklist
 
 Record results privately at the exact release commit/image/profile digests:
 
@@ -954,7 +1022,7 @@ Record results privately at the exact release commit/image/profile digests:
 - Native logins work unattended; directory-only renewal and requested concurrent
   domains have measured support. No host management socket/publisher secret is
   exposed to sessions.
-- The authorized end-to-end task in §14 produces independent checks/review and a
+- The authorized end-to-end task in [submit and follow your first task](#submit-and-follow-your-first-task) produces independent checks/review and a
   PR at the exact verified head without modifying/merging the target branch.
 - A bounded stop/restart/recovery exercise retains unknown ownership until real
   stop/removal is confirmed; no uncertain execution is automatically relaunched.
@@ -963,12 +1031,13 @@ The detailed [qualification checklist](tests/qualification.md) and
 [container finding matrix](docs/acceptance/container-execution.md) define the
 remaining M3-end qualification. Keep an item pending when it has not been run.
 
-## 14. Submit and follow your first task
+## Submit and follow your first task
+
 
 Use an expendable **enrolled GitHub repository** and a small clearly bounded
 change. This step invokes paid/subscription providers and writes GitHub refs/PRs;
 first establish the call/time/concurrency/cost budget and termination mechanism
-from §9. Do not use a production task as an authentication experiment.
+from [measure capabilities and pin the role release](#measure-capabilities-and-pin-the-role-release). Do not use a production task as an authentication experiment.
 
 **PC browser:** open the private Cursus URL, choose the new-work form, select code
 work and the enrolled repository, and provide an inline specification. Initially
@@ -1018,11 +1087,12 @@ GitHub; confirm only the intended changes and target branch remains unchanged.
 reconcile; do not submit again under a fresh UUID just because the first response
 was lost. The same UUID with different input is rejected as a conflict.
 
-## 15. Operate, upgrade, roll back and recover
+## Operate, upgrade, roll back and recover
+
 
 ### Daily operations
 
-| Task | B | A (with the §7 `runner` function) |
+| Task | B | A (with the [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage) `runner` function) |
 | --- | --- | --- |
 | Status | `sudo systemctl status cursus-control` | `runner systemctl --user status cursus-runner` |
 | Recent logs | `sudo journalctl -u cursus-control -n 80` | `runner journalctl --user -u cursus-runner -n 80` |
@@ -1068,14 +1138,15 @@ Do not use restart as an assumption-free way to continue an active debug session
    retention and restore commands are not implemented (WP-19); do not treat the
    config's backup fields as an active backup service. Restart the old controller
    after the snapshot if you need it running for the activation drain check.
-5. Prepare the new qualified role/image/profile/config release (§§8–10) and
-   stage it on both hosts (§11.1 or §12.1–12.3). Do not rewrite queued frozen
+5. Prepare the new qualified role/image/profile/config release ([native CLI prerequisites](#native-cli-prerequisites) through [configuration](#private-configuration-and-secrets)) and
+   stage it on both hosts ([the unified installer](#quick-install) or [manual staging](#install-manually)). Do not rewrite queued frozen
    invocations to make new profiles match. New config bytes get a new stage.
 6. With old controller running and drain verified, activate B, then A using
-   §11.2's `--activate-existing --apply` commands. Even manually staged releases
+   the same installer with `--host controller` on B or `--host worker` on A,
+   `--config /absolute/config.toml --activate-existing`. Even manually staged releases
    can use this guarded activation; this avoids bypassing migration/drain checks.
    Stop an old root/system runner explicitly before migrating to a user service.
-7. Repeat §13 readiness checks. The controller intentionally stays drained after
+7. Repeat [start private https and check the whole system](#start-private-https-and-check-the-whole-system) readiness checks. The controller intentionally stays drained after
    an upgrade. Reopen only after both hosts reconcile correctly:
 
    ```bash
@@ -1087,7 +1158,7 @@ Do not use restart as an assumption-free way to continue an active debug session
 ### Rollback
 
 Use the **previous exact commit and its matching saved config** with the same
-`--activate-existing --apply` command on each host. The stage path includes the
+`--activate-existing` installer command on each host. The stage path includes the
 config digest; supplying a modified config does not select the old stage.
 Keep intake drained while diagnosing a failed switch. Read the installer output
 to determine whether it already switched `current`; a failure does not promise
@@ -1110,7 +1181,8 @@ kill every Python/Node process. Workspace deletion is queued durably; published
 Git caches/images still need deliberate retention. A disk reserve is an admission
 check, not a filesystem quota.
 
-## 16. Troubleshooting
+## Troubleshooting
+
 
 Read the applicable service's recent journal first. Record a sanitized error
 code, time, host and release; never publish secrets or raw complete configs.
@@ -1127,12 +1199,12 @@ code, time, host and release; never publish secrets or raw complete configs.
 | Role/prompt release mismatch | Final committed role release and staged bytes | Commit qualified role changes and stage a new clean release; do not edit installed files |
 | Capability digest/image mismatch | Final capability `sha256sum`, image ID | Requalify changed bytes and update the matching committed role/config release |
 | Insufficient credential concurrency | Provider ceiling vs domains vs measurements | Supply one disjoint measured domain per requested ceiling; do not share/copy rotating files or silently lower settings |
-| `Failed to connect to bus` on A | Linger, `/run/user/UID/bus`, correct UID | Start the service account's user manager; recreate §7's function after reconnect |
-| Podman rootless/subuid/cgroup error | §7 runtime checks | Repair host delegation/ranges through host policy; do not switch to root containers or mount a runtime socket |
+| `Failed to connect to bus` on A | Linger, `/run/user/UID/bus`, correct UID | Start the service account's user manager; recreate [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage)'s function after reconnect |
+| Podman rootless/subuid/cgroup error | [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage) runtime checks | Repair host delegation/ranges through host policy; do not switch to root containers or mount a runtime socket |
 | Image missing | `runner podman images --no-trunc` | Load the exact approved image as runner, not root; runtime will not pull |
 | Provider auth works only outside container | Auth mount path, UID, HOME, keyring dependence | Qualify the actual directory-only native flow; a personal host login is not a container login |
 | Verifier command/dependency missing | Image's absolute command and network-free check | Bake dependencies into a new qualified image; do not enable verifier network |
-| PostgreSQL peer auth failure | Linux user, DB role, local socket DSN | Test §10.4 as `cursus-control`; preserve local auth policy, no remote DSN on A |
+| PostgreSQL peer auth failure | Linux user, DB role, local socket DSN | Test [private configuration and secrets](#private-configuration-and-secrets) as `cursus-control`; preserve local auth policy, no remote DSN on A |
 | Operator socket access denied | `id -nG`, socket group/mode | Reconnect after group change; do not make socket world-writable |
 | Socket already exists | Old controller status/process | Stop/verify the old owner before removing only a proven stale configured socket; never unlink a live one |
 | Website 403 / wrong host | Exact login, origin, Serve proxy | Use the canonical private HTTPS URL with intended Tailscale account; do not forge headers or expose loopback |
@@ -1144,10 +1216,11 @@ code, time, host and release; never publish secrets or raw complete configs.
 | Rollback refuses migration history | Previous code/config/database set | Keep drained; restore a tested matching backup or recover forward |
 | 429, auth denial, persistent vendor errors | Sanitized provider outcome and known retry layers | Stop affected provider workload, honor cooldown; do not rotate identities or loop retries |
 
-## 17. Developer checks and project references
+## Developer checks and project references
+
 
 These checks use local fixtures and are separate from intended-host qualification.
-From a source checkout with the §5 build environment:
+From a source checkout with the [prepare the python dependencies](#prepare-the-python-dependencies) build environment:
 
 ```bash
 "$HOME/cursus-build-env/bin/python" -m unittest discover -s tests/unit
