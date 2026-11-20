@@ -156,8 +156,96 @@ class Guide:
         total = int(memory['MemTotal'].split()[0]) // 1024
         available = int(memory['MemAvailable'].split()[0]) // 1024
         free = shutil.disk_usage('/var/lib/cursus-runner').free // (1024*1024)
+        self.hardware = dict(total=total, available=available, cpu=os.cpu_count() or 1, free=free)
         self.tty.write(f'\nWorker resources detected automatically:\n  RAM: {total} MiB total, {available} MiB currently available\n  CPU: {os.cpu_count() or 1} logical cores\n  Runner disk: {free} MiB free\nChoose workload limits below; current free resources do not establish safe limits for your workload.\n')
         self.tty.flush()
+
+    def resource_plan(self, containers):
+        """Ask in dependency order so suggestions honor earlier operator choices."""
+        if not hasattr(self, 'hardware'):
+            self.resource_summary()
+        facts = self.hardware
+        # The release's config contract also caps VPS-A at 12 GiB / six cores.
+        memory = min(facts['total'], 12288)
+        cpu = min(facts['cpu'] * 1000, 6000)
+        if min(memory, facts['available']) < 16 or facts['free'] < 2:
+            raise RuntimeError('Insufficient available worker resources. Free memory/disk space and rerun setup.')
+        self.tty.write('\nContainer resource plan (Ctrl-C cancels setup).\n'
+                       'MiB means 1/1024 GiB; 1024 MiB = 1 GiB. CPU units: 1000 = one logical core.\n'
+                       'Suggestions are starting points, not measured workload requirements. Override them for your tools/tests.\n'
+                       'This release supports budgets plus reserves up to 12288 MiB and 6000 CPU units.\n')
+
+        def number(table, key, title, explanation, suggested, reason, maximum, minimum=1):
+            current = table[key]
+            if type(current) is int:
+                if not minimum <= current <= maximum:
+                    raise RuntimeError(f'Configured {title} must be between {minimum} and {maximum}; existing value was not changed.')
+                return current
+            if maximum < minimum:
+                raise RuntimeError('No usable resource allowance remains for '+title+'. Review the host reserves and rerun.')
+            suggested = max(minimum, min(suggested, maximum))
+            question = (title+'\n'+explanation+f'\nAllowed: {minimum}–{maximum}, whole numbers only.'
+                        +f'\nSuggested: {suggested}. '+reason)
+            while True:
+                answer = self.ask(question, suggested)
+                if re.fullmatch(r'[0-9]{1,12}', answer) and minimum <= int(answer) <= maximum:
+                    table[key] = int(answer)
+                    return table[key]
+                self.tty.write(f'Enter a whole number from {minimum} to {maximum}; press Enter to accept {suggested}.\n')
+                self.tty.flush()
+
+        budget = containers['budget']
+        reserve = number(budget, 'host_reserve_mb', 'How much RAM should remain for the host (MiB)?',
+                         'Keeps RAM outside the container budget for Ubuntu, Podman and other services.',
+                         max(512, memory//4), 'About 25% of supported RAM, with a 512 MiB starting reserve.',
+                         min(memory, facts['available'])-8)
+        cpu_reserve = number(budget, 'host_reserve_cpu_millis', 'How much CPU should remain for the host (CPU units)?',
+                             'Keeps CPU capacity outside the container budget for host services.',
+                             max(250, cpu//6), 'About one sixth of supported CPU, at least 250 units (0.25 core).', cpu-2)
+        ram = number(budget, 'memory_mb', 'Total RAM allowance for ALL running containers (MiB)',
+                     f'Includes agents AND the verifier together. Excludes the {reserve} MiB host reserve.\n'
+                     f'Detected: {facts["total"]} MiB total RAM; {facts["available"]} MiB currently available.\n'
+                     'This is an admission ceiling, not RAM allocated immediately. Larger per-container limits allow fewer concurrent sessions.',
+                     min(memory, facts['available'])-reserve,
+                     'The smaller of supported total RAM and currently available RAM, minus your host reserve.', memory-reserve, 8)
+        cores = number(budget, 'cpu_millis', 'Total CPU allowance for ALL running containers (CPU units)',
+                       f'Includes agents AND the verifier. Excludes the {cpu_reserve} CPU units reserved for the host.',
+                       cpu-cpu_reserve, 'Supported CPU capacity minus your host reserve.', cpu-cpu_reserve, 2)
+        tasks = number(budget, 'pids', 'Total process/thread allowance for ALL running containers',
+                       'Admission counts each container limit, including the verifier; threads count as tasks.',
+                       2048, 'Starting allowance for two containers with 1024 tasks each; raise it for heavily threaded builds.', 4194304, 2)
+        number(containers, 'disk_reserve_mb', 'When should Cursus pause NEW containers (free disk MiB)?',
+               f'Detected: {facts["free"]} MiB free on the runner filesystem.\n'
+               'When free space falls BELOW this threshold, new containers wait; existing containers keep running.\n'
+               'This is a free-space floor, not a container disk limit or preallocated storage. Other programs can still consume it.',
+               min(10240, facts['free']//10),
+               '10% of currently free space, capped at 10240 MiB (10 GiB). Raise it for large images, repositories or logs.', facts['free']-1)
+        for lane in ('agent', 'verifier'):
+            resource = containers['resources'][lane]
+            other = containers['resources']['agent'] if lane == 'verifier' else {}
+            for key, total, unit in (('memory_mb', ram, 'MiB'), ('cpu_millis', cores, 'CPU units'), ('pids', tasks, 'processes/threads')):
+                remaining = total-other.get(key, 0)
+                minimum = 4 if key == 'memory_mb' else 1
+                number(resource, key, f'Limit for ONE {lane} container ({unit})',
+                       'Each container gets this limit; it counts toward the shared total allowance.\n'
+                       'The scheduler keeps capacity for one verifier while admitting agents.',
+                       remaining if lane == 'verifier' else total//2,
+                       'Starts with half the total for an agent and the remainder for the verifier.',
+                       remaining if lane == 'verifier' else total-minimum, minimum)
+            for key, label in (('tmp_mb', '/tmp'), ('home_mb', 'disposable home directory')):
+                maximum = resource['memory_mb']-resource.get('tmp_mb', 0)-1 if key == 'home_mb' else resource['memory_mb']-2
+                number(resource, key, f'Size limit for ONE {lane} container’s {label} (MiB)',
+                       'Memory-backed storage: usage counts INSIDE that container’s RAM limit.\n'
+                       'Persistent native login state is stored separately.',
+                       min(512, resource['memory_mb']//8),
+                       'One eighth of container RAM, capped at 512 MiB, leaving RAM for tools and tests.', maximum)
+        agents = min((budget[key]-containers['resources']['verifier'][key])//containers['resources']['agent'][key]
+                     for key in ('memory_mb', 'cpu_millis', 'pids'))
+        self.tty.write(f'\nResource plan: {ram} MiB total container RAM + {reserve} MiB host reserve.\n'
+                       f'These limits admit at most {agents} agent container(s) plus one verifier at once; provider/session ceilings may lower this.\n'
+                       'New containers also wait if current available RAM cannot cover their limit plus the host reserve.\n')
+        self.tty.flush()
+        return containers
 
     def controller_origin(self):
         nodes = list(self.tailscale().get('Peer',{}).values())
@@ -221,17 +309,11 @@ class Guide:
             'claude': 'Maximum simultaneous Claude Code sessions, from 1 to 2.\nChoose a ceiling allowed by your account and resources. Each slot requires a native login.',
             'codex': 'Maximum simultaneous Codex sessions, from 1 to 2.\nChoose a ceiling allowed by your account and resources. Each slot requires a native login.',
             'agy': 'Maximum simultaneous Antigravity sessions, from 1 to 2.\nChoose a ceiling allowed by your account and resources. Each slot requires a native login.',
-            'memory_mb': 'Memory limit in MiB (1024 MiB = 1 GiB). Enter a positive whole number.\nUnder containers.budget this is the total execution allowance; under resources.agent or resources.verifier it is the limit for ONE container.\nUse the detected memory shown above. Choose workload limits, leaving the host reserve outside the total budget.',
-            'cpu_millis': 'CPU allowance in thousandths of a core: 1000 = one core, 2000 = two cores.\nUnder containers.budget this is the total allowance; under resources it applies to ONE container.\nUse the detected CPU count shown above. Leave the host CPU reserve outside the total budget.',
-            'pids': 'Process and thread limit, as a positive whole number.\nUnder containers.budget this is the total scheduled allowance; under resources it is the limit for ONE container.\nChoose enough for your tools and test subprocesses; inspect a representative workload rather than copying an arbitrary value.',
-            'tmp_mb': 'Maximum disposable /tmp size for ONE container, in MiB.\nChoose enough for temporary files created by your tools/tests. This is memory-backed storage and must fit your memory plan.',
-            'home_mb': 'Maximum disposable home-directory size for ONE container, in MiB.\nChoose enough for runtime caches and temporary settings. Persistent native login state is stored separately. Account for memory-backed storage.',
-            'host_reserve_mb': 'Memory reserved for Ubuntu, Podman and other host services, in MiB.\nUse the detected RAM shown above and the needs of your host services. Total execution memory plus this reserve must fit physical RAM.',
-            'host_reserve_cpu_millis': 'CPU reserved for host services, in thousandths of a core (1000 = one core).\nUse the detected core count shown above. Total execution CPU plus this reserve must fit the available cores.',
-            'disk_reserve_mb': 'Minimum free disk space in MiB before Cursus stops starting new containers.\nUse the detected free disk shown above. Choose a safety margin for images, repositories, logs and the operating system.',
             'off_host_destination': 'Your independently managed backup destination outside server B.\nEnter the destination used by your backup procedure, for example a private backup host and path.\nCursus records this value but does not create the destination, copy backups or schedule them. Arrange and verify backups separately.',
         }
         if isinstance(value,dict):
+            if path == ('containers',):
+                value = self.resource_plan(value)
             return {k:self.fill(v,(*path,k)) for k,v in value.items()}
         if isinstance(value,list):
             return [self.fill(v,(*path,str(i))) for i,v in enumerate(value)]

@@ -29,6 +29,11 @@ Source update; no intended-host/provider qualification or release tag implied.
   on both hosts, omit repository/branch/check/token questions, and preserve
   explicitly enrolled configurations. Explain later enrollment and show an idle
   state on the new-run screen (ADR 0013).
+- Replace ambiguous resource prompts with purpose-specific questions, explained
+  hardware-based suggestions accepted with Enter, immediate numeric/range
+  validation and a summary of agent capacity with verifier resources reserved.
+  Ask host reserves first and derive subsequent suggestions from chosen values.
+
 - Explain guided inputs in plain English, including units, sources and account permissions.
 - Import saved native model/provider choices without ID transcription.
 - Discover Tailscale peers/accounts and worker hardware locally; select deployment
