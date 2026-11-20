@@ -1,6 +1,12 @@
 # Ubuntu 26.04 deployment and release activation
 
-Revision 2026-11-20-r2. [ADR 0009](../docs/decisions/0009-container-execution.md)
+Revision 2026-11-20-r3. New deployments start with the single
+[`install.sh`](../install.sh) entry point and [README quick install](../README.md#quick-install).
+The per-host wrapper examples below are the lower-level compatibility interface;
+they assume prepared source/config/wheels. The unified installer performs that
+bootstrap and calls the same staging/activation engine.
+
+[ADR 0009](../docs/decisions/0009-container-execution.md)
 supersedes host execution accounts and rejected PR #6. This is a source delivery;
 **do not provision or qualify hosts during design implementation**. Live user,
 runtime and provider qualification remains at M3 end. Chromebook enrollment is

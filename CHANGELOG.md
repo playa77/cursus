@@ -5,6 +5,17 @@ Notable changes are recorded here using Semantic Versioning.
 
 ## [Unreleased]
 
+### Setup
+
+- Add one top-level `install.sh` for both hosts, with fresh-checkout bootstrap,
+  terminal-safe guided setup, optional automatic hash-locked wheel acquisition,
+  private configuration/credential preparation and guarded stage/activation.
+- Prepare required storage and the rootless user manager automatically; start
+  local PostgreSQL before provisioning. Preserve existing work and secret files.
+- Pin guided role/prompt configuration in separate local Git releases (ADR 0010).
+- Lead README with quick install and move the manual path behind it; remove the
+  scripted path’s assumption that `~/cursus-source` already exists.
+
 ### Documentation
 
 - Replace the short README with a host-by-host Ubuntu deployment guide covering

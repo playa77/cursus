@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ubuntu 26.04 installer, 2026-11-20-r2. Dry-run by default; no native login."""
+"""Ubuntu 26.04 installer, 2026-11-20-r3. Dry-run by default; no native login."""
 import argparse
 from datetime import datetime, timezone
 import json
@@ -11,6 +11,10 @@ import shutil
 import subprocess
 import sys
 import tomllib
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent/'src'))
+from cursus.contracts import Problem
 
 
 def log(message):
@@ -70,9 +74,9 @@ class Installer:
             raise RuntimeError('This installer supports Ubuntu Server 26.04 only.')
         if not self.args.activate_existing and not self.args.wheelhouse:
             raise RuntimeError('--apply requires a prepared hash-locked offline --wheelhouse.')
-        if not self.args.activate_existing and subprocess.check_output(['git','-C',str(self.source),'rev-parse','HEAD'], text=True).strip() != self.args.release:
+        if not self.args.activate_existing and subprocess.check_output(['git','-c','safe.directory='+str(self.source),'-C',str(self.source),'rev-parse','HEAD'], text=True).strip() != self.args.release:
             raise RuntimeError('Source HEAD differs from --release.')
-        if not self.args.activate_existing and subprocess.check_output(['git','-C',str(self.source),'status','--porcelain'], text=True).strip():
+        if not self.args.activate_existing and subprocess.check_output(['git','-c','safe.directory='+str(self.source),'-C',str(self.source),'status','--porcelain'], text=True).strip():
             raise RuntimeError('Source must be clean before staging an immutable release.')
         if self.args.activate_existing and self.args.config and Path(self.args.config).read_bytes() != (self.release/'config.toml').read_bytes():
             raise RuntimeError('Supplied config differs from immutable staged config; stage a new release.')
@@ -94,16 +98,52 @@ class Installer:
         if user.pw_uid == 0 or user.pw_dir != '/var/lib/'+self.user or user.pw_shell != '/usr/sbin/nologin':
             raise RuntimeError('Conflicting stable service account; refusing reuse.')
 
-    def stage(self):
-        if self.reuse:
-            log('Reused complete immutable release and identical supplied config: '+str(self.release))
-            return
+    def prepare_host(self):
         packages = ['python3-venv','git','ca-certificates']
         packages += ['podman','uidmap','passt'] if self.args.host == 'worker' else ['postgresql']
         self.run(['apt-get','install','--yes','--no-install-recommends',*packages])
         self.account()
+        self.run(['install','-d','-m','0700','-o',self.user,'-g',self.user,'/var/lib/'+self.user])
+        if self.args.host == 'worker':
+            self.run(['loginctl','enable-linger', self.user])
+        if self.args.host == 'controller':
+            self.run(['systemctl','start','postgresql'])
+            self.run(['groupadd','--force','cursus-operators'])
+            self.run(['usermod','--append','--groups','cursus-operators',self.user])
+            # Peer-authenticated local service role: no password in argv/logs.
+            sql = "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='cursus-control') THEN CREATE ROLE \"cursus-control\" LOGIN; END IF; END $$;"
+            if self.args.apply:
+                subprocess.run(['runuser','-u','postgres','--','psql','--no-psqlrc','--set','ON_ERROR_STOP=1','--command',sql], check=True, stdout=subprocess.DEVNULL)
+                result = subprocess.run(['runuser','-u','postgres','--','psql','--no-psqlrc','--tuples-only','--no-align','--command',"SELECT 1 FROM pg_database WHERE datname='cursus'"],check=True,capture_output=True,text=True)
+                if result.stdout.strip() != '1':
+                    self.run(['runuser','-u','postgres','--','createdb','--owner=cursus-control','cursus'])
+            else:
+                log('PLAN local PostgreSQL peer role cursus-control and owned database cursus; existing DB preserved.')
+
+        roots = (['/etc/cursus/runner', '/var/lib/cursus-runner/state',
+                  '/var/lib/cursus-runner/spool', '/var/lib/cursus-runner/repositories',
+                  '/var/lib/cursus-runner/worktrees', '/var/lib/cursus-runner/reviews',
+                  '/var/lib/cursus-runner/auth'] if self.args.host == 'worker' else
+                 ['/etc/cursus/control', '/var/lib/cursus-control/artifacts', '/var/backups/cursus'])
+        for name in roots:
+            path = Path(name)
+            if self.args.apply and (path.exists() or path.is_symlink()):
+                account = pwd.getpwnam(self.user)
+                if path.is_symlink() or not path.is_dir() or path.stat().st_uid != account.pw_uid:
+                    raise RuntimeError('Refusing conflicting existing storage: '+name)
+            self.run(['install','-d','-m','0700','-o',self.user,'-g',self.user,name])
+        if self.args.host == 'worker':
+            uid = pwd.getpwnam(self.user).pw_uid if self.args.apply else 'SERVICE_UID'
+            self.run(['systemctl','start','user@'+str(uid)+'.service'])
+
+    def stage(self, prepared=False):
+        if self.reuse:
+            log('Reused complete immutable release and identical supplied config: '+str(self.release))
+            return
+        if not prepared:
+            self.prepare_host()
         self.run(['install','-d','-m','0755',str(self.release)])
-        self.run(['git','clone','--local','--no-hardlinks','--no-checkout',str(self.source),str(self.release/'source')])
+        self.run(['git','-c','safe.directory='+str(self.source),'-c','safe.directory='+str(self.source/'.git'),'clone','--local','--no-hardlinks','--no-checkout',str(self.source),str(self.release/'source')])
         self.run(['git','-C',str(self.release/'source'),'-c','core.hooksPath=/dev/null','checkout','--detach',self.args.release])
         self.run(['git','-C',str(self.release/'source'),'remote','remove','origin'])
         self.run(['python3','-m','venv',str(self.release/'venv')])
@@ -121,21 +161,6 @@ class Installer:
             self.run(['install','-m','0600','-o',self.user,'-g',self.user,self.args.config,self.release/'config.toml'])
         else:
             log('STAGED only: supply a complete explicit configuration before activation.')
-        self.run(['install','-d','-m','0700','-o',self.user,'-g',self.user,'/var/lib/'+self.user])
-        if self.args.host == 'worker':
-            self.run(['loginctl','enable-linger', self.user])
-        if self.args.host == 'controller':
-            self.run(['groupadd','--force','cursus-operators'])
-            self.run(['usermod','--append','--groups','cursus-operators',self.user])
-            # Peer-authenticated local service role: no password in argv/logs.
-            sql = "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='cursus-control') THEN CREATE ROLE \"cursus-control\" LOGIN; END IF; END $$;"
-            if self.args.apply:
-                subprocess.run(['runuser','-u','postgres','--','psql','--no-psqlrc','--set','ON_ERROR_STOP=1','--command',sql], check=True, stdout=subprocess.DEVNULL)
-                result = subprocess.run(['runuser','-u','postgres','--','psql','--no-psqlrc','--tuples-only','--no-align','--command',"SELECT 1 FROM pg_database WHERE datname='cursus'"],check=True,capture_output=True,text=True)
-                if result.stdout.strip() != '1':
-                    self.run(['runuser','-u','postgres','--','createdb','--owner=cursus-control','cursus'])
-            else:
-                log('PLAN local PostgreSQL peer role cursus-control and owned database cursus; existing DB preserved.')
 
         if self.args.apply:
             marker = self.release/'complete.json'
@@ -277,7 +302,7 @@ def main():
             installer.activate()
         log('Completed '+('installation' if args.apply else 'dry-run')+'; no provider login, inference, Tailscale enrollment or public ingress configured.')
         return 0
-    except (OSError, ValueError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, KeyError, RuntimeError, Problem, subprocess.CalledProcessError) as exc:
         log('FAILED '+type(exc).__name__+': '+str(exc) if not isinstance(exc,subprocess.CalledProcessError) else 'FAILED command; old release/config retained unless activation switch already reported. Inspect service diagnostics; do not resume intake blindly.')
         return 1
 

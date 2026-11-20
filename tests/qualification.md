@@ -411,3 +411,31 @@ batch passed (**14**). Final wheel SHA-256:
 Every packaged source file matched the wheel; compileall, shell syntax,
 dependency compatibility and diff whitespace checks passed again. These final
 checks supersede the earlier wheel for delivery; no live qualification claim.
+
+## Unified installer and README correction — 2026-11-20
+
+Source changes add `install.sh` and its guided Python helper, retaining the
+schema-2 immutable staging/activation engine. This is installer-source evidence,
+not an applied deployment or native provider qualification.
+
+- `PYTHONPATH=src python3 -m unittest tests.unit.test_setup tests.unit.test_install_entrypoint`:
+  12 passed. Includes a fresh temporary home, actual piped shell execution with
+  mocked OS/package/Git/privilege boundaries, source acquisition, Unicode/space
+  paths, preservation on repeat, no-change plans, argument rejection, config
+  round-trips, pinned local role release, auth-directory rejection, private-file
+  preservation and a real pseudo-terminal question/answer check.
+- Both unified host dry-runs passed; legacy installer regression tests passed.
+  Bash syntax, Python compilation, README local links/anchors and 53 shell block
+  syntax checks passed. These are syntax/fixture checks, not execution of the
+  manual provisioning commands.
+- Earlier full unit discovery in the system Python ran 38 tests: 37 passed,
+  installed-entrypoint check errored because `/usr/bin/cursus` is absent. This
+  shell has no installed project environment. An isolated environment was created,
+  but offline installation of the pinned build backend could not proceed because
+  it was unavailable in the local cache. No network dependency install was used
+  to mask that limitation. Additional installer tests were then added and passed
+  in the targeted run above; the full installed-package suite was not rerun.
+- No VPS package/account/service changes, provider inference, native credential
+  enrollment, Tailscale changes or real GitHub publication tests were performed.
+  A qualified native image/profile/auth domains remain explicit prerequisites;
+  the installer does not manufacture them or assert end-to-end readiness.
