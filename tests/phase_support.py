@@ -8,7 +8,10 @@ from cursus.control import Control
 from cursus.runner import Journal, Runner
 from tests.support import Database, SocketService, workspace, settings, code_input, GitRemote
 from tests.integration.test_runner_transport import Wire
-from tests.integration.test_execution import fixture_execution, invocation, criterion
+from tests.integration.test_execution import CAPACITY, fixture_execution, invocation, criterion
+
+
+LANES = ('repository','claude','codex','agy','worker','verifier')
 
 
 @asynccontextmanager
@@ -24,6 +27,7 @@ async def phase_runtime(overrides=None, value=None):
             repository = remote.repository(ws)
             execution = fixture_execution(ws, overrides)
             config = settings()
+            config['capacity'] = dict(CAPACITY)
             config['profile_digest'] = execution.profiles['digest']
             config['roles'] = {name: dict(invocation(execution, cli, name)['role'], prompt_text='Fixture role.')
                 for name, cli in [('worker','pi'), ('debug','pi'), ('planner','claude'),
@@ -60,7 +64,7 @@ async def drive(rt, until=None, limit=100):
         if (until and until(phase)) or phase['state'] in ('delivered','parked','canceled'):
             return phase
         found = False
-        for slot in ('repository','frontier','worker','verifier'):
+        for slot in LANES:
             claim = await rt['runner'].claim(slot)
             if claim:
                 found = True

@@ -1,14 +1,13 @@
-"""Direct native CLI/verifier protocols inside session containers (ADR 0009).
+"""Direct native CLI/verifier protocols run through the host runtime (ADR 0016).
 
-The explicit allow_test_identity seam is only for controlled executable fixtures.
+Every child is spawned by `HostRuntime`: same user, allowlisted environment, own
+process group. Execution holds no identity switching and no isolation claim.
 """
 
 import asyncio
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
-import pwd
 import re
 import signal
 from cursus.contracts import Problem, canonical_json, decode_json, _object
@@ -49,26 +48,10 @@ def review(value, criteria):
 
 
 class Execution:
-    def __init__(self, profiles, identities, verifier, allow_test_identity=False, runtime=None):
-        self.profiles, self.identities, self.verifier = profiles, identities, verifier
-        self.runtime = runtime
-        if not allow_test_identity and runtime is None:
-            raise Problem("identity_boundary", "Production requires the container runtime.")
-        self.allow_test_identity = allow_test_identity
-
-    def identity(self, configured):
-        if self.runtime:
-            from types import SimpleNamespace
-            return SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_name='session')
-        user = pwd.getpwnam(configured['user'])
-        if user.pw_uid == 0 or (os.geteuid() != 0 and not self.allow_test_identity):
-            raise Problem('identity_boundary', 'Execution requires distinct unprivileged identities.')
-        return user
-
-    def configured(self, invocation):
-        if self.runtime:
-            return {'home': '/home/session', 'user': 'session'}
-        return self.identities[invocation['role']['cli']]
+    def __init__(self, profiles, runtime):
+        if runtime is None:
+            raise Problem('runtime_required', 'Execution requires the host runtime.')
+        self.profiles, self.runtime = profiles, runtime
 
     def authorize(self, invocation):
         role = invocation['role']
@@ -89,39 +72,29 @@ class Execution:
             if role.get(key) != profile.get(key):
                 raise Problem('profile_mismatch', 'Invocation tuple is not qualified.')
         binary = Path(profile['binary'])
-        if not binary.is_absolute() or (not self.runtime and sha256(binary.read_bytes()).hexdigest() != profile['binary_digest']):
-            raise Problem('profile_mismatch', 'CLI binary digest changed.')
+        # The operator's installed CLI may update itself, so no digest is pinned (ADR 0016).
+        if not binary.is_absolute() or not os.access(binary, os.X_OK):
+            raise Problem('profile_mismatch', 'CLI binary is missing or not executable.')
         if not profile.get('probe_evidence') or not profile.get('clean_config_argv'):
             raise Problem('profile_mismatch', 'Missing installed-version capability evidence.')
-        if not self.allow_test_identity:
-            tokens = profile['fixed_argv']
-            required = {'pi': ['--mode', 'rpc' if profile['prompt_transport'] == 'rpc' else 'json'],
-                        'claude': ['-p', '--output-format', 'stream-json'],
-                        'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
-            if any(token not in tokens for token in required):
-                raise Problem('profile_mismatch', 'Required direct CLI invocation family is missing.')
+        tokens = profile['fixed_argv']
+        required = {'pi': ['--mode', 'rpc' if profile['prompt_transport'] == 'rpc' else 'json'],
+                    'claude': ['-p', '--output-format', 'stream-json'],
+                    'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
+        if any(token not in tokens for token in required):
+            raise Problem('profile_mismatch', 'Required direct CLI invocation family is missing.')
         argv = [str(binary), *profile['fixed_argv']]
         if set(role['tools']) <= {'read', 'list', 'search'}:
             if not profile.get('read_only_argv'):
                 raise Problem('profile_mismatch', 'Missing read-only qualification.')
             argv += profile['read_only_argv']
         argv += profile['clean_config_argv']
-        configured = self.configured(invocation)
-        if not self.allow_test_identity and not self.runtime and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
-            raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
-        return profile, argv, self.identity(configured)
+        return profile, argv
 
-    async def child(self, argv, workspace, user, home, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
-        environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
-                       'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
-        privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
+    async def child(self, argv, workspace, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None):
         pipes = dict(stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                      stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=65537)
-        if self.runtime:
-            process = await self.runtime.spawn(argv, Path(workspace), **pipes)
-        else:
-            process = await asyncio.create_subprocess_exec(*argv, cwd=workspace, env=environment,
-                                                          **pipes, **privileges)
+        process = await self.runtime.spawn(argv, Path(workspace), **pipes)
         output, diagnostics = bytearray(), bytearray()
         request_id = 'cursus-turn-1'
         pending_commands = {}
@@ -215,12 +188,16 @@ class Execution:
                     raise Problem('output_limit', 'Diagnostic output exceeds its bound.')
         try:
             async with asyncio.timeout(timeout):
-                if lifecycle:
-                    await lifecycle(process.pid)
-                process.stdin.write(stdin)
-                await process.stdin.drain()
-                if not rpc:
-                    process.stdin.close()
+                try:
+                    # A command may exit before reading stdin (a fast-failing check);
+                    # its exit status and output, not the pipe, decide the outcome.
+                    if stdin:
+                        process.stdin.write(stdin)
+                        await process.stdin.drain()
+                    if not rpc:
+                        process.stdin.close()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
                 terminal, _ = await asyncio.gather(read_output(), read_error())
                 code = await process.wait()
                 if stopped:
@@ -299,9 +276,7 @@ class Execution:
             raise Problem('missing_terminal', 'No qualified terminal assistant response.')
         return decode_json(sanitize(answer))
 
-    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
-        if not self.runtime:
-            return await self._run(job, workspace, attempt_id, sink, commands, command_sink, checkpoint, lifecycle)
+    async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None):
         item = self.runtime.entries[attempt_id]
         item['workspace'] = str(workspace)
         self.runtime.save()
@@ -310,19 +285,19 @@ class Execution:
             readonly = job.get('invocation', {}).get('role', {}).get('tools', [])
             readonly = job['step'] != 'verify' and not (set(readonly) - {'read', 'list', 'search'})
             await self.runtime.prepare(attempt_id, workspace, readonly)
-            return await self._run(job, workspace, attempt_id, sink, commands, command_sink, checkpoint, lifecycle)
+            return await self._run(job, workspace, attempt_id, sink, commands, command_sink, checkpoint)
         finally:
             self.runtime.current.reset(token)
             clean = await asyncio.shield(self.runtime.cleanup(attempt_id))
             self.runtime.owned.discard(attempt_id)
             if not clean:
-                raise Problem('unknown_stop', 'Container cleanup pending; execution capacity remains unavailable.')
+                raise Problem('unknown_stop', 'Execution cleanup pending; execution capacity remains unavailable.')
 
-    async def _run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
+    async def _run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None):
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']
-        profile, argv, user = self.authorize(invocation)
+        profile, argv = self.authorize(invocation)
         transport = profile['prompt_transport']
         prompt = invocation['prompt_text']
         if transport == 'stdin':
@@ -334,9 +309,8 @@ class Execution:
             stdin = canonical_json({'id': 'cursus-turn-1', 'type': 'prompt', 'message': prompt}) + b'\n'
         else:
             raise Problem('profile_mismatch', 'Unqualified prompt transport.')
-        code, raw, diagnostic = await self.child(argv, workspace, user,
-            self.configured(invocation)['home'], stdin, invocation['role']['timeout_seconds'], sink,
-            rpc=transport == 'rpc', commands=commands, command_sink=command_sink, checkpoint=checkpoint, lifecycle=lifecycle)
+        code, raw, diagnostic = await self.child(argv, workspace, stdin, invocation['role']['timeout_seconds'], sink,
+            rpc=transport == 'rpc', commands=commands, command_sink=command_sink, checkpoint=checkpoint)
         if code:
             raise Problem('cli_failed', 'CLI process failed.')
         result = decode_json(raw) if checkpoint else self.normalize(invocation['role']['cli'], raw)
@@ -349,7 +323,6 @@ class Execution:
     async def verify(self, job, workspace, attempt_id):
         candidate = job['input']['candidate']
         checks = {item['id']: item for item in job['input']['checks']}
-        user = self.identity(self.verifier)
         evidence = []
         for criterion in job['input']['criteria']:
             check = criterion['check']
@@ -361,8 +334,7 @@ class Execution:
             path = (Path(workspace) / command['cwd']).resolve()
             if not path.is_relative_to(Path(workspace).resolve()):
                 raise Problem('invalid_check', 'Check cwd escapes snapshot.')
-            code, raw, diagnostic = await self.child(command['argv'], path, user, self.verifier['home'],
-                                                      b'', command['timeout_seconds'])
+            code, raw, diagnostic = await self.child(command['argv'], path, b'', command['timeout_seconds'])
             text = sanitize(raw.decode('utf-8', errors='replace') + diagnostic)
             passed = code == check['expected_exit'] and check.get('required_literal', '') in text
             evidence.append({'criterion_id': criterion['id'], 'candidate': candidate,

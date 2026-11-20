@@ -55,8 +55,6 @@ class Repository:
         self.root, self.worktrees, self.reviews = map(Path, (root, worktrees, reviews))
         self.enrollments, self.github, self.binary = enrollments, github, git
         self.credential_file = credential_file
-        self.worktree_admin = {}
-        self.container_workspaces = False
         self.network_lock = threading.Lock()
         self.last_network = 0.0
         self.local_only = all(str(r.get('remote','')).startswith('/') for r in enrollments.values())
@@ -76,8 +74,6 @@ class Repository:
             # Git's credential-store reads the operator's provisioned file
             # opaquely; credential values never enter argv or model context.
             command += ['-c', 'credential.helper=store --file=' + shlex.quote(str(self.credential_file))]
-        if Path(directory) in self.worktree_admin:
-            command += ['--git-dir=' + self.worktree_admin[Path(directory)], '--work-tree=' + str(directory)]
         def invoke():
             return subprocess.run([*command, *args], input=data, capture_output=True,
                                   env=self.environment, timeout=120)
@@ -125,13 +121,10 @@ class Repository:
         path = self.worktrees / attempt_id
         if path.exists():
             raise Problem('state_conflict', 'Workspace already exists; do not relaunch.')
-        if self.container_workspaces:
-            self.git(cache, 'clone', '--no-hardlinks', '--no-checkout', str(cache), str(path))
-            self.git(path, 'remote', 'remove', 'origin')
-            self.git(path, 'checkout', '--detach', base)
-            return path
-        self.git(cache, 'worktree', 'add', '--detach', str(path), base)
-        self.worktree_admin[path] = (path / '.git').read_text().strip().removeprefix('gitdir: ')
+        # A self-contained clone without a remote: the agent has no path back to the cache.
+        self.git(cache, 'clone', '--no-hardlinks', '--no-checkout', str(cache), str(path))
+        self.git(path, 'remote', 'remove', 'origin')
+        self.git(path, 'checkout', '--detach', base)
         return path
 
     def snapshot(self, candidate, attempt_id, readonly=True):
@@ -250,8 +243,7 @@ class Repository:
         self.git(path, 'commit', '--allow-empty', '-m', 'Cursus candidate')
         head = self.git(path, 'rev-parse', 'HEAD').decode().strip()
         ref = self.ref(job, attempt_id)
-        if self.container_workspaces:
-            self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
+        self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
         self.push(repo, ref, head, None, ref)
         return {'kind': 'code', 'repo': repo, 'base_sha': base, 'attempt_ref': ref, 'head_sha': head}
 
@@ -316,8 +308,7 @@ class Repository:
             self.git(path, 'commit', '--allow-empty', '-m', 'Cursus integration')
             head = self.git(path, 'rev-parse', 'HEAD').decode().strip()
             ref = self.ref(job, attempt_id, 'stage')
-            if self.container_workspaces:
-                self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
+            self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
             self.push(repo, ref, head, None, ref)
             staged = dict(candidate, base_sha=data['expected_head'], head_sha=head, attempt_ref=ref)
             return {'candidate': staged, 'patch_identity': sha256(self.patch(staged)).hexdigest(),

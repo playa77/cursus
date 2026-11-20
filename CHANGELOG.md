@@ -2,6 +2,34 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
+## [Unreleased]
+
+Planned for 0.7.0; the version is not bumped until the installer work package lands.
+The branch is not releasable meanwhile: the installer and stage engine still emit
+the 0.6.0 container configuration, which the runner no longer loads.
+
+### Changed (work package A)
+
+- Run CLIs and verifier checks directly on the host as the service user through
+  `HostRuntime`: allowlisted environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`,
+  per-attempt `TMPDIR`, plus configured `pass_env`), worktree working directory,
+  own process group, durable process ledger and identity-checked group termination
+  after restarts. No isolation (ADR 0016).
+- New runner `[execution]` configuration (`deploy/runner.host.example.toml`)
+  replaces `[containers]`; credential domains, image pin and credential-concurrency
+  enforcement are gone. Workspaces are always self-contained clones.
+- Journal record kinds `container_*` are now `execution_*`; no migration of old journals.
+- Fix: a command that exits before reading stdin no longer raises
+  `ConnectionResetError` from the execution layer.
+
+### Decided
+
+- Run the operator's already-installed and already-signed-in Claude Code, Codex
+  CLI, Antigravity and pi directly on one host in one process. Remove the native
+  image, containers, credential domains, pairing and generated capability profile.
+  Isolation is deliberately dropped; repositories must be trusted (ADR 0016,
+  with a work-package plan). Supersedes ADRs 0011, 0014 and 0015 and most of 0009.
+
 
 ## [0.6.0] - 2026-11-20
 

@@ -10,7 +10,6 @@ import ssl
 import urllib.error
 import urllib.request
 import urllib.parse
-import pwd
 import random
 import time
 import shutil
@@ -112,9 +111,9 @@ class Journal:
                 continue
             if kind == 'directive' and record is not directives[-1]:
                 continue
-            if kind in ('launch','stale_stop','container_removed') and value in removed:
+            if kind in ('launch','stale_stop','execution_removed') and value in removed:
                 continue
-            if isinstance(value,dict) and (value.get('attempt_id') in removed or kind in ('container_intent','container_identity') and value.get('attempt') in removed or kind == 'artifact_receipt' and value.get('id') in files or kind == 'artifact_discarded' and value.get('id') in files):
+            if isinstance(value,dict) and (value.get('attempt_id') in removed or kind in ('execution_intent','execution_identity') and value.get('attempt') in removed or kind == 'artifact_receipt' and value.get('id') in files or kind == 'artifact_discarded' and value.get('id') in files):
                 continue
             keep.append(record)
         temporary = self.root / 'journal.compact'
@@ -223,10 +222,10 @@ class Runner:
         self.runtime = getattr(execution, 'runtime', None)
         journal.compaction = self.runtime is not None
         self.capacities = self.runtime.capacity if self.runtime else dict(worker=2, verifier=1, frontier=1, repository=1)
-        self.recovered_stops = {r['value'] for r in journal.records if r['kind']=='container_removed'}
+        self.recovered_stops = {r['value'] for r in journal.records if r['kind']=='execution_removed'}
         if self.runtime:
             self.runtime.record = self.record
-            identities = {r['value']['attempt']:r['value'] for r in journal.records if r['kind'] in ('container_intent','container_identity')}
+            identities = {r['value']['attempt']:r['value'] for r in journal.records if r['kind'] in ('execution_intent','execution_identity')}
             for attempt, item in identities.items():
                 if attempt not in self.recovered_stops and attempt not in self.runtime.entries:
                     self.runtime.entries[attempt] = dict(item)
@@ -258,8 +257,7 @@ class Runner:
             acknowledged = max((r['value']['committed_through'] for r in self.journal.records if r['kind']=='ack' and r['value']['attempt_id']==attempt_id), default=0)
             if unknown_final and acknowledged >= unknown_final:
                 final = False
-            starts = [r['value'] for r in self.journal.records if r['kind']=='process_context' and r['value']['attempt_id']==attempt_id]
-            stopped = attempt_id in self.recovered_stops or (not self.runtime and starts and starts[-1]['boot_id'] != self.boot_id)
+            stopped = attempt_id in self.recovered_stops
             observations.append({'attempt_id': attempt_id,
                                  'kind': 'live' if attempt_id in self.active else 'stopped' if stopped and not final else 'terminal_pending' if final else 'unknown' if launched else 'never_started',
                                  'reason': 'Durable journal observation.'})
@@ -359,18 +357,6 @@ class Runner:
             if grant and not any(r['kind']=='retire' and r['value']==grant['request_id'] for r in self.journal.records):
                 self.record('retire',grant['request_id'])
 
-    def assign(self, path, configured, readonly=False):
-        if self.runtime or not configured or os.geteuid() != 0:
-            return
-        user = pwd.getpwnam(configured['user'])
-        # Never traverse symlinks while preparing the privilege boundary.
-        if not readonly:
-            for entry in [path, *path.rglob('*')]:
-                if entry.name == '.git' or entry.is_symlink():
-                    continue
-                os.chown(entry, user.pw_uid, user.pw_gid, follow_symlinks=False)
-        path.chmod(0o555 if readonly else 0o700)
-
     def progress(self, event, job, attempt_id, outcome=None):
         import logging
         from datetime import datetime, timezone
@@ -410,7 +396,6 @@ class Runner:
         job, attempt_id = claim['job'], claim['attempt_id']
         if any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records):
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
-        self.record('process_context', {'attempt_id':attempt_id,'boot_id':self.boot_id,'activation':self.activation})
         self.record('launch', attempt_id)
         self.active[attempt_id] = job['slot']
         self.command_queues[attempt_id] = asyncio.Queue()
@@ -421,12 +406,6 @@ class Runner:
         async def log(payload):
             # Agent text is sanitized by Execution before reaching persistence.
             await self.event(attempt_id, 'log', payload)
-        async def lifecycle(pid):
-            if self.runtime:
-                return  # Container identity is the execution boundary, not this transport PID.
-            stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
-            self.record('process',{'attempt_id':attempt_id,'pid':pid,'start_ticks':stat[19],
-                'boot_id':self.boot_id,'activation':self.activation})
         async def command_result(value):
             await self.event(attempt_id,'command_result',value)
         try:
@@ -434,8 +413,6 @@ class Runner:
             if step in ('produce','debug'):
                 data = job['input']
                 path = await asyncio.to_thread(self.repository.workspace, data['repo'], data['base_sha'], attempt_id)
-                configured = self.execution.configured(job['invocation'])
-                self.assign(path, configured)
                 if step == 'debug':
                     async def checkpoint(turn, report):
                         checkpoint_job = dict(job,input=dict(job['input'],checkpoint_turn=turn))
@@ -445,13 +422,13 @@ class Runner:
                         await self.replay()
                         return value
                     result = await self.execution.run(job,path,attempt_id,log,
-                        self.command_queues[attempt_id],command_result,checkpoint,lifecycle)
+                        self.command_queues[attempt_id],command_result,checkpoint)
                     if (self.repository.git(path,'status','--porcelain') or
                             self.repository.git(path,'rev-parse','HEAD').decode().strip() != result['candidate']['head_sha']):
                         raise Problem('invalid_candidate','Workspace changed after passing checkpoint.')
                     value = {'report':result['report'],'candidate':result['candidate']}
                 else:
-                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result, lifecycle=lifecycle)
+                    result = await self.execution.run(job, path, attempt_id, log, self.command_queues[attempt_id], command_result)
                     candidate = await asyncio.to_thread(self.repository.capture, job, attempt_id, path, result)
                     value = {'report': result, 'candidate': candidate}
             elif step in ('verify', 'review'):
@@ -463,8 +440,6 @@ class Runner:
                     for ref in file_refs(job['input']):
                         inputs.append((ref, await self.transport.download(ref, attempt_id)))
                     await asyncio.to_thread(self.repository.evidence_files, path, inputs)
-                configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
-                self.assign(path, configured, readonly=step == 'review')
                 value = await self.execution.run(job, path, attempt_id, log)
                 if step == 'verify':
                     from cursus.runner_files import evidence
@@ -548,7 +523,7 @@ class Runner:
                     elif target.exists():
                         def remove():
                             # Read-only review snapshots deliberately deny writes.
-                            # Reclaim only after the container is gone, and never
+                            # Reclaim only after the execution group is gone, and never
                             # follow repository symlinks while restoring directory access.
                             for _, _, _, fd in os.fwalk(target, follow_symlinks=False):
                                 if os.fstat(fd).st_uid != os.getuid():

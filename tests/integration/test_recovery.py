@@ -65,7 +65,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         async with phase_runtime() as rt:
             claim = await rt['runner'].claim('repository')
             directive = await rt['runner'].exchange(f"runners/{rt['runner'].id}/reconcile",{
-                'generation':rt['journal'].generation,'pending_request_ids':[],
+                'generation':rt['journal'].generation,'pending_request_ids':[],'capacity':rt['runner'].capacities,
                 'observations':[{'attempt_id':claim['attempt_id'],'kind':'stopped',
                                  'reason':'Changed boot identity proves prior processes stopped.'}]})
             self.assertTrue(directive['reconciled'])

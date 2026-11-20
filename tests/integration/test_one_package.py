@@ -10,7 +10,7 @@ from cursus.control import Control
 from cursus.runner import Journal, Runner
 from tests.support import Database, SocketService, workspace, settings, code_input, GitRemote
 from tests.integration.test_runner_transport import Wire
-from tests.integration.test_execution import fixture_execution, invocation
+from tests.integration.test_execution import CAPACITY, fixture_execution, invocation
 
 
 class OnePackageTests(unittest.IsolatedAsyncioTestCase):
@@ -21,6 +21,7 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                 repository = remote.repository(ws)
                 execution = fixture_execution(ws, overrides)
                 config = settings()
+                config['capacity'] = dict(CAPACITY)
                 config['profile_digest'] = execution.profiles['digest']
                 config['roles'] = {name: dict(invocation(execution, cli, name)['role'], prompt_text='Fixture role.')
                                    for name, cli in [('worker', 'pi'), ('planner', 'claude'), ('reviewer', 'codex')]}
@@ -53,7 +54,7 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                             if phase['state'] in ('delivered', 'parked'):
                                 break
                             claimed = False
-                            for slot in ('repository', 'frontier', 'worker', 'verifier'):
+                            for slot in ('repository', 'claude', 'codex', 'agy', 'worker', 'verifier'):
                                 claim = await runner.claim(slot)
                                 if claim:
                                     claimed = True

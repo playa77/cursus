@@ -122,10 +122,14 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
             for kind in ('declare_unrecoverable','abandon'):
                 await rt['control'].action('local_operator',str(uuid4()),dict(kind=kind,
                     attempt_id=claim['attempt_id'],reason='Operator isolated lost verifier.'))
+            self.assertTrue(any(r['kind']=='artifact_pending' for r in rt['journal'].records))
+            self.assertTrue(list(rt['journal'].root.glob('evidence-*')))
             rt['runner'].transport.upload=original
             await rt['runner'].reconcile()
             await rt['runner'].replay()
-            self.assertTrue(any(r['kind']=='artifact_discarded' for r in rt['journal'].records))
+            # Compaction retires the discarded upload's record and spool file together.
+            self.assertFalse(any(r['kind']=='artifact_pending' for r in rt['journal'].records))
+            self.assertFalse(list(rt['journal'].root.glob('evidence-*')))
             attempt=(await rt['control'].query('local_operator','attempts',claim['attempt_id']))['items'][0]
             self.assertEqual(attempt['status'],'abandoned')
             self.assertEqual((await drive(rt))['state'],'delivered')

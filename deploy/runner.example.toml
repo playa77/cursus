@@ -1,3 +1,5 @@
+# LEGACY 0.6.0 container schema (ADR 0016): the runner no longer loads it.
+# Use runner.host.example.toml. This file is removed with the container installer in WP-D.
 # Worksheet: explicit choices required; no agent concurrency defaults.
 schema_version = 2
 process_kind = "runner"

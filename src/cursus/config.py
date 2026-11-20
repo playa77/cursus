@@ -145,7 +145,7 @@ def load(process_kind, path, release_root=None):
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
     elif process_kind == 'runner':
-        keys(settings, (*required, 'publisher', 'capacity', 'containers', 'repositories'))
+        keys(settings, (*required, 'publisher', 'capacity', 'execution', 'repositories'))
         service = settings['service']
         keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
                        'repository_root', 'worktree_root', 'review_root', 'capabilities_file', 'capabilities_digest'))
@@ -157,7 +157,7 @@ def load(process_kind, path, release_root=None):
         for configured in settings['publisher'].values():
             absolute(configured)
         capacity(settings['capacity'])
-        container_settings(settings['containers'], settings['capacity'], service, settings['publisher'])
+        execution_settings(settings['execution'])
         settings['bearer'] = secret(service['bearer_file'])
         profile = absolute(service['capabilities_file']).read_bytes()
         if sha256(profile).hexdigest() != service['capabilities_digest']:
@@ -166,15 +166,11 @@ def load(process_kind, path, release_root=None):
         settings['profiles']['digest'] = service['capabilities_digest']
         if settings['profiles'].get('qualification') not in ('qualified','native-checked'):
             fail('Capability profile has not completed native setup checks.')
-        if settings['profiles'].get('image') != settings['containers']['image']:
-            fail('Capability profile image differs from execution image.')
         for cli in ('pi','claude','codex','agy'):
             measured = settings['profiles'].get(cli, {})
             capability(cli, measured)
             if Path(measured.get('binary', '')).name != cli:
                 fail('Required direct native binary is missing.')
-            if measured.get('credential_concurrency', 0) < settings['capacity']['worker' if cli == 'pi' else cli]:
-                fail('Native credential concurrency is not qualified at the requested ceiling.')
         origin = service['origin']
     else:
         fail('Unsupported process kind.')
@@ -259,6 +255,23 @@ def container_settings(value, ceilings, service, publisher):
                     fail('Credential target mounts overlap.')
                 targets.append(target)
                 sources.append(source)
+
+
+def execution_settings(value):
+    """Host-native execution policy (ADR 0016). No isolation settings exist."""
+    import re
+    keys(value, ('disk_reserve_mb', 'host_reserve_mb'), ('path', 'pass_env'))
+    positive(value['disk_reserve_mb'])
+    positive(value['host_reserve_mb'])
+    if 'path' in value:
+        directories = value['path'].split(':') if isinstance(value['path'], str) else []
+        if not directories or not all(d.startswith('/') and '\n' not in d for d in directories):
+            fail('Execution PATH must be absolute directories separated by colons.')
+    names = value.get('pass_env', [])
+    base = {'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'TMPDIR'}
+    if not isinstance(names, list) or any(
+            not isinstance(n, str) or not re.fullmatch('[A-Z_][A-Z0-9_]*', n) or n in base for n in names):
+        fail('pass_env must list uppercase variable names other than the always-set ones.')
 
 
 def capability(cli, profile):

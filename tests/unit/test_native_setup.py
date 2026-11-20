@@ -121,12 +121,12 @@ assert sys.stdin.read()==''
             manager.prefix=[sys.executable,str(fixture)]
             output=manager.probe('fixture',[],b'{"type":"prompt","id":"test"}\n',True)
             from cursus.execution import Execution
-            self.assertEqual(Execution({}, {}, {},allow_test_identity=True).normalize('pi',output),{'cursus_native_login':'ok'})
+            self.assertEqual(Execution({}, object()).normalize('pi',output),{'cursus_native_login':'ok'})
 
     def test_antigravity_native_result_and_failure_are_not_claude_shaped(self):
         from cursus.execution import Execution
         from cursus.contracts import Problem
-        execution=Execution({}, {}, {},allow_test_identity=True)
+        execution=Execution({}, object())
         frame={'event':'result','result':{'status':'SUCCESS','response':'{"native":"ok"}'}}
         self.assertEqual(execution.normalize('agy',json.dumps(frame).encode()),{'native':'ok'})
         frame['result']['status']='ERROR'
