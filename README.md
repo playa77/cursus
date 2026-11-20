@@ -17,6 +17,11 @@ need to clone this repository, create `~/cursus-source`, install Python packages
 prepare a wheelhouse, or change directory first. The installer handles those
 steps. It asks before changing the host and uses `sudo` when necessary.
 
+Fresh installation does not ask for a repository, branch, test command or GitHub
+publisher token. Both hosts start with no repositories enrolled. You can leave
+Cursus idle for two weeks or longer and [enroll a repository later](#enroll-a-repository-and-its-checks).
+Normal server maintenance and native account session renewal still apply.
+
 If your server says `curl: command not found`, install it first:
 
 ```bash
@@ -68,7 +73,8 @@ downloaded script from **any directory**, including an otherwise empty home.
    guides their native logins, checks the installed interfaces with your approved
    budget, and generates the image/profile configuration. On B, imports that
    generated metadata from A’s pairing code. Generates the runner bearer
-   without printing it, and accepts publisher credentials through hidden input.
+   without printing it. Fresh setup enrolls no repositories and requests no
+   GitHub publisher credentials.
 4. Downloads hash-locked dependencies automatically (or uses your supplied
    offline wheelhouse), builds and stages an immutable Python release/config.
 5. Validates and activates using the existing drain, migration and runtime
@@ -107,9 +113,6 @@ visibility and rerun; the installer does not ask you to transcribe missing facts
 | Controller selection on A | Select B by number from the discovered Tailscale DNS names. The installer constructs its HTTPS address. Do not select A. |
 | Operator selection on B | Select the discovered Tailscale account you authorize to operate the website. Use the account you will sign in with from your browser. The machine owner's identity alone does not authorize website access. |
 | Worker pairing code on B | Copy the code printed by A's installer. It transfers deployment metadata, including the worker DNS name and bearer digest. No native credentials or bearer secret are included. B checks that the code names its own Tailscale address. Older codes require a numbered worker selection. |
-| GitHub repository URL | Paste the GitHub page URL of the repository Cursus is authorized to work on, such as `https://github.com/alice/project`. Setup extracts owner and name. This is a choice of authorized repository; it is not necessarily the installer source repository. |
-| Target branch | Choose the branch Cursus may target, such as `main`; setup adds `refs/heads/` automatically. Find the intended branch in the enrolled repository's GitHub branch selector. |
-| Test command | Choose the repository's real verification command from its README or CI workflow. Supply a JSON argument list with an absolute executable path **inside the image**. The Python unittest example is valid only when that repository has those tests and dependencies. |
 | Session ceilings | Choose pi sessions from 1–4 and Claude Code, Codex and Antigravity sessions independently from 1–2. These are authorized concurrency ceilings, not measured provider capacity. Each slot has an independent native login domain. B imports A's choices. |
 | Total execution budget | Set `containers.budget.memory_mb`, `cpu_millis` and `pids`: total scheduled memory, CPU and process/thread allowances. The installer displays detected RAM, cores and free runner disk. Reserve resources for the host and verifier; observed free resources alone cannot determine workload requirements. |
 | Host reserves | `host_reserve_mb` leaves RAM for Ubuntu and host services. `host_reserve_cpu_millis` leaves CPU for them. Total execution budget plus reserves must fit the worker. |
@@ -119,7 +122,6 @@ visibility and rerun; the installer does not ask you to transcribe missing facts
 | Native logins | When each installed app opens, complete its own login flow with the account you authorize. For pi, use `/login` and choose the intended OpenCode Go provider. Complete each requested slot, then exit the app. No login files or replacement API keys are requested. |
 | Model and pi provider choices | Choose and save the default model in each installed app’s native model selector; choose pi’s provider there too. Setup reads only those selected fields from its own persistent settings inside the execution container. You do not retype IDs. If no saved selection exists, setup opens the app for you to choose and save one. |
 | Native-check budget | Enter the maximum charge you authorize, including currency, then explicitly approve the displayed invocation/time limits. This records consent; it does not enforce a provider billing cap. Checks stop on failure without installer inference retries. |
-| GitHub publisher token on A | In GitHub Settings → Developer settings → Personal access tokens, create a dedicated fine-grained token for the enrolled repository with Contents read/write and Pull requests read/write. Obtain organization approval if required. Paste into the hidden token prompt. Branch protections still apply. Existing private publisher files are reused. |
 | Off-host backup destination on B | Enter the destination used by your independently managed backup procedure, for example a private backup server/path. Cursus records it but does not provision, copy or schedule backups. Choose and verify that procedure separately. |
 
 The controller DNS name can exist before its website is ready. Constructing
@@ -278,12 +280,13 @@ login or password manager. You need:
 | Tailscale account and exact operator login | Tailscale admin console; copy the login identity, not your display name |
 | B's full Tailscale DNS name | Tailscale Machines page after enrollment; for example `controller.example-tailnet.ts.net` |
 | One runner UUID | Generate once with `python3 -c 'import uuid; print(uuid.uuid4())'`; put the same value on A and B |
-| GitHub owner, repository, target branch | Start with a repository you own and authorize Cursus to change through PRs |
-| Repository check command | A real test/build command that works inside the execution image without downloads |
 | Provider accounts and selected CLI builds | All four providers; verify plan access and supported unattended login first |
 | Capacity, resource and disk policy | Choose the explicit ceilings and budgets in [private configuration and secrets](#private-configuration-and-secrets); they are not inferred from advertised RAM |
 | Provider test budget | Decide maximum invocations, elapsed time, concurrency and money before any live prompt |
 | Backup destination and retention | A private location independent of B; backup scheduling/restore automation is not supplied yet |
+
+Repository details, check commands and publisher tokens are needed only when
+you later [enroll a repository](#enroll-a-repository-and-its-checks).
 
 You will need free storage for PostgreSQL, immutable artifacts, container images,
 Git caches and workspaces. Run `df -h / /var /opt` on both servers. There is no
@@ -663,8 +666,45 @@ workloads; this repository does not establish safe universal numeric defaults.
 
 ### Enroll a repository and its checks
 
-On **both** configs, replace the entire example enrollment with the same trusted
-GitHub repository and target, for example `refs/heads/main`. A check's `argv[0]`
+This is optional work **after installation**, when you have a repository you
+want Cursus to use. Skip this section while leaving it idle. Native login and
+resource configuration remain installation steps; repository authority is separate
+([ADR 0013](docs/decisions/0013-idle-installation.md)).
+
+| Value | What it means and where to get it |
+| --- | --- |
+| Owner and repository name | Choose the repository Cursus may work on. For its GitHub page `https://github.com/alice/project`, owner is `alice` and name is `project`. It need not be the Cursus installer repository. |
+| Allowed target refs | Choose target branches from the repository's branch selector. Write full refs, such as `refs/heads/main`. This permits targeting that branch; it does not permit direct publication to it. |
+| Verification command | Use the repository's documented test command or CI workflow. Write a JSON/TOML argument list with an absolute executable path inside the execution image, not a shell command. The tools and dependencies must exist there. |
+| Check ID and phase check IDs | Give the command a local ID, such as `unit`, and include that ID in `phase_check_ids`. These are your configured names, not GitHub check-run IDs. |
+| Working directory and timeout | `cwd` is a repository-relative directory, usually `.`. `timeout_seconds` bounds the check; choose it for that workload. |
+| GitHub publisher token on A | Create a dedicated fine-grained token in GitHub Settings → Developer settings → Personal access tokens. Select the enrolled repository and grant Contents read/write and Pull requests read/write. Obtain organization approval if needed. Supply it only through the hidden credential prompt when staging A's enrolled config, or the private files described below. |
+
+For a guided installation, edit the saved settings on A at
+`/etc/cursus/runner.toml` and on B at `/etc/cursus/control.toml`. These are inputs
+for a new staged configuration; do not edit the active release under
+`/opt/cursus/current`. Remove the top-level `repositories = []` line, then append
+the **same** enrollment on both hosts. For example, only if this is the actual
+repository and test command you authorize:
+
+```toml
+[[repositories]]
+owner = "alice"
+name = "project"
+object_format = "sha1"
+allowed_target_refs = ["refs/heads/main"]
+phase_check_ids = ["unit"]
+
+[[repositories.checks]]
+id = "unit"
+argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
+cwd = "."
+timeout_seconds = 300
+```
+
+For a manually prepared config, replace its entire example enrollment with the
+chosen repository. Leave existing enrollments intact if adding another one.
+Do not put `repositories = []` inside a `[service]` or other table. A check's `argv[0]`
 is an absolute executable path **inside the container image**. Do not copy the
 controller template's `/opt/cursus/venv/bin/python` unless your image actually
 contains it. For a Python unittest repository the runner template's
@@ -677,6 +717,16 @@ Ensure GitHub branch/ruleset and automation policy prevents this publisher from
 merging or directly updating the enrolled target. Cursus only publishes its own
 work/integration refs and creates PRs. Token permissions alone usually do not
 express that complete branch restriction; test the effective repository rules.
+
+Apply enrollment using the [existing guarded upgrade procedure](#drain-and-upgrade):
+drain and reconcile the deployment, stage the matching configs on both hosts,
+activate B then A, verify readiness, and reopen admission. When staging A with
+`--config /etc/cursus/runner.toml --stage-only`, the installer requests the
+publisher token through hidden input if its private files are missing. It
+preserves existing credential files. B never receives the publisher token.
+For a new config, stage it before using `--activate-existing`; that flag selects
+the exact source/config stage, so changing TOML alone does not change the running
+service. There is currently no browser enrollment editor.
 
 ### Create the runner bearer without displaying it
 
@@ -723,6 +773,10 @@ Expected: `cursus-control` and `cursus`. Do not weaken PostgreSQL authentication
 or put the DSN on A if this fails.
 
 ### Provision publication credentials and capability file
+
+Publisher credentials are needed only for an enrolled repository. Skip their
+creation while `repositories = []`; the capability file is still required for
+native tool configuration. An idle install does not need GitHub access.
 
 **A:** provision a dedicated GitHub publisher credential through your approved
 secret-management/native enrollment flow. It needs repository access for Cursus

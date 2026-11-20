@@ -1,6 +1,10 @@
 {% extends 'base.html' %}{% from 'forms.html' import chip,hidden %}
 {% block content %}
 {% if intake %}
+{% if not repositories %}
+<section class="card"><div class="card__head"><h2 class="card__title">No repositories enrolled</h2></div>
+<p>Cursus is installed and can remain idle. Enroll a repository when you are ready to create a run.</p></section>
+{% else %}
 <section class="card"><div class="card__head"><h2 class="card__title">New run</h2></div>
 <form class="intake-form" action="/operator/actions" method="post" hx-post="/operator/actions" hx-swap="none">
 {{ hidden('submit',csrf,request_id()) }}
@@ -12,6 +16,7 @@
 <div class="form-grid" data-source="repo" hidden><label>Source owner<input name="source_owner"></label><label>Source repository<input name="source_name"></label><label>Exact commit<input name="source_commit"></label><label>Relative file path<input name="source_path"></label></div>
 <div class="form-options"><label><input name="spec_debate" type="checkbox"> Debate specification</label><label><input name="plan_debate" type="checkbox"> Debate plan</label></div>
 <button class="btn btn--primary" type="submit">Create run</button></form></section>
+{% endif %}
 {% else %}
 <div class="metrics"><article class="metric"><h2 class="metric__label">Runner slots</h2>{% if metrics.slots %}{% for slot,count in metrics.slots.items() %}<p>{{ slot }} <strong>{{ count }}</strong></p><meter min="0" max="{{ metrics.capacity.get(slot, 2 if slot=='worker' else 1) }}" value="{{ count }}" aria-label="{{ slot }} occupied slots">{{ count }}</meter>{% endfor %}{% else %}<p class="metric__big">unknown</p>{% endif %}<p class="metric__note">Reported occupancy</p></article>
 <article class="metric"><h2 class="metric__label">Work queue</h2><p class="metric__big">{{ metrics.queued }} ready · {{ metrics.claimed }} claimed</p><p class="metric__note">Committed queue totals</p></article>
