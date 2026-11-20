@@ -1,5 +1,7 @@
 # Qualification evidence
 
+> **Historical (ADR 0016):** milestone evidence for the removed 0.6.0 two-host container design. It is kept as a record, not as current acceptance; nothing here qualifies the host-native system.
+
 Revision: 2026-11-19-r2. Normative baseline: D1 v0.1.1, D2 v0.1.2,
 implementation roadmap v0.1.1. Status describes evidence, not file existence.
 Private deployment inventory and credentials do not belong in this public repo.

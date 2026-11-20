@@ -1,565 +1,98 @@
-> **Obsolete (ADR 0016):** describes the removed 0.6.0 container/two-host design. Rewritten in work package D.
-
 # Cursus operations runbook
 
-Revision: 2026-11-20-r2. Current deployment: [schema-2 container setup](setup.md).
-The original milestone procedures below are historical qualification checklists.
-Their per-CLI/worker host accounts, root runner and two-worker/shared-frontier
-settings are superseded by [ADR 0009](../docs/decisions/0009-container-execution.md).
-Use the setup guide for all installation/upgrade actions. Source is through WP-16;
-services/schema/browser now exist. Live qualification stays deferred to M3 end,
-and Chromebook enrollment is later. No current provisioning is requested.
-
-## Deployment status and records
-
-M0 supplies offline package discovery only. There is no control/runner service,
-DB schema, operator socket or browser route yet. Do not run future `control`,
-`runner`, `submit`, `status`, `action` or maintenance commands as M0 checks.
-[Qualification](../tests/qualification.md) distinguishes local results from live
-gates. [ADR 0002](../docs/decisions/0002-public-provisioning-boundary.md) records
-the public/private boundary.
-
-Keep the actual inventory and qualification log in an operator-managed private
-location outside this checkout, for example `/var/lib/cursus-qualification`
-(mode 0700, administered by the operator). Record UTC times, release commit,
-host roles, versions, commands, exit codes and sanitized outcomes there. Never
-record token values, DSNs, credential file contents or complete environments.
-Only a non-sensitive attestation reference and gate disposition need be public.
-
-## Install the package
-
-Use CPython 3.12+ in an isolated virtual environment. Build on an admin host or
-CI, with Git available for unit ref checks. PostgreSQL 16+ is required on VPS-B
-for later packages, not to display bootstrap help. See the root
-[README](../README.md#bootstrap-wp-01) for hash-locked install/build/test commands.
-Copy the same wheel and lock to each deployment environment and install there;
-record its SHA-256 and release commit. Preserve bundled dependency licenses.
-No model SDK, Node frontend toolchain or CLI wrapper is part of Cursus.
-
-## Host inventory and native tools
-
-Complete the private inventory before provisioning. Record actual DNS/tailnet
-addresses, authorized administrative access method, OS/architecture, service
-users/groups, roots, software versions and storage availability. Example paths
-are conventions for new deployments; reconcile existing installations before
-creating or changing anything. Do not apply blanket ownership changes.
-
-| Host | Required runtime/tools | Role |
-| --- | --- | --- |
-| VPS-A | CPython 3.12+, Git, systemd, Tailscale, pi/claude/codex/agy and required build tools | One runner; all model CLI work, worktrees and verification |
-| VPS-B | CPython 3.12+, PostgreSQL 16+ server/client tools, systemd, Tailscale; Hermes for WP-19 | Sole control process and DB client, immutable artifacts, later private Serve ingress |
-| MyPC | Existing browser and approved Tailscale client | Operator client; no v1 runner |
-| Chromebook | Existing browser and approved Tailscale client | Operator client |
-
-Use approved OS/vendor distribution procedures for pinned host-tool builds.
-Before installing a CLI, review its installed-version documentation and approved
-source/package integrity; record installer source, version and binary digest.
-Do not pipe unreviewed network scripts into a shell. Do not install optional CLI
-extensions, MCP servers or project-discovered tooling to clear an auth probe.
-The package environment does not install or authenticate host tools.
-
-## Accounts and isolated directories
-
-These names match `deploy/*.example.toml`; they are proposed deployment identities,
-not assertions that accounts exist. Give each unprivileged user a private home
-(mode 0700) with no supplementary group granting access to other identities.
-Provision native provider login separately under each designated user. Do not
-copy the developer agent's credentials or another user's native credential store.
-
-| Host | Identity | Home/root and ownership |
-| --- | --- | --- |
-| B | `cursus-control` | `/var/lib/cursus-control` and `artifacts`, 0700, control-owned |
-| B | `cursus-operators` group | Future `/run/cursus/operator.sock`, only authorized local operators |
-| A | Trusted runner parent (`root`) | `/etc/cursus/runner`, `state`, `spool`, `repositories`, root-owned 0700 |
-| A | `cursus-pi-1`, `cursus-pi-2` | `/var/lib/cursus-identities/pi-1`, `pi-2`, each owned by its worker |
-| A | `cursus-verifier` | `/var/lib/cursus-identities/verifier`, verifier-owned |
-| A | `cursus-claude` | `/var/lib/cursus-identities/claude`, Claude-owned |
-| A | `cursus-codex` | `/var/lib/cursus-identities/codex`, Codex-owned; default reviewer |
-| A | `cursus-agy` | `/var/lib/cursus-identities/agy`, Antigravity-owned |
-| A | Optional `cursus-pi-reviewer` | `/var/lib/cursus-identities/pi-reviewer`, separate read-only reviewer |
-
-The runner-owned top-level `/var/lib/cursus-runner` and workspace/review parents
-need traversal (e.g. 0711); keep state/spool/credentials separately inaccessible.
-Later runner code creates per-attempt writable worker directories and immutable
-read-only reviewer snapshots, with access only for the assigned identity.
-Do not give all workers a shared writable parent. Agent/verifier exec must drop
-UID/GID and supplementary groups; no repo code executes as the trusted parent.
-Actual boundary probes are M1 checks, not proven by this directory plan.
-
-Install release files root-owned under `/opt/cursus/release` and the isolated
-package environment at `/opt/cursus/venv`. Neither worker nor verifier may edit
-these. On B reserve `/etc/cursus/control` (0700 control-owned, secret files 0600)
-for the local DSN and runner bearer digest. On A reserve `/etc/cursus/runner`
-(root-owned 0700, secret files 0600) for the bearer and publisher credentials.
-Keep native CLI auth in the designated identity's supported native location;
-Cursus consumes it opaquely. A private home name is not proof of isolation.
-
-## Configure the private deployment
-
-Copy [control](../deploy/control.example.toml), [runner](../deploy/runner.example.toml)
-and [capabilities](../deploy/capabilities.example.toml) to operator-managed paths
-outside the checkout. Replace every `REPLACE_*` marker, keep runner ID/origin,
-identity homes and binary paths consistent, and verify owners/modes. Do not put
-secrets into TOML; secret-path fields refer to separately provisioned local files.
-Generate the runner bearer via an approved secret-management procedure and
-transfer only its SHA-256 digest to B. Only B receives a local DB DSN.
-
-Keep control on `127.0.0.1`; PostgreSQL accepts only intended local control/admin
-connections. Create a dedicated local database role/database for Cursus and
-record PostgreSQL version, auth policy, DB ownership and storage reserve. Use
-peer auth or an operator-provisioned secret opaquely; never pass passwords in
-argv or source. Do not weaken host auth to make a readiness test pass.
-
-Enroll only trusted, operator-authorized GitHub repos. Replace the example
-verification command with an actual approved literal argv, relative cwd,
-timeout and phase check IDs for that repo. Pin allowed targets and object format;
-verify GitHub automation cannot merge or push targets on Cursus publication.
-Publisher credentials stay under the trusted runner parent. They authorize only
-enrolled work/integration refs and PR operations; final merge remains operator-owned.
-Actual GitHub permission probes belong to M1, not M0 authentication checks.
-
-The capability file is an unqualified worksheet: empty argv/role arrays and
-`unqualified` signatures are deliberate. Do not invent a binary digest, model
-flag, permission switch or success signature. Fill it from actual installed
-versions and immutable probe evidence; hash the finalized bytes and set the
-runner's `capabilities_digest`. Any CLI update invalidates affected qualification.
-No config loader or role activation exists at M0.
-
-## Tailnet and no public ingress
-
-Enroll all four intended machines through the operator's approved Tailscale
-workflow. Verify ACL/grant rules allow only intended operator clients and the
-runner to the future private service. Do not enable Funnel, public app listeners,
-public PostgreSQL, public reverse proxies or browser routes during M0.
-On A and B record `tailscale status`; on B also record `pg_isready` (or the
-recorded local socket/DB parameters), `python3 --version`, `psql --version`, and
-`sudo ss -lntup`. `pg_isready` success is readiness, not proof of authenticated DB
-permissions; confirm the intended local role with an approved opaque client.
-
-From MyPC and Chromebook record successful authenticated tailnet connectivity
-to the intended peers using the platform-supported client diagnostic. Record
-the exact command/UI action, destination, UTC time and result privately. No
-Cursus browser page is expected yet. Confirm host/provider firewalls and tailnet
-policy: no public Cursus/DB listener, no public forwarding or Funnel. Public SSH
-administration, if already authorized, is separate from Cursus app ingress.
-
-[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) is the later
-private HTTPS boundary. Its identity-header behavior must be measured at M1;
-M3 enables browser routes only after those checks. Do not start Serve against a
-nonexistent backend merely to make an M0 record look complete.
-
-## Native CLI login, renewal and bounded M0 probes
-
-Authenticate the four CLIs under their actual configured users, using their
-supported native enrollment flows. Keep operator interaction for initial login
-separate from the subsequent non-interactive smoke. Record account/subscription
-class without secrets, binary path/version/digest, effective UID/GID/home,
-authentication method, known lifetime (or explicitly unknown), documented renewal
-procedure and last successful renewal. The second pi slot requires its own
-native provisioning before use; optional pi review remains disabled until qualified.
-
-Consult installed-version help and official references to select literal flags:
-[pi RPC](https://upd.dev/badlogic/pi-mono/src/branch/argument-finalization/packages/coding-agent/docs/rpc.md),
-[OpenCode Go](https://opencode.ai/docs/console/go#endpoints),
-[Claude headless](https://code.claude.com/docs/en/headless),
-[Codex non-interactive](https://learn.chatgpt.com/docs/non-interactive-mode), and
-[Antigravity headless](https://antigravity.google/docs/cli/headless/).
-D2 requires direct pi JSON/RPC, `claude -p --output-format stream-json`,
-`codex exec --json`, and `agy -p --output-format stream-json`; these prefixes
-are requirements to measure, not complete qualified invocations.
-
-Before any live run, the operator records a cost ceiling and verifies the chosen
-subscription/provider's billing behavior. No numeric spend authorization is
-implied by this runbook. Default M0 batch budget: four CLI subprocess invocations
-(one per CLI), one in flight, maximum 120 seconds each plus 10-second termination
-grace, no automatic harness retries. Use an empty disposable directory and the
-prompt `Reply with exactly CURSUS_M0_OK. Do not use tools.` Record unknown internal
-vendor request/retry counts; a process bound is not a provider-side cap. Stop on
-throttling/auth denial or a prompt for approval; no credential or identity rotation.
-
-Launch the measured command with a supported supervisor that tracks only its own
-child/process group and has a verified stop path. Example *launcher shape*, not
-an executable probe until exact argv and paths are recorded:
-
-```text
-sudo -H -u DESIGNATED_USER -- env -i HOME=DESIGNATED_HOME PATH=APPROVED_PATH \
-  /usr/bin/timeout --signal=TERM --kill-after=10s 120s ABSOLUTE_BINARY QUALIFIED_ARGV
-```
-
-Use an explicit child-environment allowlist with only needed non-secret runtime
-settings (including operator-approved proxy/CA settings when needed). Native
-clients may use their own operator-provisioned auth opaquely. Never inherit the
-developer-agent API key or environment. Do not pass credentials via argv or log
-raw client output that may contain secrets. Verify that termination actually
-stopped task-owned children; record unknown outcomes rather than blindly retrying.
-
-Record each *literal* minimal headless invocation, prompt transport, installed
-version, model/provider/reasoning tuple, exit code, terminal success event and
-sanitized final response in the private qualification log. An exit code alone
-is insufficient. Four successful non-interactive responses and documented renewal
-clear only M0 auth. They do not prove read-only tools, RPC steering, event
-correlation, GitHub permissions or effective cross-user isolation; qualify those
-in WP-07/09 using pinned profiles before enabling roles.
-
-## M0 release gate
-
-Complete the checklist in [qualification](../tests/qualification.md), including
-both devices, directories and native CLI evidence. Link a sanitized attestation
-if publishing a result. Tag only the exact reviewed commit whose evidence passes.
-A local example parse or test fixture cannot clear a live gate. No M0 tag has
-been created by this public-source implementation. Backup/restore procedures
-and Hermes scheduling will be added and tested in WP-19.
-
-## Disposable PostgreSQL integration checks (WP-03)
-
-Set `CURSUS_TEST_DSN` only to an authorized disposable PostgreSQL 16+ database.
-The test user needs CREATE SCHEMA; each test creates a random `cursus_test_*`
-schema, migrates it and drops only that schema. Never point tests at production.
-Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests/integration`.
-No credential files or developer-agent environment are used for model execution.
-A missing DSN is a test setup error, not a silently skipped successful check.
-
-## M1 control and local CLI
-
-Deploy the reviewed wheel and committed `roles.toml`/`prompts` together. Pin the
-role commit; startup compares prompt/role bytes to that revision. Replace all
-model/provider placeholders with measured settings. Configure a private DSN and
-runner bearer digest file (0600); control reads these only at startup.
-`cursus control --config /etc/cursus/control.toml` migrates before listening.
-The systemd template gives the operator group socket access. A pre-existing
-socket is a startup failure: verify the previous service stopped before removing
-its stale socket. Do not change permissions to clear a test.
-
-`cursus submit --input /absolute/input.json [--idempotency-key UUID]` wraps Input
-JSON in a submit action. `--socket PATH` selects the protected local socket.
-Read `entity_id` from the reply as PHASE_ID; run
-`cursus status --phase-id UUID`. Persist `request_id` for retries. `action` accepts
-an Action JSON file; `-` reads stdin. All subcommand help is offline. M1 admits
-only code with inline or pinned repo source and no debates/interviews. Unsupported
-features fail closed. The runner listener cannot authorize operator actions.
-
-## Runner-owned repositories (WP-06)
-
-Enroll the same exact owner/repo/target on both hosts. Runner remote URLs are
-computed GitHub HTTPS URLs; local fixture remotes are supplied only by tests.
-Git commands disable system/global config, hooks, external diff and textconv;
-publishing consumes only the separately provisioned credential-store file.
-Never let worker/verifier users access the cache, state or publisher files.
-Expected-head leases are additionally restricted to fast-forward ancestry; no
-history replacement or target publication is authorized. PR creation has no
-automatic retry after an uncertain request. Preserve the intent and reconcile.
-
-## M1 execution and publication (WP-07–08)
-
-The runner enrollment must mirror control enrollment. Its fixed GitHub HTTPS
-remote is computed from owner/name. Configure native credentials separately;
-never supply the developer agent's keys or environment. `roles.toml` pins the
-SHA-256 of the exact qualified capabilities file as `profile_digest`. Runner
-startup verifies that digest and the binary/user/home enrollment. Each launch
-checks binary bytes, role/model/provider/reasoning, exact tool set, approved
-prompt transport and clean-config/read-only arguments. Fill `fixed_argv` with
-the **complete measured command**, including static model and tool flags.
-The implementation recognizes only the documented terminal shapes in the
-capability worksheet; a vendor format change requires source requalification.
-
-A CLI profile may contain `[pi.role_profiles.scout]` or
-`[pi.role_profiles.reviewer]` overrides for distinct measured argv, tools and
-identity. A pi reviewer requires `pi_reviewer.enabled=true`, a separate user/home
-and qualified read-only role profile. Never reuse worker write authority.
-Default organizational roles use Claude and Codex. An initial planner scout
-request has `kind=scout_request`, one `question`, and
-`input_refs=["repository_snapshot"]`; a second scout request parks the plan.
-
-M1 schedules one step at a time; declared capacities are upper bounds. Independent
-10-second heartbeats continue while a CLI executes. Transport has at most two
-in-flight exchanges (one long poll plus heartbeat); the external GitHub REST
-boundary is serial with at least one second between calls. Runner transport
-retries are limited to five failed cycles/120 seconds, with capped exponential
-backoff and jitter; authorization failure stops intake. Provider-internal
-retries remain unknown until measured. No Cursus inference retry/failover exists.
-
-Production and verifier execution drop UID/GID and supplementary groups. The
-explicit child environment contains HOME/USER/LOGNAME/PATH/LANG/TMPDIR only.
-Process groups are bounded by role/check timeouts, terminated before capture,
-and unresolved descendant termination parks ownership. The systemd cgroup is
-the deployment backstop; prove its behavior in WP-09. Trusted Git administration
-uses runner-owned metadata even if a worker changes its workspace `.git` file.
-Review snapshots exclude Git metadata and reject links/special files; verifier
-snapshots are writable only by the verifier. Parent paths must permit traversal
-without exposing cache, state or credentials (see Accounts above).
-
-Workflow progression requires a structured production report, exact immutable
-candidate, complete successful command evidence and independent criterion review.
-It verifies the separate staged tree and all enrolled phase checks before
-committing publication intents. The current M1 path parks on target drift.
-A negative criterion/verdict allows at most two fresh production attempts after
-the initial attempt, each with a separate workspace/ref and fresh checks/review.
-Missing/malformed output parks rather than guessing success. PR handoff includes
-the exact head, repository, number and URL; Cursus has no merge operation.
-
-Journal records are append-only, hash-chained and fsynced under an exclusive
-lock. Preserve the state directory and generation. A torn trailing record can
-be removed only when the earlier prefix is intact. Corrupt history, prior
-unresolved launch intents or uncertain publication are not permission to rerun.
-The spool cap preserves terminal-record reserve; persistence failure stops intake.
-A known unlaunched grant can be recovered after reconciliation. Full cancellation,
-abandonment and uncertain-outcome recovery are WP-11, not M1 operators' ad hoc
-SQL procedures. Do not edit rows, delete journals or manually replay publisher
-commands to clear a parked gate. Services report sanitized IDs/outcomes via
-journald; model logs are sanitized before journal/event storage.
-
-## WP-09 — live M1 qualification procedure
-
-This section prepares qualification; it is not evidence that deployment or any
-probe ran. Keep private machine/account values in the operator-local record.
-Do not tag M1 until every gate in `tests/qualification.md` passes. Carry forward
-M0 evidence and the exact source commit/wheel SHA-256. No new runtime feature is
-introduced during this package.
-
-1. Verify the intended hosts, private listeners, DB role, users, filesystem and
-   systemd boundaries from WP-02. Install the same reviewed wheel/release on both
-   hosts. Use the actual installed CLI versions to fill all qualified profiles,
-   role tuples and literal argv. Measure native login/renewal per identity.
-   Check binary digests and commit the non-secret role/prompt release before
-   setting its revision. Keep credential paths/configuration operator-local.
-2. Before each live probe record maximum launches/turns, one in-flight model
-   process, timeout and termination grace, operator-approved cost ceiling and
-   known/unknown vendor retry behavior. Use operator-provisioned native test
-   credentials, never developer-agent keys. Use an explicit child environment.
-   A timeout/process bound is not an enforced provider spend cap. Stop on auth
-   denial, forbidden approval prompts or throttling; honor Retry-After and do
-   not rotate identity. Record the exact task-owned stop mechanism and outcome.
-3. Measure pi JSON and RPC, actual Go tool execution and final-report framing;
-   in a dedicated bounded RPC probe exercise ID-correlated prompt, active steer,
-   idle prompt and abort. Distinguish accepted steering from demonstrated
-   consumption. Measure Claude, Codex and Antigravity independently, including
-   a required legitimate read, attempted forbidden write/shell/MCP and terminal
-   success/error. Record literal **installed-version** argv and sanitized wire
-   fixtures. If a required signature differs, fix the supported parser/config
-   and rerun affected tests; never declare a guessed flag qualified.
-4. Probe cross-user file/process/credential access and systemd descendant stop.
-   All workers, verifier and reviewer must lack publisher/cache/state/other-slot
-   authority. Verify the verifier can run only its supplied literal check and
-   the reviewer cannot modify the immutable candidate. Inspect actual listener,
-   firewall, Serve and tailnet ACL state; no public app or DB ingress.
-5. On both operator clients use a temporary operator-managed, loopback-only
-   identity probe behind the intended private Serve origin. Record its exact
-   invocation/configuration and safe boolean outcomes. Check the exact canonical
-   Tailscale login, missing/wrong/duplicate identity and injected identity headers.
-   An injected header must not impersonate the operator. Remove the temporary
-   probe after observing its outcome; leave M1 browser routes disabled.
-6. Enroll an explicitly authorized trusted test repo on both hosts. Confirm its
-   GitHub automation cannot update/merge the target as a publication side effect.
-   Set the approved literal phase check argv/cwd/timeout. Record target SHA and
-   GitHub permission observations. Plan the live phase's maximum model launches,
-   repair/scout allowance, concurrency, elapsed-time/cost ceilings and stop path
-   before submission. These ceilings require operator input; none is inferred
-   from public templates or subscription names.
-
-Example Input JSON, after replacing repository and real-work text locally:
-
-```json
-{
-  "workflow": "code",
-  "form": "one-shot",
-  "source": {"kind": "inline", "text": "REPLACE_WITH_AUTHORIZED_SMALL_CHANGE_AND_ACCEPTANCE_CRITERIA"},
-  "repo": {"owner": "REPLACE_OWNER", "name": "REPLACE_REPO", "target_ref": "refs/heads/main"},
-  "plan_debate": false,
-  "spec_debate": false
-}
-```
-
-On VPS-B inspect `systemctl status cursus-control`, then run
-`cursus submit --help` and `cursus submit --input "$M1_INPUT"`, with M1_INPUT an
-absolute file path. Copy reply `entity_id` to PHASE_ID and retain `request_id`.
-Inspect VPS-A `systemctl status cursus-runner`; query
-`cursus status --phase-id "$PHASE_ID"` at a bounded operator-selected interval
-(at least 10 seconds for this qualification), stopping at delivered, parked or
-the predeclared time budget. Record phase/attempt/publication IDs, check evidence,
-creator/reviewer identities, exact PR head/base/URL and the independently observed
-unchanged target. Do not seed state or manually push/PR to rescue acceptance.
-
-Only after all gates pass, review the exact tested source and milestone changelog
-and obtain scoped release-tag/publication authorization. A failed/missing probe,
-unknown remote result or absent actual credential keeps M1 unqualified. Preserve
-all existing claims and journals for the recovery package rather than deleting
-state to rerun a qualification scenario.
-
-## M2 recovery controls (WP-11)
-
-A disconnect or missed heartbeat never releases a claim. Preserve the generation
-and journal. Reconnect first reconciles held claims and replays contiguous events;
-a known grant without launch intent can start once. A changed boot identity proves
-that old processes stopped. Same-boot launches without terminal/process evidence
-remain unknown; an absent PID alone is not proof. Do not delete journal files.
-
-Submit operator actions through `cursus action --input PATH`. Use
-`declare_unrecoverable` with attempt_id and a reason to park an uncertain attempt.
-Only `abandon` on an already parked unknown can invalidate it and permit a bounded
-replacement. First isolate any possible old execution. Delayed results from an
-abandoned attempt are stale audit only. Publication intents require read-only
-reconciliation; abandonment cannot waive uncertain remote effects. PR absence
-after an ambiguous creation is insufficient proof to blindly create again.
-
-`cancel` takes phase_id, cancels queued work and sends stop commands to held
-attempts. A phase remains canceling until held execution and publication effects
-resolve. `steer` takes the original active pi attempt_id and text. Commands are
-journaled before dispatch and correlated by command ID; uncertain delivery is
-never automatically injected again. Inspect command results in committed events.
-
-## M2 execution and conversations (WP-10–13)
-
-M2 supersedes the earlier M1 availability/serial-only descriptions above. Code
-`form=phase` admits a validated package DAG. Optional delivery_groups partition
-packages into independent outputs; dependencies cannot cross groups. One-shot,
-ticket and debug require one package. Ready packages are queued in plan order;
-workers use distinct identities/worktrees/refs. A lane stages one reviewed package
-at a time, executes combined checks, and re-reviews a changed delta. Dependents
-pin only confirmed integrated heads. Target movement causes bounded target merge,
-verification and fresh review before an expected-head publication; conflicts or
-budget exhaustion park. Final merge remains with the operator.
-
-Configure both worker_slots with distinct unprivileged users/homes. The first
-matches the pi profile. For the second, add a measured capability override under
-`[worker_profiles."SECOND_WORKER_USER"]`, including its user/home and any differing
-binary/argv/qualification fields. It inherits the pi profile's fixed tuple and
-is checked against the assigned identity before launch. This is an unqualified
-configuration shape, not permission to reuse the developer agent's credentials.
-Require a separate measured `[pi.role_profiles.debug]` when debug settings differ.
-The debug role must qualify RPC prompt, idle continuation, steering and stop.
-
-A debug Input uses workflow=debug, repo, source and both debate flags; omit form.
-The runner retains its RPC process while verifier jobs inspect numbered immutable
-checkpoint refs. Continue/finish commands bind checkpoint and evidence. A passing
-checkpoint closes the process, checks the workspace is unchanged and enters
-independent review. Duplicate command IDs are not reinjected; unresolved prior
-command intent reports uncertain after restart.
-
-Guided intake uses source={"kind":"interview"}. Status returns open questions
-with control-assigned UUIDs. Submit answer with phase_id, question_id and text
-through `cursus action --input PATH`; retries reuse the original request UUID.
-Only the current open question round accepts an answer, and every required answer
-must be committed before a new interview job. Complete specs receive a revision.
-
-Set plan_debate/spec_debate on intake to enable the fixed roles. Qualify advocate,
-critic and judge on Claude/Codex/Antigravity distinctly; advocate must use the
-planner/interviewer's author CLI. Prompts document the closed per-seat JSON
-results. Each invocation is fresh; transcript projections and amendments are
-persisted. Spec judge questions return to guided intake; unresolved major/blocker
-findings park at three rounds. Normal direct intake skips these optional stages.
-
-## WP-14 — deferred live M2 qualification
-
-Do not execute this procedure until the operator lifts the qualification/live-test
-deferral and supplies the scoped inputs and run budgets in tests/qualification.md.
-There is no M2 tag. Use separate scenarios so recovery interventions never count
-as part of the autonomous five-package acceptance run.
-
-On VPS-B, for each private absolute phase/recovery/debug/debate input path:
-
-```text
-cursus submit --input "$INPUT_PATH"
-cursus status --phase-id "$PHASE_ID"
-```
-
-Copy PHASE_ID from the submit reply; retain its request_id. Inspect status no more
-frequently than every 10 seconds, stopping on delivered, parked, canceled or the
-approved elapsed-time bound. Independently confirm GitHub heads/PR and unchanged
-target. Record all acceptance observations in the private evidence record.
-
-For the separate recovery scenario, while pi is active, record its attempt,
-process, boot and service activation identities. On VPS-B run:
-
-```text
-sudo systemctl restart cursus-control
-cursus status --phase-id "$PHASE_ID"
-```
-
-Confirm the same runner/attempt continues and replay adds no duplicate effect.
-For an isolated link fault, use an operator-approved fault boundary restricted
-to the runner's Cursus HTTPS connection (never the SSH/admin path, shared tailnet
-or unrelated traffic). Pre-record the exact host-specific apply/revert commands,
-a finite duration and an independent timed revert. No generic firewall command
-is supplied because the actual host topology and safe management path are private
-qualification inputs. Confirm ownership retention throughout and contiguous replay
-on restoration. Revert only the task-owned fault, even on failed acceptance.
-
-For proven interruption, restart only the dedicated disposable scenario's runner
-service after recording its cgroup and descendants. Prove old activation cleanup;
-if that evidence is absent, expect unknown. The implementation automatically
-proves prior execution stopped after an observed boot change; same-boot launch
-without terminal/group evidence remains unknown. A changed/absent PID alone is
-insufficient. Preserve journal and generation. Exercise declare_unrecoverable and
-abandon on separately isolated disposable work; record reasons and stale-result
-rejection. Reconcile any unresolved publication read-only before a new effect.
-
-For debug, show failed and passing executed verifier evidence on different
-checkpoint refs from the same RPC PID/start identity. Finish must be autonomous
-and the PR must point to the reviewed passing result. For debate, record three
-actual CLI identities plus fresh seat attempts and durable amendments/transcript.
-Only after all live gates pass may a separately authorized reviewed M2 tag be
-created. Do not substitute these fixture tests for live qualification.
-
-## M3 browser and evidence (WP-15/16)
-
-Source implementation is available through WP-16. User qualification and all
-live testing are deferred until the end of M3 (WP-17), including prior pending
-M0/M1/M2 gates. Run the existing qualification checklist then; do not infer live
-acceptance or create milestone tags from fixture tests.
-
-The control service starts the existing protected Unix socket for JSON CLI
-commands and a loopback listener for Serve browser and bearer runner traffic.
-Configure `service.external_origin` as the exact private HTTPS origin (no trailing
-slash), and `service.operator_login` as the exact canonical Serve login. The
-browser checks the Host, exactly one `Tailscale-User-Login`, and exact Origin on
-writes. Serve must overwrite injected identity headers; only trusted dedicated
-host services may reach the loopback backend. These OS/proxy properties require
-actual WP-17 qualification, not just application header fixtures. Never publish
-the loopback port or enable public Funnel. Keep runner bearer configuration and
-operator socket access unchanged.
-
-After deploying the committed package and role release, restart control at an
-appropriate checkpoint. Migration 002 adds the retained-event floor without
-rewriting earlier migration history. Reconcile the runner before new claims.
-Browser sessions expire after eight hours and invalidate on control restart;
-reload the page to obtain fresh CSRF/session state. Forms retain request UUIDs
-for repeat submissions. The session cookie is host-only, Secure, HttpOnly and
-SameSite Strict. Themes initially follow the OS; the content theme
-control remembers an explicit light/dark/system choice. All assets are local.
-
-The overview shows committed phases, attempts, queue/runner state and reported
-usage. Phase pages expose open questions, eligible steering, cancellation,
-recovery dispositions, PR handoff and ready evidence downloads. Cancellation
-remains pending until confirmed stops and remote effects are resolved. Recovery
-controls require evidence/reason and explicit confirmation; an unreachable
-runner still holds its claims. No browser maintenance or merge action exists.
-When a new event arrives while a form contains a draft, use **Refresh state**
-after preserving/submitting that draft. The event panel supports pause/copy.
-SSE resumes by committed ID; an expired or future cursor resets to a snapshot.
-Tables show at most 100 entities and event panels the latest 100 snapshot events;
-new streaming text is bounded in the DOM. Detailed CLI reads remain available.
-
-`service.artifact_root` must be a private control-owned directory on a local
-filesystem with fsync/atomic-link support. Each verification creates a runner-owned
-JSON evidence file, uploads it by immutable attempt/file ID and commits ready
-metadata before its final can advance. A reviewer fetches only logs declared in
-its current claim and verifies the digest before starting. Operator downloads
-are attachments (`application/octet-stream`, `nosniff`) with `X-Cursus-Sha256`.
-Limits: 32 MiB/file, 256 MiB/phase; staged reservations consume the phase budget.
-Interrupted transfers retry the same immutable ID/metadata and exact bytes.
-Runner upload intents and files remain in its protected spool until later
-retention work (WP-19); monitor disk use. Do not manually edit or delete the
-journal, staged reservations or evidence to clear a limit.
-
-Local M3 regression commands use only the authorized disposable PostgreSQL and
-executable/Git/HTTP boundary fixtures:
+For the single-process, per-user deployment ([ADR 0016](../docs/decisions/0016-host-native-single-host.md),
+[ADR 0017](../docs/decisions/0017-per-user-installation.md)). Installation and first configuration are in the
+[README](../README.md). The commands below assume:
 
 ```bash
-python -m unittest discover -s tests/integration -p 'test_artifacts.py'
-python -m unittest discover -s tests/integration -p 'test_browser.py'
+CURSUS=~/.local/share/cursus/venv/bin/cursus
+CONFIG=~/.config/cursus/cursus.toml
 ```
 
-At WP-17, qualify both operator devices, actual Serve identity/header isolation,
-TLS cookies/origin and CSRF, SSE disconnect/replay/reset, pending/cancel/recovery
-states, and a digest-matching evidence file from a real completed run. Include
-the deferred earlier live qualification before claiming the M3 release.
+There is no isolation: agents and checks run as your user. Do not run Cursus against untrusted repositories.
+
+## Daily operation
+
+| Task | Command |
+| --- | --- |
+| Status | `systemctl --user status cursus` |
+| Recent logs | `journalctl --user -u cursus -n 80` |
+| Stop / start | `systemctl --user stop cursus` / `systemctl --user start cursus` |
+| Deployment state | `$CURSUS status --deployment` |
+| One phase / attempt | `$CURSUS status --phase-id ID` / `--attempt-id ID` |
+| Check your CLIs | `$CURSUS preflight --roles ~/.config/cursus/roles/roles.toml --config $CONFIG` |
+
+The browser shows phases, attempts, checks, findings and evidence. Operator actions available from the
+terminal (`$CURSUS action --input FILE`, a JSON file): `answer`, `steer`, `cancel`, `declare_unrecoverable`,
+`abandon` and `set_drain`.
+
+Stopping the service ends the whole process group. Cursus cannot reconnect to a running CLI session after a
+restart: on start it stops anything it can positively identify from the earlier run (by process id and start
+time, never by name), reports the interrupted attempts and lets the workflow retry or park. Do not use a
+restart to continue an active debug session.
+
+## Drain and upgrade
+
+1. Stop new work and wait for the rest to finish:
+
+   ```bash
+   printf '%s\n' '{"kind":"set_drain","enabled":true}' > "$HOME/cursus-drain.json"
+   $CURSUS action --input "$HOME/cursus-drain.json"
+   $CURSUS status --deployment     # wait for drain: true, unresolved_attempts: 0, queued_jobs: 0
+   ```
+
+   Drain stops new claims. If it strands queued work, reopen (`"enabled":false`), let it finish, drain again.
+2. Stop the service and **back up** (below) before changing code or schema. The service applies database
+   migrations forward on start; older code cannot read a newer schema.
+3. Update the checkout and reinstall: `git pull && ./install.sh --yes`. Read the [changelog](../CHANGELOG.md)
+   for config changes. If a differing unit was found the installer wrote `cursus.service.new` beside yours;
+   compare, replace if appropriate, then `systemctl --user daemon-reload`.
+4. Start the service, check `$CURSUS status --deployment`, and reopen intake:
+   `{"kind":"set_drain","enabled":false}`. Intake stays drained across a restart until you reopen it.
+
+## Backups
+
+Backup is manual; there is no scheduled or automated backup, and restore is not automated. With the service
+stopped and work drained:
+
+```bash
+umask 077
+pg_dump --format=custom --dbname=cursus --file="$HOME/cursus-$(date +%Y%m%dT%H%M%S).dump"
+cp -a ~/.local/state/cursus/artifacts "$HOME/cursus-artifacts-$(date +%Y%m%dT%H%M%S)"
+```
+
+Keep the database dump and the artifact tree from the same moment, protect them as private data, copy them
+off the machine, and verify a restore into an empty database and directory before relying on them.
+
+## Rollback
+
+Reinstall the previous commit (`git checkout PREVIOUS && ./install.sh --yes`) with its matching config. This
+is safe only if the database schema is compatible: if the newer release applied a migration, restore the
+backup taken before the upgrade, or stay on the new release and fix forward. Keep intake drained while you
+decide.
+
+## Recovery
+
+- **Unknown attempt after a crash or disconnect.** The phase parks. Establish from the evidence whether the
+  work happened, then use `declare_unrecoverable` and `abandon` (each with `attempt_id` and a `reason`) so the
+  workflow can retry under a new attempt. Never resubmit under a fresh idempotency key just because a response
+  was lost: the same key returns the original result.
+- **Execution cleanup pending** (the browser shows the reason and age). Cursus could not confirm that an old
+  process group has stopped, so it keeps that session's capacity reserved and retries every ten seconds. Look
+  for the surviving processes yourself (`ps -o pid,pgid,lstart,cmd -u "$USER"`) and stop the ones you recognize
+  as that run. Never delete the execution ledger or the journal under `~/.local/state/cursus/state`, and never
+  kill every `node` or `python` process.
+- **Storage pressure.** New sessions wait while free disk or memory is below the configured reserve; that is an
+  admission check, not a quota. Workspace deletion is queued durably and retried.
+- **Provider throttling or authentication denial.** Stop the affected workload and honor any cooldown. Do not
+  rotate identities or loop retries. A GitHub denial pauses publication until you investigate and restart.
+
+## Troubleshooting
+
+See the table in the [README](../README.md#troubleshooting). Read the service journal first and record the
+sanitized error code, time and commit; never paste secrets or complete configs into a report.
+
+## Not implemented
+
+Automated backups and restore, scheduled maintenance, a built-in way to expose the website, and any form of
+sandboxing. Live acceptance with real logins for all four CLIs on an intended host has not been performed.
