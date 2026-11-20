@@ -25,9 +25,12 @@ Source update; no intended-host/provider qualification or release tag implied.
 
 ### Setup
 
+- Separate fresh installation from repository enrollment: save empty enrollment
+  on both hosts, omit repository/branch/check/token questions, and preserve
+  explicitly enrolled configurations. Explain later enrollment and show an idle
+  state on the new-run screen (ADR 0013).
 - Explain guided inputs in plain English, including units, sources and account permissions.
-- Import saved native model/provider choices without ID transcription; extract
-  repository owner/name from its URL and expand branch names automatically.
+- Import saved native model/provider choices without ID transcription.
 - Discover Tailscale peers/accounts and worker hardware locally; select deployment
   roles by number, carry the worker DNS name in pairing metadata, and reject a
   pairing code addressed to another controller (ADR 0012).

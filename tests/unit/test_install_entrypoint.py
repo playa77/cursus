@@ -85,6 +85,81 @@ if name=='git' and 'clone' in sys.argv:
 
 
 class GuideContracts(unittest.TestCase):
+    def test_fresh_worker_has_no_repository_or_work_questions(self):
+        import pwd
+        import tomllib
+        from types import SimpleNamespace
+        module = helper()
+        guide = module.Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+        guide.user = pwd.getpwuid(os.getuid()).pw_name
+        guide.controller_origin = lambda: 'https://controller.example.ts.net'
+        guide.resource_summary = lambda: None
+        questions = []
+        def ask(question, default=None):
+            questions.append(question)
+            self.assertTrue(question.startswith('Setting: '), question)
+            self.assertTrue(question.splitlines()[0].split(': ',1)[1].startswith(('capacity.','containers.')), question)
+            return '1'
+        guide.ask = ask
+        real_write = module.write_private
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root = Path(folder)
+            def write(path, data, user=None):
+                if str(path).startswith('/etc/cursus/runner/capabilities-'):
+                    path = guide.root/'capabilities.toml'
+                return real_write(path, data, user)
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):
+                import native_setup
+                with patch.object(native_setup,'NativeSetup',return_value=SimpleNamespace(run=lambda:{'fixture':'offline'})), patch.object(module,'write_private',side_effect=write), patch.object(subprocess,'check_output',return_value='podman version 5.7.0'), patch.object(guide,'tailscale',return_value={}):
+                    path = guide.configure()
+            config = tomllib.loads(path.read_text())
+            self.assertEqual(config['repositories'], [])
+            self.assertTrue(questions)
+            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+
+    def test_idle_worker_pairs_without_github_credentials(self):
+        import contextlib
+        import io
+        import pwd
+        from types import SimpleNamespace
+        module = helper()
+        guide = module.Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+        guide.user = pwd.getpwuid(os.getuid()).pw_name
+        guide.ask = lambda *args: self.fail('Idle installation must not ask for credentials')
+        guide._tailscale = {'Self':{'DNSName':'worker.example.ts.net.'}}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            profile = root/'capabilities.toml'; profile.write_text('fixture = "offline"\n')
+            bearer = root/'bearer'
+            publisher = dict(git_credential_file=str(root/'git-token'),github_credential_file=str(root/'api-token'))
+            config = dict(service=dict(bearer_file=str(bearer),capabilities_file=str(profile),
+                                      runner_id='fixture-id',origin='https://controller.example.ts.net'),
+                          repositories=[],capacity={},publisher=publisher)
+            output = io.StringIO()
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]), contextlib.redirect_stdout(output), patch.object(module.getpass,'getpass',side_effect=AssertionError('Unexpected token prompt')):
+                guide.secrets(config)
+                import native_setup
+                paired = native_setup.read_pairing(output.getvalue().splitlines()[-1])
+            self.assertEqual(paired['config']['repositories'],[])
+            self.assertEqual(paired['config']['service']['tailnet_node'],'worker.example.ts.net')
+            self.assertTrue(bearer.is_file())
+            for path in publisher.values(): self.assertFalse(Path(path).exists())
+            config['repositories'] = [{'owner':'fixture','name':'repo'}]
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError,'Publisher credential files missing'): guide.secrets(config)
+
+    def test_saved_configuration_is_preserved_including_existing_enrollment(self):
+        from types import SimpleNamespace
+        module = helper()
+        guide = module.Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root = Path(folder)
+            path = guide.root/'runner.toml'
+            original = (ROOT/'deploy/runner.example.toml').read_bytes()
+            path.write_bytes(original)
+            self.assertEqual(guide.configure(),path)
+            self.assertEqual(path.read_bytes(),original)
+
     def test_config_writer_roundtrips_all_shipped_shapes(self):
         import tomllib
         guide=helper()

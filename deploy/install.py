@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided host installation behind install.sh, revision 2026-11-20-r5.
+"""Guided host installation behind install.sh, revision 2026-11-20-r6.
 
 ADR 0010: source acquisition, host preparation and dependency acquisition precede
 configuration. ADR 0011 governs native checks; ADR 0012 governs discovered inputs.
@@ -21,7 +21,7 @@ import subprocess
 import sys
 import tomllib
 from types import SimpleNamespace
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from setup import Installer, log
 
@@ -150,19 +150,6 @@ class Guide:
         if not re.fullmatch(r'[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+',name):
             raise RuntimeError('Tailscale did not supply a valid full DNS name. Check MagicDNS, then rerun.')
         return name
-
-    def repository(self):
-        while True:
-            value = self.ask('Which GitHub repository may Cursus work on?\nPaste its GitHub page URL, for example https://github.com/alice/project.\nThe installer extracts the owner and repository name; do not supply a token in the URL.')
-            parsed = urlsplit(value)
-            parts = parsed.path.strip('/').split('/')
-            if parsed.scheme == 'https' and parsed.netloc == 'github.com' and len(parts) == 2 and not parsed.query and not parsed.fragment:
-                owner,name = parts
-                name = name.removesuffix('.git')
-                if re.fullmatch(r'[A-Za-z0-9-]+',owner) and re.fullmatch(r'[A-Za-z0-9_.-]+',name) and name not in ('.','..'):
-                    return dict(owner=owner,name=name)
-            self.tty.write('Use a repository page URL such as https://github.com/alice/project.\n')
-            self.tty.flush()
 
     def resource_summary(self):
         memory = dict(line.split(':',1) for line in Path('/proc/meminfo').read_text().splitlines())
@@ -298,7 +285,9 @@ class Guide:
         else:
             config['service']['origin'] = self.controller_origin()
             self.resource_summary()
-            config['repositories'][0].update(self.repository())
+            # Installation grants no repository authority. Enrollment is a later
+            # operator action; see ADR 0013. Existing configs return above intact.
+            config['repositories'] = []
             config['service']['runner_id'] = str(__import__('uuid').uuid4())
             config['service']['capabilities_digest'] = 'generated-by-installer'
             config['containers']['image'] = 'generated-by-installer'
@@ -307,13 +296,6 @@ class Guide:
             config['containers']['native_keyring'] = True
             config['containers']['hide_project_customizations'] = True
         config = self.fill(config)
-        # The controller template historically used a host venv path. Checks
-        # always refer to binaries in the image, on both sides of enrollment.
-        if kind=='runner':
-            check = config['repositories'][0]['checks'][0]
-            check['argv'] = json.loads(self.ask('Repository test command. Read the repository README or CI workflow for its actual test command.\nEnter a JSON list of arguments, using an absolute executable path INSIDE the execution image.\nThe example only applies to repositories with Python unittest tests in tests/unit.', '["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]'))
-            target = self.ask('Which branch may Cursus target in that repository?\nChoose the intended branch in GitHub. Enter its name, such as main.','main')
-            config['repositories'][0]['allowed_target_refs'] = [target if target.startswith('refs/heads/') else 'refs/heads/'+target]
         if kind=='runner':
             profile = NativeSetup(self,config).run()
             raw = toml_text(profile).encode()
@@ -362,6 +344,8 @@ class Guide:
             bundle = dict(format=1,config=metadata,profile=profile,bearer_digest=sha256(bearer.read_text().strip().encode()).hexdigest())
             log('WORKER PAIRING CODE — paste into the controller installer (contains no credentials):')
             print(pairing_code(bundle),flush=True)
+            if not config['repositories']:
+                return
             publisher = config['publisher']
             if any(Path(publisher[k]).is_symlink() for k in ('git_credential_file','github_credential_file')):
                 raise RuntimeError('Refusing symlink publisher credential file.')
@@ -469,6 +453,8 @@ class Guide:
         log('[5/5] Validating and activating (existing deployments require drain)...')
         installer.activate()
         log('Service started. Check authenticated readiness in README; no provider qualification was performed.')
+        if not config['repositories']:
+            log('Installed with no repositories enrolled. Cursus can remain idle; enroll a repository when you are ready to use it.')
 
 
 def main():

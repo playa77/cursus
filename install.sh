@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cursus installer entry point, revision 2026-11-20-r5. See ADR 0010.
+# Cursus installer entry point, revision 2026-11-20-r6. See ADRs 0010 and 0013.
 set -euo pipefail
 trap 'printf "Cursus bootstrap failed at line %s. No success is implied; inspect the error above.\n" "$LINENO" >&2' ERR
 
@@ -29,6 +29,8 @@ Worker setup installs Claude Code, Codex CLI, Antigravity and pi, guides their
 native logins, then requests a budget before native checks. It generates its
 capability file; you do not supply a prequalified image or profile. Host firewall
 and Tailscale enrollment remain explicit operator steps.
+Fresh guided installs enroll no repositories and need no GitHub publisher token.
+You can leave Cursus idle and enroll a repository later.
 HELP
 }
 

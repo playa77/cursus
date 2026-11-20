@@ -210,6 +210,20 @@ class PairingIntegrationTests(unittest.TestCase):
             guide.root=Path(folder)
             with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):path=guide.configure()
             self.assertEqual(tomllib.loads(path.read_text())['runner']['tailnet_node'],'worker.example.ts.net')
+        worker['repositories']=[]
+        code=native.pairing_code(dict(format=1,config=worker,profile=writer(profile),bearer_digest='c'*64))
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root=Path(folder)
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):path=guide.configure()
+            config=tomllib.loads(path.read_text())
+            self.assertEqual(config['repositories'],[])
+            config['service']['dsn_file']=str(guide.root/'dsn')
+            config['runner']['bearer_digest_file']=str(guide.root/'digest')
+            for name,text in [('dsn','postgresql://fixture'),('digest','c'*64)]:
+                secret=guide.root/name;secret.write_text(text);secret.chmod(0o600)
+            path.write_text(writer(config))
+            from cursus.config import load
+            self.assertEqual(load('control',str(path))['repositories'],[])
         guide._tailscale['Self']['DNSName']='wrong.example.ts.net.'
         with tempfile.TemporaryDirectory() as folder:
             guide.root=Path(folder)
