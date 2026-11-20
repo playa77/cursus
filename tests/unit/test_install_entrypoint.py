@@ -235,3 +235,44 @@ if name=='git':
             fresh=list(root.glob('cursus-installer.*/source'))
             self.assertEqual(len(fresh),1)
             self.assertTrue((fresh[0]/'deploy/install.py').exists())
+
+class DiscoveryContracts(unittest.TestCase):
+    def guide(self):
+        from types import SimpleNamespace
+        return helper().Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+
+    def test_status_is_bounded_cached_and_peer_role_is_selected(self):
+        from types import SimpleNamespace
+        guide = self.guide()
+        status = dict(BackendState='Running',Self={'DNSName':'worker.example.ts.net.'},
+                      Peer={'b':{'DNSName':'controller.example.ts.net.'}},
+                      User={'1':{'LoginName':'operator@example.com'}})
+        with patch.object(subprocess,'run',return_value=SimpleNamespace(stdout=json.dumps(status))) as run:
+            guide.ask=lambda *args:'1'
+            self.assertEqual(guide.controller_origin(),'https://controller.example.ts.net')
+            self.assertEqual(guide.operator_login(),'operator@example.com')
+            self.assertEqual(guide.node_name(guide.tailscale()['Self']),'worker.example.ts.net')
+            run.assert_called_once_with(['tailscale','status','--json'],check=True,capture_output=True,text=True,timeout=15)
+
+    def test_discovery_failures_do_not_request_manual_facts(self):
+        from types import SimpleNamespace
+        for output in ('{}','not json',json.dumps({'BackendState':'NeedsLogin'})):
+            guide=self.guide()
+            with patch.object(subprocess,'run',return_value=SimpleNamespace(stdout=output)):
+                with self.assertRaises(RuntimeError): guide.tailscale()
+        guide=self.guide()
+        with patch.object(subprocess,'run',side_effect=FileNotFoundError):
+            with self.assertRaisesRegex(RuntimeError,'No manual URL'):guide.tailscale()
+
+    def test_operator_choice_does_not_assume_machine_owner(self):
+        guide=self.guide()
+        guide._tailscale={'User':{'1':{'LoginName':'machine-owner@example.com'},'2':{'LoginName':'website-operator@example.com'}}}
+        guide.ask=lambda *args:'2'
+        self.assertEqual(guide.operator_login(),'website-operator@example.com')
+
+    def test_invalid_dns_and_missing_peers_fail_without_guessing(self):
+        guide=self.guide()
+        for name in ('','controller/bad','https://controller.example.ts.net'):
+            with self.assertRaises(RuntimeError):guide.node_name({'DNSName':name})
+        guide._tailscale={'Peer':{}}
+        with self.assertRaisesRegex(RuntimeError,'No candidates'):guide.controller_origin()

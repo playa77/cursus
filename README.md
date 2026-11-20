@@ -88,24 +88,47 @@ corrects its earlier external-profile prerequisite.
 
 ## What you need to answer
 
-Have these values ready; private files stay outside the source checkout:
+The installer reads machine facts itself. It runs one bounded
+`tailscale status --json` query per host, lists discovered peers/accounts, and
+asks you to select their roles by number. You do not type a Tailscale URL,
+worker DNS name, login email, runner UUID, image ID, Podman version, capability
+digest, native-state directory, or runner bearer token/digest.
 
-| Question | Answer to supply |
+Before starting the worker, enroll **both servers** in the same Tailscale network
+and enable MagicDNS. The controller does not need Cursus installed yet. On each
+server, `sudo tailscale up` starts the native enrollment flow if needed. If
+Tailscale is missing, follow its [Linux installation guide](https://tailscale.com/docs/install/linux).
+If discovery fails or access rules hide the controller, correct enrollment or
+visibility and rerun; the installer does not ask you to transcribe missing facts.
+
+| Question | What it means and how to answer |
 | --- | --- |
-| Host | `controller` on B; `worker` on A |
-| Native app logins | Sign in when each installed app opens; pi uses `/login` and the selected OpenCode Go provider |
-| Model selection | Model IDs shown by the native apps; the installer records them and checks the installed invocation |
-| Native-check budget | Explicit charge authorization before bounded checks; native internal calls/billing are provider-controlled |
-| B origin | Exact private HTTPS URL from Tailscale, e.g. `https://controller.example.ts.net`, without trailing slash |
-| Operator identity | Exact Tailscale login/email, not display name |
-| Pairing code on B | Paste the code printed by A; it includes the generated runner UUID and matching profile |
-| GitHub repository | Owner/name and full target ref, e.g. `refs/heads/main` |
-| Verification command | JSON argument array using paths inside the image, e.g. `["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]` only if that is the repository's real test command |
-| Provider capacity | pi 1–4; Claude, Codex and Antigravity independently 1–2; same values on A/B |
-| Resource policy | Explicit memory/CPU/task/tmp/HOME limits and disk/host reserves; explained in [configuration](#private-configuration-and-secrets) |
-| Auth domains | Installer creates isolated native-state directories and prompts for each requested concurrent login slot |
-| Publisher token on A | Dedicated GitHub credential with the necessary ref/PR rights, subject to target protections; hidden input |
-| A bearer digest on B | Imported automatically in the pairing code; never the bearer secret |
+| This server's role | Choose `worker` on A (AI tools and containers); later choose `controller` on B (website and database). These are deployment choices, not hostname conventions. |
+| Controller selection on A | Select B by number from the discovered Tailscale DNS names. The installer constructs its HTTPS address. Do not select A. |
+| Operator selection on B | Select the discovered Tailscale account you authorize to operate the website. Use the account you will sign in with from your browser. The machine owner's identity alone does not authorize website access. |
+| Worker pairing code on B | Copy the code printed by A's installer. It transfers deployment metadata, including the worker DNS name and bearer digest. No native credentials or bearer secret are included. B checks that the code names its own Tailscale address. Older codes require a numbered worker selection. |
+| GitHub repository URL | Paste the GitHub page URL of the repository Cursus is authorized to work on, such as `https://github.com/alice/project`. Setup extracts owner and name. This is a choice of authorized repository; it is not necessarily the installer source repository. |
+| Target branch | Choose the branch Cursus may target, such as `main`; setup adds `refs/heads/` automatically. Find the intended branch in the enrolled repository's GitHub branch selector. |
+| Test command | Choose the repository's real verification command from its README or CI workflow. Supply a JSON argument list with an absolute executable path **inside the image**. The Python unittest example is valid only when that repository has those tests and dependencies. |
+| Session ceilings | Choose pi sessions from 1–4 and Claude Code, Codex and Antigravity sessions independently from 1–2. These are authorized concurrency ceilings, not measured provider capacity. Each slot has an independent native login domain. B imports A's choices. |
+| Total execution budget | Set `containers.budget.memory_mb`, `cpu_millis` and `pids`: total scheduled memory, CPU and process/thread allowances. The installer displays detected RAM, cores and free runner disk. Reserve resources for the host and verifier; observed free resources alone cannot determine workload requirements. |
+| Host reserves | `host_reserve_mb` leaves RAM for Ubuntu and host services. `host_reserve_cpu_millis` leaves CPU for them. Total execution budget plus reserves must fit the worker. |
+| Per-container limits | Under `containers.resources.agent` and `.verifier`, choose limits for **one** container: RAM (`memory_mb`), CPU (`cpu_millis`), processes/threads (`pids`), temporary files (`tmp_mb`) and disposable home (`home_mb`). Use requirements or measurements from representative jobs. Temporary/home storage is memory-backed; persistent native login state is separate. |
+| Units | Enter positive whole numbers. 1024 MiB = 1 GiB; 1000 CPU millis = one core. `pids` counts processes and threads, not bytes. |
+| Disk reserve | `disk_reserve_mb` is the minimum free worker disk before Cursus stops launching containers. Choose headroom for repositories, images, logs and Ubuntu, using the detected free disk as context. |
+| Native logins | When each installed app opens, complete its own login flow with the account you authorize. For pi, use `/login` and choose the intended OpenCode Go provider. Complete each requested slot, then exit the app. No login files or replacement API keys are requested. |
+| Model and pi provider choices | Choose and save the default model in each installed app’s native model selector; choose pi’s provider there too. Setup reads only those selected fields from its own persistent settings inside the execution container. You do not retype IDs. If no saved selection exists, setup opens the app for you to choose and save one. |
+| Native-check budget | Enter the maximum charge you authorize, including currency, then explicitly approve the displayed invocation/time limits. This records consent; it does not enforce a provider billing cap. Checks stop on failure without installer inference retries. |
+| GitHub publisher token on A | In GitHub Settings → Developer settings → Personal access tokens, create a dedicated fine-grained token for the enrolled repository with Contents read/write and Pull requests read/write. Obtain organization approval if required. Paste into the hidden token prompt. Branch protections still apply. Existing private publisher files are reused. |
+| Off-host backup destination on B | Enter the destination used by your independently managed backup procedure, for example a private backup server/path. Cursus records it but does not provision, copy or schedule backups. Choose and verify that procedure separately. |
+
+The controller DNS name can exist before its website is ready. Constructing
+`https://` plus that name does **not** prove HTTPS is configured or reachable.
+Follow [the private HTTPS readiness steps](#start-private-https-and-check-the-whole-system)
+to enable Tailscale Serve and check the deployed service. On B,
+`tailscale serve status --json` reports the configured Serve endpoints;
+`tailscale status --json` reports B's own name in `Self.DNSName` even before
+Serve is configured. The installer reads the latter automatically.
 
 If you already have complete configs, use the same entry point without answering
 the worksheet questions:
