@@ -9,6 +9,11 @@ Source update; no intended-host/provider qualification or release tag implied.
 
 ### Native install and login
 
+- Separate Antigravity’s compressed-download bound (256 MiB) from its expanded
+  executable bound (512 MiB): the official 1.5.13 executable exceeds 256 MiB.
+  Retain SHA-512 verification and regular-file checks, report invalid entry size
+  explicitly, and copy/hash binaries in chunks rather than reading them whole.
+
 - Install Claude Code, Codex CLI, Antigravity and pi from their native distributions
   in the supplied execution-image recipe; pin the built image and record versions.
 - Open those same installations for native login, preserve their isolated state
