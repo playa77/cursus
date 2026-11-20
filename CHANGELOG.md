@@ -2,6 +2,18 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
+## [Unreleased]
+
+Planned for 0.7.0; documentation only so far, no code or version change.
+
+### Decided
+
+- Run the operator's already-installed and already-signed-in Claude Code, Codex
+  CLI, Antigravity and pi directly on one host in one process. Remove the native
+  image, containers, credential domains, pairing and generated capability profile.
+  Isolation is deliberately dropped; repositories must be trusted (ADR 0016,
+  with a work-package plan). Supersedes ADRs 0011, 0014 and 0015 and most of 0009.
+
 
 ## [0.6.0] - 2026-11-20
 
