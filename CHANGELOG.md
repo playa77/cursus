@@ -3,6 +3,15 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
+## [Unreleased]
+
+### Documentation
+
+- Replace the short README with a host-by-host Ubuntu deployment guide covering
+  scripted and manual installation, prerequisites, native image/auth/profile
+  qualification, private configuration, readiness, first task, upgrades, rollback
+  and troubleshooting. Identify missing qualified vendor artifacts explicitly.
+
 ## [0.5.0] - 2026-11-20
 
 Container execution replacement from clean main; rejected PR #6 was not merged.
