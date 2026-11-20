@@ -101,16 +101,30 @@ class ContainerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(any(c[0] in ('stop','rm') for c in fixture.calls))
             self.assertIn(attempt, runtime.entries)
 
-    async def test_reserved_verifier_and_credential_exclusivity(self):
+    async def test_session_ceilings_not_container_maxima_control_admission(self):
         with workspace() as ws:
             settings, ceilings = policy(ws.root)
             runtime = Containers(settings, ws.state, ceilings, RuntimeFixture())
-            for _ in range(3):
-                self.assertTrue(await runtime.reserve(str(uuid4()), 'worker', 'pi'))
-            self.assertFalse(await runtime.reserve(str(uuid4()), 'worker', 'pi'))
+            for lane,cli,count in (('worker','pi',4),('claude','claude',2),('codex','codex',2),('agy','agy',2)):
+                for _ in range(count):
+                    self.assertTrue(await runtime.reserve(str(uuid4()),lane,cli))
+                self.assertFalse(await runtime.reserve(str(uuid4()),lane,cli))
             self.assertTrue(await runtime.reserve(str(uuid4()), 'verifier'))
-            self.assertEqual(len({e['domain'] for e in runtime.entries.values() if e['cli']}), 3)
-            self.assertFalse(runtime.fits('claude'))
+            self.assertFalse(await runtime.reserve(str(uuid4()), 'verifier'))
+            self.assertEqual(len({e['domain'] for e in runtime.entries.values() if e['cli']}),10)
+
+    async def test_actual_host_memory_and_disk_pressure_still_delay_starts(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        with workspace() as ws:
+            settings,ceilings=policy(ws.root)
+            runtime=Containers(settings,ws.state,ceilings,RuntimeFixture())
+            with patch.object(Path,'read_text',return_value='MemAvailable: 1048576 kB\n'):
+                self.assertFalse(runtime.fits('worker'))
+            with patch.object(Path,'read_text',return_value='MemAvailable: 1114112 kB\n'), patch('cursus.containers.shutil.disk_usage',return_value=SimpleNamespace(free=10**9)):
+                self.assertTrue(runtime.fits('worker'))
+            with patch('cursus.containers.shutil.disk_usage',return_value=SimpleNamespace(free=0)):
+                self.assertFalse(runtime.fits('worker'))
 
     async def test_cleanup_retry_after_remove_failure_and_preparation_failure(self):
         with workspace() as ws:

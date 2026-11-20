@@ -108,19 +108,12 @@ class Containers:
         return self.settings['resources']['verifier' if lane == 'verifier' else 'agent']
 
     def fits(self, lane):
-        resource = self.budget(lane)
-        entries = list(self.entries.values())
-        if sum(e['lane'] == lane for e in entries) >= self.capacity[lane]:
+        # ADR 0014: maxima are cgroup upper bounds, not allocations. Fixed
+        # concurrency comes from lane ceilings; agents share their parent slice.
+        if sum(e['lane'] == lane for e in self.entries.values()) >= self.capacity[lane]:
             return False
-        if lane != 'verifier':
-            entries = [e for e in entries if e['lane'] != 'verifier']
-        for key in ('memory_mb', 'cpu_millis', 'pids'):
-            used = sum(e['resources'][key] for e in entries)
-            reserved = 0 if lane == 'verifier' else self.budget('verifier')[key] * self.capacity['verifier']
-            if used + resource[key] + reserved > self.settings['budget'][key]:
-                return False
         available = next(int(line.split()[1]) // 1024 for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))
-        if available < resource['memory_mb'] + self.settings['budget']['host_reserve_mb']:
+        if available <= self.settings['budget']['host_reserve_mb']:
             return False
         if shutil.disk_usage(self.root).free < self.settings['disk_reserve_mb'] * 1024 * 1024:
             return False

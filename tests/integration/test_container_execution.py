@@ -120,7 +120,7 @@ class PendingClaimTests(unittest.IsolatedAsyncioTestCase):
             rt['repository'].container_workspaces = True
             runner = Runner(rt['runner'].id,rt['journal'],rt['runner'].transport,rt['repository'],rt['execution'])
             await runner.reconcile()
-            holders = [str(uuid4()) for _ in range(3)]
+            holders = [str(uuid4()) for _ in range(ceilings['worker'])]
             for attempt in holders:
                 self.assertTrue(await runtime.reserve(attempt,'worker','pi'))
             self.assertIsNone(await runner.dispatch(claim))

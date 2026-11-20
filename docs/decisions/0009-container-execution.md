@@ -12,6 +12,8 @@ Native onboarding update: [ADR 0011](0011-native-install-and-login.md) assigns
 image creation and native login guidance to the installer, introduces scoped
 `native-checked` metadata, and keeps full live qualification distinct.
 
+Resource admission/default sizing is superseded by [ADR 0014](0014-shared-execution-resources.md); per-container maxima no longer reserve admission capacity.
+
 ## Context
 
 Main is `38ea8ed`, including merged PR #5/WP-15/16. PR #6 is open and unmerged

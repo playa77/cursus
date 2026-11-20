@@ -5,6 +5,8 @@
 - Authority: operator instruction in this task: do not ask users to input information the installer can acquire itself.
 - Supplements: [ADR 0010](0010-unified-installer.md) and [ADR 0011](0011-native-install-and-login.md).
 
+Resource admission/default sizing is superseded by [ADR 0014](0014-shared-execution-resources.md); per-container maxima no longer reserve admission capacity.
+
 ## Context
 
 The worker-first flow asked for an unexplained controller URL even though

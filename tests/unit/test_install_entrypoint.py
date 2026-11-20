@@ -366,6 +366,7 @@ class ResourcePromptContracts(unittest.TestCase):
         output=io.StringIO()
         guide.tty=SimpleNamespace(write=output.write,flush=output.flush,readline=reader.readline)
         guide.hardware=dict(total=total,available=available,cpu=cpu,free=free)
+        guide.session_ceilings=dict(worker=4,claude=2,codex=2,agy=2)
         return guide,output
 
     def config(self):
@@ -390,11 +391,14 @@ class ResourcePromptContracts(unittest.TestCase):
         self.assertLess(config['disk_reserve_mb'],100000)
         text=output.getvalue()
         self.assertIn('ALL running containers',text)
-        self.assertIn('ONE agent container',text)
-        self.assertIn('ONE verifier container',text)
+        self.assertIn('agents share',text)
+        self.assertIn('pi 4',text)
         self.assertIn('existing containers keep running',text)
         self.assertIn('Suggested:',text)
         self.assertNotIn('Under containers.budget',text)
+        self.assertNotIn('at most 1 agent',text)
+        self.assertGreater(agent['memory_mb'],budget['memory_mb']//2)
+        self.assertEqual(budget['pids'],11264)
 
     def test_custom_reserves_change_later_suggestions(self):
         guide,_=self.guide('4096\n1500\n'+'\n'*30)
@@ -420,16 +424,17 @@ class ResourcePromptContracts(unittest.TestCase):
             for resource in config['resources'].values():
                 self.assertLess(resource['tmp_mb']+resource['home_mb'],resource['memory_mb'])
 
-    def test_custom_agent_limit_updates_verifier_suggestion(self):
-        guide,_=self.guide('\n'*6+'2048\n'+'\n'*30)
+    def test_shared_agent_maximum_is_not_divided_by_session_count(self):
+        guide,_=self.guide()
         config=guide.fill(self.config())['containers']
-        self.assertEqual(config['resources']['agent']['memory_mb'],2048)
-        self.assertEqual(config['resources']['verifier']['memory_mb'],5880)
+        self.assertEqual(config['resources']['agent']['memory_mb'],6937)
+        self.assertEqual(config['resources']['verifier']['memory_mb'],991)
+        self.assertEqual(config['resources']['agent']['pids'],10240)
 
     def test_invalid_preset_limit_fails_with_context_without_overwriting_it(self):
         guide,_=self.guide()
         config=self.config()
         config['containers']['resources']['verifier']['memory_mb']=999999
-        with self.assertRaisesRegex(RuntimeError,'ONE verifier container'):
+        with self.assertRaisesRegex(RuntimeError,'verifier'):
             guide.fill(config)
         self.assertEqual(config['containers']['resources']['verifier']['memory_mb'],999999)

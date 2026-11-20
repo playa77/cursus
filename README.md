@@ -114,9 +114,9 @@ visibility and rerun; the installer does not ask you to transcribe missing facts
 | Operator selection on B | Select the discovered Tailscale account you authorize to operate the website. Use the account you will sign in with from your browser. The machine owner's identity alone does not authorize website access. |
 | Worker pairing code on B | Copy the code printed by A's installer. It transfers deployment metadata, including the worker DNS name and bearer digest. No native credentials or bearer secret are included. B checks that the code names its own Tailscale address. Older codes require a numbered worker selection. |
 | Session ceilings | Choose pi sessions from 1–4 and Claude Code, Codex and Antigravity sessions independently from 1–2. These are authorized concurrency ceilings, not measured provider capacity. Each slot has an independent native login domain. B imports A's choices. |
-| Total execution budget | Set `containers.budget.memory_mb`, `cpu_millis` and `pids`: total scheduled memory, CPU and process/thread allowances. Setup suggests totals after asking for host reserves. Press Enter to accept or enter another whole number. Agent and verifier limits must fit together; the final summary shows the resulting agent capacity. Suggestions are starting points, not measured job requirements. |
+| Total execution budget | Set `containers.budget.memory_mb`, `cpu_millis` and `pids`: shared memory, CPU and process/thread ceilings on actual usage. Setup suggests totals after asking for host reserves. Press Enter to accept or enter another whole number. Agents share one resource pool; the verifier has a separate allowance. The summary repeats your configured session ceilings; it does not derive a smaller agent-count limit. Suggestions are starting points, not measured job requirements. |
 | Host reserves | `host_reserve_mb` leaves RAM for Ubuntu and host services. `host_reserve_cpu_millis` leaves CPU for them. Setup suggests about 25% RAM (at least 512 MiB) and one sixth CPU (at least 0.25 core), bounded by available capacity. Total budget plus reserves must fit both the worker and this release’s 12 GiB / six-core contract. |
-| Per-container limits | Under `containers.resources.agent` and `.verifier`, choose limits for **one** container: RAM (`memory_mb`), CPU (`cpu_millis`), processes/threads (`pids`), temporary files (`tmp_mb`) and disposable home (`home_mb`). Setup starts with half the total allowance for an agent and the remainder for the verifier. Adjust for representative jobs. Temporary/home storage counts inside container RAM; suggestions use one eighth of it per directory, capped at 512 MiB. Persistent native login state is separate. |
+| Shared resource pools | Setup derives one agents pool and a separate verifier allowance (one eighth of execution RAM, capped at 1024 MiB; one fifth CPU, capped at one core). Every agent can use the agents pool; its maximum is not reserved on admission. Up to your configured pi/provider counts can coexist, sharing CPU/RAM. Reaching a shared memory/process limit can fail work; session counts are not peak-load guarantees. Temporary/home storage is bounded inside container RAM; persistent login state is separate. |
 | Units | Enter positive whole numbers. 1024 MiB = 1 GiB; 1000 CPU millis = one core. `pids` counts processes and threads, not bytes. |
 | Disk reserve | When free runner disk falls below `disk_reserve_mb`, new containers wait; existing containers keep running. It does not allocate disk space or cap usage. Setup suggests 10% of currently free space, capped at 10 GiB. Increase the margin for large images, repositories or logs. |
 | Native logins | When each installed app opens, complete its own login flow with the account you authorize. For pi, use `/login` and choose the intended OpenCode Go provider. Complete each requested slot, then exit the app. No login files or replacement API keys are requested. |
@@ -131,6 +131,18 @@ to enable Tailscale Serve and check the deployed service. On B,
 `tailscale serve status --json` reports the configured Serve endpoints;
 `tailscale status --json` reports B's own name in `Self.DNSName` even before
 Serve is configured. The installer reads the latter automatically.
+
+Resource admission follows [ADR 0014](docs/decisions/0014-shared-execution-resources.md):
+configured worker/provider counts set fixed session concurrency. Actual host RAM
+at/below its reserve or disk below its floor delays starts. Aggregate cgroups
+bound actual resource use; they do not allocate RAM per admitted session. Saved
+configurations retain their individual cgroup limits, but those maximums no
+longer consume admission reservations after upgrading the runner.
+
+Native onboarding launches child commands from its runner-owned setup directory,
+so invoking setup from a private operator home does not require granting the
+runner access to that home. An incomplete image build is retried on rerun; any
+prior onboarding container is reconciled through its recorded identity.
 
 If you already have complete configs, use the same entry point without answering
 the worksheet questions:
@@ -1224,7 +1236,7 @@ code, time, host and release; never publish secrets or raw complete configs.
 | Website 403 / wrong host | Exact login, origin, Serve proxy | Use the canonical private HTTPS URL with intended Tailscale account; do not forge headers or expose loopback |
 | Website form fails after restart | Browser session | Reload for fresh session/CSRF tokens; preserve request UUID if retrying |
 | Runner unauthorized | Shared UUID/origin, bearer pairing | Check digest pairing through controlled secret tools; never print the bearer or paste it into browser |
-| Runner waits despite spare ceiling | Memory/disk reserve, agent/verifier slice, lifecycle health | Fix actual resource/cleanup issue; ceilings are not guaranteed simultaneous capacity |
+| Runner waits despite spare ceiling | Actual memory/disk pressure, lane ceiling, credential lease, lifecycle health | Inspect actual pressure or unresolved cleanup; container maxima are not admission reservations |
 | Unknown attempt after disconnect | Phase/attempt and lifecycle state | Reconcile evidence and positively identified processes; no blind resubmit/relaunch |
 | Upgrade refuses unresolved/queued jobs | `cursus status --deployment` | Finish old work under its original release, then drain; do not rewrite DB state |
 | Rollback refuses migration history | Previous code/config/database set | Keep drained; restore a tested matching backup or recover forward |

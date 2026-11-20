@@ -48,6 +48,25 @@ class NativeSetupTests(unittest.TestCase):
         with self.assertRaises(ValueError):native.read_pairing('x'*65537)
         with self.assertRaises(ValueError):native.read_pairing(native.pairing_code({**bundle,'secret':'not permitted'}))
 
+    def test_native_commands_start_from_runner_directory_not_callers_home(self):
+        native=self.native();manager=native.NativeSetup.__new__(native.NativeSetup)
+        with tempfile.TemporaryDirectory() as folder:
+            manager.root=Path(folder)/'runner';manager.root.mkdir()
+            manager.prefix=[sys.executable,'-c','import os; print(os.getcwd())']
+            result=manager.podman('version',capture_output=True,text=True)
+            self.assertEqual(result.stdout.strip(),str(manager.root))
+
+    def test_recovery_uses_runner_directory_before_inspecting_old_container(self):
+        native=self.native();manager=native.NativeSetup.__new__(native.NativeSetup)
+        with tempfile.TemporaryDirectory() as folder:
+            manager.root=Path(folder)
+            manager.ledger=manager.root/'container.json'
+            manager.ledger.write_text(json.dumps({'name':'owned-fixture'}))
+            manager.prefix=[sys.executable,'-c',
+                            'import os,sys; sys.exit(1 if os.getcwd()==sys.argv[1] else 42)',str(manager.root)]
+            manager.recover()
+            self.assertFalse(manager.ledger.exists())
+
     def test_login_opens_all_four_native_installations_with_tty(self):
         native=self.native();manager=native.NativeSetup.__new__(native.NativeSetup)
         writer=io.StringIO();reader=io.StringIO()
@@ -69,7 +88,9 @@ class NativeSetupTests(unittest.TestCase):
         native=self.native();manager=native.NativeSetup.__new__(native.NativeSetup)
         with tempfile.TemporaryDirectory() as folder:
             fixture=Path(folder)/'rpc.py'
-            fixture.write_text('''import json,sys
+            fixture.write_text('''import json,sys,os
+from pathlib import Path
+assert Path.cwd() == Path(__file__).parent
 request=json.loads(sys.stdin.readline())
 assert request['type']=='prompt'
 print(json.dumps({'type':'response','id':request['id'],'success':True}),flush=True)
@@ -77,6 +98,7 @@ print(json.dumps({'type':'message_end','message':{'role':'assistant','content':[
 print(json.dumps({'type':'agent_end'}),flush=True)
 assert sys.stdin.read()==''
 ''')
+            manager.root=Path(folder)
             manager.prefix=[sys.executable,str(fixture)]
             output=manager.probe('fixture',[],b'{"type":"prompt","id":"test"}\n',True)
             from cursus.execution import Execution

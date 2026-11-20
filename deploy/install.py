@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided host installation behind install.sh, revision 2026-11-20-r6.
+"""Guided host installation behind install.sh, revision 2026-11-20-r7.
 
 ADR 0010: source acquisition, host preparation and dependency acquisition precede
 configuration. ADR 0011 governs native checks; ADR 0012 governs discovered inputs.
@@ -194,6 +194,8 @@ class Guide:
                 self.tty.write(f'Enter a whole number from {minimum} to {maximum}; press Enter to accept {suggested}.\n')
                 self.tty.flush()
 
+        ceilings = self.session_ceilings
+        slots = sum(ceilings[key] for key in ('worker','claude','codex','agy'))
         budget = containers['budget']
         reserve = number(budget, 'host_reserve_mb', 'How much RAM should remain for the host (MiB)?',
                          'Keeps RAM outside the container budget for Ubuntu, Podman and other services.',
@@ -205,45 +207,49 @@ class Guide:
         ram = number(budget, 'memory_mb', 'Total RAM allowance for ALL running containers (MiB)',
                      f'Includes agents AND the verifier together. Excludes the {reserve} MiB host reserve.\n'
                      f'Detected: {facts["total"]} MiB total RAM; {facts["available"]} MiB currently available.\n'
-                     'This is an admission ceiling, not RAM allocated immediately. Larger per-container limits allow fewer concurrent sessions.',
+                     'All agents share the agents memory pool. This limit caps actual usage; it does not reserve RAM per session.',
                      min(memory, facts['available'])-reserve,
                      'The smaller of supported total RAM and currently available RAM, minus your host reserve.', memory-reserve, 8)
         cores = number(budget, 'cpu_millis', 'Total CPU allowance for ALL running containers (CPU units)',
                        f'Includes agents AND the verifier. Excludes the {cpu_reserve} CPU units reserved for the host.',
                        cpu-cpu_reserve, 'Supported CPU capacity minus your host reserve.', cpu-cpu_reserve, 2)
         tasks = number(budget, 'pids', 'Total process/thread allowance for ALL running containers',
-                       'Admission counts each container limit, including the verifier; threads count as tasks.',
-                       2048, 'Starting allowance for two containers with 1024 tasks each; raise it for heavily threaded builds.', 4194304, 2)
+                       'Caps actual processes and threads across containers, including the verifier; no per-session reservation.',
+                       (slots+1)*1024, 'Starts with 1024 tasks per configured agent slot plus the verifier; raise it for heavily threaded builds.', 4194304, 2)
         number(containers, 'disk_reserve_mb', 'When should Cursus pause NEW containers (free disk MiB)?',
                f'Detected: {facts["free"]} MiB free on the runner filesystem.\n'
                'When free space falls BELOW this threshold, new containers wait; existing containers keep running.\n'
                'This is a free-space floor, not a container disk limit or preallocated storage. Other programs can still consume it.',
                min(10240, facts['free']//10),
                '10% of currently free space, capped at 10240 MiB (10 GiB). Raise it for large images, repositories or logs.', facts['free']-1)
-        for lane in ('agent', 'verifier'):
-            resource = containers['resources'][lane]
-            other = containers['resources']['agent'] if lane == 'verifier' else {}
-            for key, total, unit in (('memory_mb', ram, 'MiB'), ('cpu_millis', cores, 'CPU units'), ('pids', tasks, 'processes/threads')):
-                remaining = total-other.get(key, 0)
-                minimum = 4 if key == 'memory_mb' else 1
-                number(resource, key, f'Limit for ONE {lane} container ({unit})',
-                       'Each container gets this limit; it counts toward the shared total allowance.\n'
-                       'The scheduler keeps capacity for one verifier while admitting agents.',
-                       remaining if lane == 'verifier' else total//2,
-                       'Starts with half the total for an agent and the remainder for the verifier.',
-                       remaining if lane == 'verifier' else total-minimum, minimum)
-            for key, label in (('tmp_mb', '/tmp'), ('home_mb', 'disposable home directory')):
-                maximum = resource['memory_mb']-resource.get('tmp_mb', 0)-1 if key == 'home_mb' else resource['memory_mb']-2
-                number(resource, key, f'Size limit for ONE {lane} container’s {label} (MiB)',
-                       'Memory-backed storage: usage counts INSIDE that container’s RAM limit.\n'
-                       'Persistent native login state is stored separately.',
-                       min(512, resource['memory_mb']//8),
-                       'One eighth of container RAM, capped at 512 MiB, leaving RAM for tools and tests.', maximum)
-        agents = min((budget[key]-containers['resources']['verifier'][key])//containers['resources']['agent'][key]
-                     for key in ('memory_mb', 'cpu_millis', 'pids'))
-        self.tty.write(f'\nResource plan: {ram} MiB total container RAM + {reserve} MiB host reserve.\n'
-                       f'These limits admit at most {agents} agent container(s) plus one verifier at once; provider/session ceilings may lower this.\n'
-                       'New containers also wait if current available RAM cannot cover their limit plus the host reserve.\n')
+        # ADR 0014: every agent may use the shared agents pool, rather than
+        # dividing it into fixed per-session reservations.
+        verifier = containers['resources']['verifier']
+        agent = containers['resources']['agent']
+        for key, total, suggested in (('memory_mb', ram, min(1024, ram//8)),
+                                       ('cpu_millis', cores, min(1000, cores//5)),
+                                       ('pids', tasks, min(1024, tasks//(slots+1)))):
+            minimum = 4 if key == 'memory_mb' else 1
+            if isinstance(verifier[key], str):
+                verifier[key] = max(minimum, min(suggested, total-minimum))
+            if type(verifier[key]) is not int or not minimum <= verifier[key] <= total-minimum:
+                raise RuntimeError('Configured verifier '+key+' leaves no usable shared agents pool; existing value was not changed.')
+            if isinstance(agent[key], str):
+                agent[key] = total-verifier[key]
+            if type(agent[key]) is not int or not minimum <= agent[key] <= total-verifier[key]:
+                raise RuntimeError('Configured agent '+key+' exceeds the shared agents pool; existing value was not changed.')
+        for resource in (agent, verifier):
+            for key in ('tmp_mb', 'home_mb'):
+                if isinstance(resource[key], str):
+                    resource[key] = max(1, min(512, resource['memory_mb']//8))
+            if any(type(resource[key]) is not int or resource[key] < 1 for key in ('tmp_mb','home_mb')) or resource['tmp_mb']+resource['home_mb'] >= resource['memory_mb']:
+                raise RuntimeError('Disposable storage limits must leave RAM for tools inside each container.')
+        self.tty.write(f'\nResource plan: {ram} MiB shared execution RAM + {reserve} MiB host reserve.\n'
+                       f'All agents share {ram-verifier["memory_mb"]} MiB RAM; the verifier has {verifier["memory_mb"]} MiB separately.\n'
+                       f'Configured simultaneous session ceilings: pi {ceilings["worker"]}, Claude {ceilings["claude"]}, Codex {ceilings["codex"]}, Antigravity {ceilings["agy"]}; plus one verifier.\n'
+                       'No RAM/CPU maximum is reserved per agent when admitting sessions. Busy sessions share CPU and memory.\n'
+                       'New starts wait if actual host memory reaches its reserve or free disk falls below its floor.\n'
+                       'Exhausting a shared RAM/process limit can fail work; session counts do not guarantee peak-load capacity.\n')
         self.tty.flush()
         return containers
 
@@ -314,7 +320,10 @@ class Guide:
         if isinstance(value,dict):
             if path == ('containers',):
                 value = self.resource_plan(value)
-            return {k:self.fill(v,(*path,k)) for k,v in value.items()}
+            result = {k:self.fill(v,(*path,k)) for k,v in value.items()}
+            if path == ('capacity',):
+                self.session_ceilings = result
+            return result
         if isinstance(value,list):
             return [self.fill(v,(*path,str(i))) for i,v in enumerate(value)]
         if isinstance(value,str) and 'REPLACE_' in value:

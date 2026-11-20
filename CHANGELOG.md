@@ -25,13 +25,21 @@ Source update; no intended-host/provider qualification or release tag implied.
 
 ### Setup
 
+- Use configured worker/provider ceilings as fixed session limits; remove
+  admission reservations of each container’s maximum resource allowance. Keep
+  aggregate cgroup protection, verifier separation and actual host memory/disk
+  pressure checks. Generate shared agents-pool defaults rather than a 50/50
+  per-agent/verifier split (ADR 0014). Existing individual limits are preserved.
+- Run native onboarding, recovery and probe subprocesses from the runner-owned
+  setup directory instead of inheriting an inaccessible operator home.
+
 - Separate fresh installation from repository enrollment: save empty enrollment
   on both hosts, omit repository/branch/check/token questions, and preserve
   explicitly enrolled configurations. Explain later enrollment and show an idle
   state on the new-run screen (ADR 0013).
 - Replace ambiguous resource prompts with purpose-specific questions, explained
   hardware-based suggestions accepted with Enter, immediate numeric/range
-  validation and a summary of agent capacity with verifier resources reserved.
+  validation and a summary of session ceilings with a separate verifier pool.
   Ask host reserves first and derive subsequent suggestions from chosen values.
 
 - Explain guided inputs in plain English, including units, sources and account permissions.
