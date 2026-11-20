@@ -107,6 +107,17 @@ class M1ContractsTests(unittest.TestCase):
                 load('serve', str(path))
             self.assertIn('Unfilled: capacity.worker, repositories[0].owner.', caught.exception.message)
 
+    def test_a_config_without_repositories_loads_idle(self):
+        import tomllib
+        from cursus.config import load
+        from tests.support import serve_config, toml_text
+        with workspace() as ws:
+            path, *_ = serve_config(ws, 'postgresql://fixture')
+            value = tomllib.loads(path.read_text())
+            del value['repositories']
+            path.write_text(toml_text(value))
+            self.assertEqual(load('serve', str(path))['repositories'], [])
+
     def test_serve_configuration_is_strict_and_single_process(self):
         import tomllib
         from cursus.config import load

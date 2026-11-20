@@ -8,6 +8,19 @@ Planned for 0.7.0; the version is not bumped until the installer work package la
 The branch is not releasable meanwhile: the installer and stage engine still emit
 the 0.6.0 container configuration, which the runner no longer loads.
 
+### Added (work package D)
+
+- Per-user installer (`./install.sh`, ADR 0017): runs as your own user (never root), builds a
+  hash-locked venv from `requirements.lock`, creates private directories, scaffolds a separate role
+  release git repo, writes a starting `cursus.toml` (only mechanical values filled; capacity, reserves,
+  origin, login, role commit and repositories stay yours to choose), a local-socket DSN file, and a user
+  systemd unit with `KillMode=control-group`. It never overwrites existing files, never starts a service,
+  never signs in to a CLI. `--dry-run` changes nothing. The real venv, hash-locked install and package
+  build were run once in a scratch home; systemd, PostgreSQL and CLI logins were not.
+- Loading the config now names every unfilled `REPLACE_` value. `cursus preflight --config` no longer
+  needs the reserve values. A config without `[[repositories]]` loads idle (ADR 0013); the unused
+  `[backup]` section is removed.
+
 ### Changed (work package C1) - breaking
 
 - Run the control plane and the runner in one process: `cursus serve --config` replaces

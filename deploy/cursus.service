@@ -1,0 +1,15 @@
+[Unit]
+Description=Cursus control plane and runner (one process, runs as you)
+
+[Service]
+Type=simple
+ExecStart="%h/.local/share/cursus/venv/bin/cursus" serve --config "%h/.config/cursus/cursus.toml"
+Restart=on-failure
+RestartSec=5
+UMask=0077
+# A stop must end the whole control group so orphaned CLI descendants cannot survive.
+KillMode=control-group
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

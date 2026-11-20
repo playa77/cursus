@@ -37,14 +37,14 @@ def preflight(args):
     import os
     import tomllib
     from pathlib import Path
-    from cursus.config import execution_settings
+    from cursus.config import execution_environment
     from cursus.host import DEFAULT_PATH
     from cursus.recipes import preflight as check, resolve
     roles = tomllib.loads(Path(args.roles).read_text()).get('roles', {})
     required = sorted({role['cli'] for role in roles.values()})
     if args.config:
         settings = tomllib.loads(Path(args.config).read_text()).get('execution', {})
-        execution_settings(settings)
+        execution_environment(settings)  # Reserves are not needed to locate the CLIs.
     else:
         search = [d for d in os.environ.get('PATH', DEFAULT_PATH).split(':') if d.startswith('/')]
         settings = {'path': ':'.join(search) or DEFAULT_PATH}

@@ -139,7 +139,9 @@ def load(process_kind, path):
         fail(f'Replace every REPLACE_ placeholder before starting. Unfilled: {shown}.')
     # One host, one process (ADR 0016): control and runner share this file.
     keys(settings, ('schema_version', 'process_kind', 'service', 'limits', 'runner', 'publisher', 'capacity',
-                    'execution', 'repositories', 'backup'))
+                    'execution'), ('repositories',))
+    # An unenrolled deployment is valid and idle: no repository work is authorized (ADR 0013).
+    settings.setdefault('repositories', [])
     if settings['schema_version'] != 3 or settings['process_kind'] != 'serve':
         fail()
     service = settings['service']
@@ -153,8 +155,6 @@ def load(process_kind, path):
         absolute(service[key])
     keys(settings['runner'], ('id',))
     validate('Id', settings['runner']['id'])
-    keys(settings['backup'], ('root', 'off_host_destination'))
-    absolute(settings['backup']['root'])
     enrollment(settings['repositories'])
     keys(settings['publisher'], ('git_binary', 'git_credential_file', 'github_credential_file'))
     for configured in settings['publisher'].values():
@@ -189,10 +189,15 @@ def capacity(value):
 
 def execution_settings(value):
     """Host-native execution policy (ADR 0016). No isolation settings exist."""
-    import re
     keys(value, ('disk_reserve_mb', 'host_reserve_mb'), ('path', 'pass_env', 'clis'))
     positive(value['disk_reserve_mb'])
     positive(value['host_reserve_mb'])
+    execution_environment(value)
+
+
+def execution_environment(value):
+    """Only what locates the CLIs and shapes their environment (also used by preflight)."""
+    import re
     if 'path' in value:
         directories = value['path'].split(':') if isinstance(value['path'], str) else []
         if not directories or not all(d.startswith('/') and '\n' not in d for d in directories):

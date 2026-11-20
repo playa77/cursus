@@ -39,10 +39,6 @@ git_binary = "/usr/bin/git"
 git_credential_file = "REPLACE_HOME/.config/cursus/publisher-git-credential"
 github_credential_file = "REPLACE_HOME/.config/cursus/publisher-github-credential"
 
-[backup]
-root = "REPLACE_HOME/.local/state/cursus/backups"
-off_host_destination = "REPLACE_OPERATOR_MANAGED_BACKUP_DESTINATION"
-
 # Concurrency ceilings; there are no per-session resource limits on the host.
 [capacity]
 worker = "REPLACE_WORKER_1_TO_4"
@@ -84,17 +80,18 @@ host_reserve_mb = "REPLACE_HOST_RESERVE_MB"
 # [execution.clis]
 # claude = "/home/you/.local/bin/claude"
 
-# Enrollment is data. Replace this with an operator-approved repository and literal
-# verification argv. The check runs as your user, from the candidate's worktree.
-[[repositories]]
-owner = "REPLACE_GITHUB_OWNER"
-name = "REPLACE_TRUSTED_REPO"
-object_format = "sha1"
-allowed_target_refs = ["refs/heads/main"]
-phase_check_ids = ["unit"]
-
-[[repositories.checks]]
-id = "unit"
-argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
-cwd = "."
-timeout_seconds = 300
+# Repositories. With none enrolled Cursus runs idle and authorizes no repository work. To enroll
+# one, uncomment and fill this block (literal verification argv; the check runs as your user,
+# from the candidate's worktree), then restart. Only trusted repositories.
+# [[repositories]]
+# owner = "GITHUB_OWNER"
+# name = "REPOSITORY"
+# object_format = "sha1"
+# allowed_target_refs = ["refs/heads/main"]
+# phase_check_ids = ["unit"]
+#
+# [[repositories.checks]]
+# id = "unit"
+# argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
+# cwd = "."
+# timeout_seconds = 300

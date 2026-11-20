@@ -209,6 +209,16 @@ class PreflightCommandTests(unittest.TestCase):
             self.assertIn('ok   agy', text)  # Found as `antigravity`.
             self.assertIn('failed for 1 CLI(s)', text)
 
+    def test_preflight_needs_only_the_settings_that_locate_the_clis(self):
+        with workspace() as ws:
+            roles, config = self.files(ws, ['claude'], ['claude'])
+            # An operator who has not yet chosen the reserve policy can still check their installs.
+            config.write_text(config.read_text().replace('disk_reserve_mb = 1', 'disk_reserve_mb = "REPLACE_POLICY_MB"')
+                              .replace('host_reserve_mb = 1', 'host_reserve_mb = "REPLACE_HOST_RESERVE_MB"'))
+            code, text = self.run_command('--roles', str(roles), '--config', str(config))
+            self.assertEqual(code, 0, text)
+            self.assertIn('ok   claude', text)
+
     def test_a_cli_missing_a_recipe_option_fails(self):
         with workspace() as ws:
             roles, config = self.files(ws, ['claude'], [])
