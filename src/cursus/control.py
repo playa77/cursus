@@ -26,6 +26,10 @@ class Control:
             raise Problem('forbidden', 'Operator authorization required.')
         value = validate('Action', value)
         async def transition(tx):
+            if value['kind'] == 'set_drain':
+                await tx.connection.execute('UPDATE coordination SET drain=$1', value['enabled'])
+                await tx.event(None, 'drain', value)
+                return dict(entity_id=self.settings['runner']['id'], state='drained' if value['enabled'] else 'open', revision=1, cursor=tx.cursor)
             if value['kind'] == 'answer':
                 from cursus.conversations import answer
                 return await answer(self,tx,value)
@@ -65,6 +69,9 @@ class Control:
             extra['invocation'] = {'role': role, 'registry_commit': phase['registry_commit'],
                 'profile_digest': phase['profile_digest'],
                 'prompt_text': role['prompt_text'] + '\nTask data:\n' + canonical_json(inputs).decode()}
+        if 'capacity' in self.settings and 'invocation' in extra:
+            cli = extra['invocation']['role']['cli']
+            slot = 'worker' if cli == 'pi' else cli
         job = {'id': identity(), 'phase_id': phase['id'], 'step': step,
                'slot': slot, 'input': inputs, **extra}
         await tx.event(phase['id'],'queued',{'job_id':job['id'],'step':step,'package_id':job.get('package_id')})
@@ -86,6 +93,8 @@ class Control:
             if entity_id:
                 validate('Id', entity_id)
             return await self.store.browser_view(route, entity_id)
+        if route == 'deployment':
+            return await self.store.deployment()
         table = {'phases': 'phases', 'attempts': 'attempts', 'overview': 'phases', 'events': 'events'}.get(route)
         if table is None:
             raise Problem('not_found', 'Resource unavailable.')
@@ -102,7 +111,7 @@ class Control:
     async def runner_request(self, runner_id, route, data, generation, request_id):
         from cursus.transport import request
         result = await request(self, runner_id, route, data, generation, request_id)
-        if route == 'jobs/next' and result is None:
+        if route == 'jobs/next' and result is None and 'capacity' not in self.settings:
             import time
             await self.wait(time.monotonic() + self.settings['limits']['long_poll_seconds'])
             result = await request(self, runner_id, route, data, generation, request_id)

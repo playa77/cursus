@@ -4,7 +4,7 @@ from cursus.contracts import (_object, _text, _id, _integer, _enum, _hex,
                               _repo, _ref, _candidate, _time, _fail)
 
 
-SLOTS = ('worker', 'verifier', 'frontier', 'repository')
+SLOTS = ('worker', 'verifier', 'frontier', 'repository', 'claude', 'codex', 'agy')
 STEPS = ('debug','interview','debate','resolve_input', 'plan', 'scout', 'produce', 'verify', 'review',
          'stage_integration', 'advance_integration', 'inspect_target',
          'reconcile_publication', 'publish_pr')

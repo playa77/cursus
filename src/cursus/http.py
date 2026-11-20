@@ -25,7 +25,7 @@ def application(control, local=False, browser=False, templates=None):
 
     def runner_route(request):
         path = request.url.path
-        return bool(re.fullmatch(r'/(jobs/next|runners/[^/]+/(heartbeat|reconcile)|'
+        return bool(re.fullmatch(r'/(jobs/next|runners/[^/]+/(heartbeat|reconcile|deployment)|'
             r'attempts/[^/]+/(events|artifacts/[^/]+)|runner/artifacts/[^/]+)', path))
 
     @app.exception_handler(Problem)
@@ -98,6 +98,10 @@ def application(control, local=False, browser=False, templates=None):
         @app.get('/attempts/{entity_id}')
         async def attempt(entity_id: str):
             return await control.query('local_operator', 'attempts', entity_id)
+
+        @app.get('/deployment')
+        async def deployment():
+            return await control.query('local_operator', 'deployment')
 
         @app.get('/')
         async def overview():

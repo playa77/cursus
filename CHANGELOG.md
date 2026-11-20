@@ -3,6 +3,34 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
+## [0.5.0] - 2026-11-20
+
+Container execution replacement from clean main; rejected PR #6 was not merged.
+Live qualification remains deferred to M3 end. No host provisioning or inference.
+
+- Replace host execution identities with rootless Podman containers per session
+  or verifier; retain the same debug container/RPC process across turns. Record
+  intent/token and immutable runtime identity before launch; inspect/stop actual
+  containers, preserve uncertain reservations and retry cleanup independently.
+- Require explicit worker 1–4 and independent Claude/Codex/Antigravity 1–2 ceilings
+  on both hosts. Reserve verifier resources in admission and separate cgroup
+  slices; reconsider pending claims and rotate lane polling for progress.
+- Keep native CLIs and qualified image/transport/tool profiles. Persist explicit
+  disjoint native-auth domains in place, with exclusive leases and required
+  concurrency/refresh qualification; no rotating-login copies or guessed paths.
+- Keep publisher/cache authority outside container mounts; use self-contained
+  Git metadata read-only inside production workspaces, with runner-owned capture.
+- Add schema-2 deployment templates, both Ubuntu setup scripts, immutable
+  source/config releases, drain/status contracts and explicit activation/rollback
+  boundaries. No sixteen-account provisioning or parallel host backend.
+- Expose lifecycle state/reasons/age and cleanup backlog. Compact retired journal
+  history, bound replay, retry acknowledged workspace deletion, aggregate usage
+  in SQL and reserve database connections from long waits. Supervise background
+  tasks and contain malformed session output.
+- Add migration 003 for independent provider lanes, ADR 0009 and a findings-to-
+  acceptance matrix. Fixture evidence remains distinct from runtime/host/provider
+  qualification; published Git/image retention beyond reserve checks stays WP-19.
+
 ## [0.4.0] - 2026-11-20
 
 Source implementation through WP-16. User qualification and live testing are

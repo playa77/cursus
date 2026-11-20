@@ -192,8 +192,13 @@ def _action(value: Any, sha_length: int) -> dict:
     if not isinstance(value, dict):
         _fail()
     kind = _enum(value.get("kind"), (
-        "submit", "answer", "steer", "cancel", "declare_unrecoverable", "abandon",
+        "submit", "answer", "steer", "cancel", "declare_unrecoverable", "abandon", "set_drain",
     ))
+    if kind == "set_drain":
+        obj = _object(value, {"kind", "enabled"})
+        if type(obj["enabled"]) is not bool:
+            _fail()
+        return obj
     if kind == "submit":
         obj = _object(value, {"kind", "input"})
         return {"kind": kind, "input": _input(obj["input"], sha_length)}

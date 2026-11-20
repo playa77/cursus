@@ -1,7 +1,9 @@
-"""Direct, pinned CLI and verifier execution under isolated child identities."""
+"""Direct native CLI/verifier protocols inside session containers (ADR 0009).
+
+The explicit allow_test_identity seam is only for controlled executable fixtures.
+"""
 
 import asyncio
-from contextvars import ContextVar
 from hashlib import sha256
 import json
 import os
@@ -47,41 +49,32 @@ def review(value, criteria):
 
 
 class Execution:
-    def __init__(self, profiles, identities, verifier, allow_test_identity=False):
+    def __init__(self, profiles, identities, verifier, allow_test_identity=False, runtime=None):
         self.profiles, self.identities, self.verifier = profiles, identities, verifier
+        self.runtime = runtime
+        if not allow_test_identity and runtime is None:
+            raise Problem("identity_boundary", "Production requires the container runtime.")
         self.allow_test_identity = allow_test_identity
-        self.worker_slots = [identities['pi']]
-        self.worker_context = ContextVar('worker_context',default=None)
-        self.worker_leases = set()
 
     def identity(self, configured):
+        if self.runtime:
+            from types import SimpleNamespace
+            return SimpleNamespace(pw_uid=1000, pw_gid=1000, pw_name='session')
         user = pwd.getpwnam(configured['user'])
         if user.pw_uid == 0 or (os.geteuid() != 0 and not self.allow_test_identity):
             raise Problem('identity_boundary', 'Execution requires distinct unprivileged identities.')
         return user
 
     def configured(self, invocation):
-        role = invocation['role']
-        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
-            return self.worker_slots[self.worker_context.get()]
-        key = 'pi_reviewer' if role['name'] == 'reviewer' and role['cli'] == 'pi' else role['cli']
-        if key not in self.identities:
-            raise Problem('profile_mismatch', 'Required isolated identity is unavailable.')
-        return self.identities[key]
+        if self.runtime:
+            return {'home': '/home/session', 'user': 'session'}
+        return self.identities[invocation['role']['cli']]
 
     def authorize(self, invocation):
         role = invocation['role']
         cli = role['cli']
         profile = self.profiles[cli]
         profile = dict(profile, **profile.get('role_profiles', {}).get(role['name'], {}))
-        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
-            slot = self.worker_context.get()
-            if slot:
-                configured = self.worker_slots[slot]
-                measured = self.profiles.get('worker_profiles',{}).get(configured['user'])
-                if not measured and not self.allow_test_identity:
-                    raise Problem('profile_mismatch','Second worker identity lacks measured qualification.')
-                profile = dict(profile, **(measured or {}))
         if role['name'] not in profile['qualified_roles'] or role['model'] != profile['model']:
             raise Problem('profile_mismatch', 'Role/model is not qualified.')
         if (role['tier'] == 'production' and cli != 'pi') or role['tier'] not in ('production', 'organization'):
@@ -96,25 +89,25 @@ class Execution:
             if role.get(key) != profile.get(key):
                 raise Problem('profile_mismatch', 'Invocation tuple is not qualified.')
         binary = Path(profile['binary'])
-        if not binary.is_absolute() or sha256(binary.read_bytes()).hexdigest() != profile['binary_digest']:
+        if not binary.is_absolute() or (not self.runtime and sha256(binary.read_bytes()).hexdigest() != profile['binary_digest']):
             raise Problem('profile_mismatch', 'CLI binary digest changed.')
         if not profile.get('probe_evidence') or not profile.get('clean_config_argv'):
             raise Problem('profile_mismatch', 'Missing installed-version capability evidence.')
         if not self.allow_test_identity:
             tokens = profile['fixed_argv']
-            required = {'pi': ['--mode', 'rpc' if role['name'] in ('worker','debug') else 'json'],
+            required = {'pi': ['--mode', 'rpc' if profile['prompt_transport'] == 'rpc' else 'json'],
                         'claude': ['-p', '--output-format', 'stream-json'],
                         'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
             if any(token not in tokens for token in required):
                 raise Problem('profile_mismatch', 'Required direct CLI invocation family is missing.')
         argv = [str(binary), *profile['fixed_argv']]
-        if role['tier'] == 'organization' or role['name'] == 'scout':
+        if set(role['tools']) <= {'read', 'list', 'search'}:
             if not profile.get('read_only_argv'):
                 raise Problem('profile_mismatch', 'Missing read-only qualification.')
             argv += profile['read_only_argv']
         argv += profile['clean_config_argv']
         configured = self.configured(invocation)
-        if not self.allow_test_identity and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
+        if not self.allow_test_identity and not self.runtime and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
             raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
         return profile, argv, self.identity(configured)
 
@@ -122,9 +115,13 @@ class Execution:
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
                        'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
-        process = await asyncio.create_subprocess_exec(*argv, cwd=workspace, env=environment,
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=65537, **privileges)
+        pipes = dict(stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                     stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=65537)
+        if self.runtime:
+            process = await self.runtime.spawn(argv, Path(workspace), **pipes)
+        else:
+            process = await asyncio.create_subprocess_exec(*argv, cwd=workspace, env=environment,
+                                                          **pipes, **privileges)
         output, diagnostics = bytearray(), bytearray()
         request_id = 'cursus-turn-1'
         pending_commands = {}
@@ -233,7 +230,7 @@ class Execution:
                 if checkpoint and debug_result is None:
                     raise Problem('missing_terminal','Debug process exited without an approved finish.')
                 return code, canonical_json(debug_result) if checkpoint else bytes(output), sanitize(diagnostics.decode('utf-8', errors='replace'))
-        except (TimeoutError, ValueError, Problem) as exc:
+        except (TimeoutError, ValueError, TypeError, KeyError, AttributeError, Problem) as exc:
             if process.returncode is None:
                 os.killpg(process.pid, signal.SIGTERM)
                 try:
@@ -298,6 +295,25 @@ class Execution:
         return decode_json(sanitize(answer))
 
     async def run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
+        if not self.runtime:
+            return await self._run(job, workspace, attempt_id, sink, commands, command_sink, checkpoint, lifecycle)
+        item = self.runtime.entries[attempt_id]
+        item['workspace'] = str(workspace)
+        self.runtime.save()
+        token = self.runtime.current.set(attempt_id)
+        try:
+            readonly = job.get('invocation', {}).get('role', {}).get('tools', [])
+            readonly = job['step'] != 'verify' and not (set(readonly) - {'read', 'list', 'search'})
+            await self.runtime.prepare(attempt_id, workspace, readonly)
+            return await self._run(job, workspace, attempt_id, sink, commands, command_sink, checkpoint, lifecycle)
+        finally:
+            self.runtime.current.reset(token)
+            clean = await asyncio.shield(self.runtime.cleanup(attempt_id))
+            self.runtime.owned.discard(attempt_id)
+            if not clean:
+                raise Problem('unknown_stop', 'Container cleanup pending; execution capacity remains unavailable.')
+
+    async def _run(self, job, workspace, attempt_id, sink=None, commands=None, command_sink=None, checkpoint=None, lifecycle=None):
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']

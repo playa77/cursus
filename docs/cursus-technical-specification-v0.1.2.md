@@ -1,5 +1,14 @@
 # Cursus — Technical Specification
 
+> Current execution amendment (2026-11-20): [ADR 0009](decisions/0009-container-execution.md)
+> supersedes host-account execution and fixed/shared concurrency descriptions
+> below. Schema-2 configuration uses rootless Podman sessions, explicit pi 1–4
+> and independent Claude/Codex/Antigravity 1–2 ceilings, protected verifier
+> capacity and qualified persistent auth domains. PR #6/ADR 0008 is rejected.
+> Native CLI, two-VPS, pull/DB ownership and workflow gates remain. Chromebook
+> enrollment is later; live/user qualification remains deferred to M3 end.
+
+
 **Document** 2 of the Cursus specification set  
 **Version** 0.1.2  
 **Date** 2026-11-19  

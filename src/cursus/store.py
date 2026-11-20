@@ -78,6 +78,15 @@ class Transaction:
 class Store:
     def __init__(self, pool):
         self.pool = pool
+        self.wait_capacity = asyncio.Semaphore(2)
+
+    async def deployment(self):
+        async with self.pool.acquire() as connection:
+            async with connection.transaction(isolation='repeatable_read', readonly=True):
+                drain = await connection.fetchval('SELECT drain FROM coordination')
+                active = await connection.fetchval("SELECT count(*) FROM attempts WHERE status IN ('active','unknown')")
+                queued = await connection.fetchval("SELECT count(*) FROM jobs WHERE state='queued'")
+                return dict(drain=drain, unresolved_attempts=active, queued_jobs=queued)
 
     async def migrate(self, migrations=None):
         if migrations is None:
@@ -171,12 +180,21 @@ class Store:
                 phase = (payload(await connection.fetchrow('SELECT payload FROM phases WHERE id=$1', phase_id))
                          if phase_id else None)
                 counts = await connection.fetch("SELECT state,count(*) AS count FROM jobs GROUP BY state")
-                usage = await connection.fetch("SELECT payload FROM events WHERE kind='usage' "
-                    "AND ($1::uuid IS NULL OR phase_id=$1) AND ($2::uuid IS NULL OR attempt_id=$2)",
+                usage = await connection.fetch("SELECT payload->'payload'->>'currency' AS currency, "
+                    "sum((payload->'payload'->>'input_tokens')::numeric) AS input_tokens, "
+                    "sum((payload->'payload'->>'output_tokens')::numeric) AS output_tokens, "
+                    "sum((payload->'payload'->>'cost')::numeric) AS cost FROM events WHERE kind='usage' "
+                    "AND ($1::uuid IS NULL OR phase_id=$1) AND ($2::uuid IS NULL OR attempt_id=$2) "
+                    "GROUP BY payload->'payload'->>'currency'",
                     phase_id, identity if route == 'attempts' else None)
+                totals = []
+                for row in usage:
+                    item = {k:int(row[k]) for k in ('input_tokens','output_tokens') if row[k] is not None}
+                    if row['cost'] is not None:
+                        item.update(cost=str(row['cost']),currency=row['currency'])
+                    totals.append(item)
                 result = dict(cursor=position, entity=entity, phase=phase,
-                              queue_counts={r['state']:r['count'] for r in counts},
-                              usage=[payload(r)['payload'] for r in usage])
+                              queue_counts={r['state']:r['count'] for r in counts}, usage=totals)
                 for table in ('phases', 'attempts', 'jobs', 'runners', 'artifacts'):
                     condition = ''
                     args = []
@@ -198,6 +216,14 @@ class Store:
                 return result
 
     async def wait(self, deadline, cursor=None):
+        try:
+            async with asyncio.timeout(max(0, deadline-time.monotonic())):
+                async with self.wait_capacity:
+                    return await self._wait(deadline,cursor)
+        except TimeoutError:
+            return False
+
+    async def _wait(self, deadline, cursor=None):
         # Register before checking the cursor; notifications are advisory and a
         # bounded fallback still observes commits if a notification was missed.
         wake = asyncio.Event()

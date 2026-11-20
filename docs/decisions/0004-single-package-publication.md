@@ -7,6 +7,9 @@
 - Basis: D1 §§3–7; D2 §§4, 7–8, 12, 15; roadmap WP-04–09
 - Task: operator request to implement through WP-09; follows ADR 0003
 
+- Execution host identities are superseded by [ADR 0009](0009-container-execution.md).
+  Workflow and exact-candidate/continuing-session decisions remain in force.
+
 ## Context
 
 M1 needs a runnable single-package path without exposing later milestone

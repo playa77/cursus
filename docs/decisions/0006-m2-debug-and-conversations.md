@@ -4,6 +4,9 @@
 - Date: 2026-11-19
 - Basis: D2 §§5, 8.2–8.5, T04/T06; roadmap WP-12/13; ADR 0005
 
+- Execution host identities are superseded by [ADR 0009](0009-container-execution.md).
+  Workflow and exact-candidate/continuing-session decisions remain in force.
+
 ## Context
 
 A terminal pi turn does not end a debug attempt. Organizational conversations

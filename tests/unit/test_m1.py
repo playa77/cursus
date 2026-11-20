@@ -93,14 +93,16 @@ class M1ContractsTests(unittest.TestCase):
             digest.chmod(0o600)
             text = Path('deploy/control.example.toml').read_text()
             for old, new in {
-                '/opt/cursus/release/roles.toml':str(release/'roles.toml'),
-                '/opt/cursus/release/prompts':str(release/'prompts'),
+                '/opt/cursus/current/source/roles.toml':str(release/'roles.toml'),
+                '/opt/cursus/current/source/prompts':str(release/'prompts'),
                 '/etc/cursus/control/database-dsn':str(dsn),
                 '/etc/cursus/control/runner-bearer.sha256':str(digest),
                 'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
             }.items():
                 text = text.replace(old,new)
             config = ws.root / 'control.toml'
+            for placeholder in ('WORKER_1_TO_4','CLAUDE_1_TO_2','CODEX_1_TO_2','AGY_1_TO_2'):
+                text = text.replace('"REPLACE_' + placeholder + '"', '1')
             config.write_text(text)
             self.assertEqual(load('control', str(config))['profile_digest'], 'a'*64)
             (release/'prompts'/'worker.md').write_text('Uncommitted changed authority')
