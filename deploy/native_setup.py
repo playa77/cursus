@@ -1,7 +1,8 @@
-"""Install native tools, guide their own logins, and derive deployment metadata.
+"""Install native tools; authentication is a separate operator action.
 
 All Podman commands use the stable rootless runner identity. No host credentials
-or developer-agent environment are read or copied. See ADR 0011.
+or developer-agent environment are read or copied. ADR 0015 ends the installer
+entry point after image/domain preparation; qualification helpers do not run.
 """
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -137,7 +138,7 @@ class NativeSetup:
             destination=build/source.name
             shutil.copyfile(source,destination)
             os.chown(destination,self.account.pw_uid,self.account.pw_gid)
-        self.guide.tty.write('Installing Claude Code, Codex CLI, Antigravity and pi in the runtime image. This may take several minutes.\n');self.guide.tty.flush()
+        print('Installing Claude Code, Codex CLI, Antigravity and pi in the runtime image. This may take several minutes.',flush=True)
         self.podman('build','--pull=missing','--tag','localhost/cursus-native:'+str(uuid4()),'--iidfile',build/'image-id',build,timeout=1800)
         image=(build/'image-id').read_text().strip()
         if not re.fullmatch('sha256:[0-9a-f]{64}',image):raise RuntimeError('Invalid built image ID')
@@ -156,7 +157,7 @@ class NativeSetup:
                     source=Path('/var/lib/cursus-runner/auth')/ident/str(number)
                     self.own_dir(source.parent);self.own_dir(source)
                     mounts.append(dict(source=str(source),target='/home/session/'+target))
-                credentials[cli].append(dict(id=ident,evidence='installer native login/check record: '+str(self.root),mounts=mounts))
+                credentials[cli].append(dict(id=ident,evidence='installer-created domain; manual login pending: '+str(self.root),mounts=mounts))
         return credentials
 
     def recover(self):
@@ -377,7 +378,6 @@ print(json.dumps(result))
         finally:os.close(self.lock_fd)
 
     def _run(self):
-        if not self.guide.tty:raise RuntimeError('First native setup requires a terminal for the four native logins.')
         active=subprocess.run(['runuser','-u','cursus-runner','--','env',
                                'XDG_RUNTIME_DIR=/run/user/'+str(self.account.pw_uid),
                                'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(self.account.pw_uid)+'/bus',
@@ -395,11 +395,6 @@ print(json.dumps(result))
         credentials=self.domains()
         self.config['containers'].update(image=image,credentials=credentials)
         container_settings(self.config['containers'],self.config['capacity'],self.config['service'],self.config['publisher'])
-        self.login(image,credentials)
-        models,provider=self.selections(image,credentials)
-        with self.session(image) as identity:
-            manifest=json.loads(self.podman('exec',identity,'/bin/cat','/opt/cursus-native/manifest.json',capture_output=True,text=True).stdout)
-        profile=profiles(manifest,image,models,provider,self.config['capacity'])
-        profile=self.check(image,credentials,profile)
-        self.config['containers'].update(image=image,credentials=credentials)
-        return profile
+        # ADR 0015: installation ends here. Authentication, model selection and
+        # authenticated checks belong to the operator, not the installer.
+        return None
