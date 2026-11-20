@@ -53,6 +53,7 @@ with open({str(log)!r},'a') as out: out.write(json.dumps([name,*sys.argv[1:]])+'
 if name=='sudo':
     if sys.argv[1:] == ['-v']: sys.exit(0)
     os.execvp(sys.argv[1],sys.argv[1:])
+if name=='git' and 'rev-parse' in sys.argv: print('a'*40)
 if name=='git' and 'clone' in sys.argv:
     source=Path(sys.argv[-1]); (source/'.git').mkdir(parents=True)
     (source/'deploy').mkdir(); (source/'deploy/install.py').write_text('# mocked helper')
@@ -171,3 +172,66 @@ class GuideContracts(unittest.TestCase):
             if terminal:
                 terminal.reader.close(); terminal.writer.close()
             os.close(master); os.close(slave)
+
+class SourceRefTests(unittest.TestCase):
+    def test_bootstrap_checks_out_remote_branch_absent_from_local_heads(self):
+        with tempfile.TemporaryDirectory(prefix='cursus branch — ') as folder:
+            root=Path(folder);repo=root/'origin';repo.mkdir()
+            def git(*args):
+                return subprocess.run(['/usr/bin/git','-C',str(repo),*args],check=True,capture_output=True,text=True)
+            git('init','--quiet','--initial-branch=main')
+            (repo/'README').write_text('fixture')
+            git('add','README')
+            git('-c','user.name=Fixture','-c','user.email=fixture@localhost','commit','--quiet','-m','base')
+            git('checkout','-b','codex/native-fixture')
+            (repo/'deploy').mkdir();(repo/'deploy/install.py').write_text('# fixture helper')
+            git('add','deploy/install.py')
+            git('-c','user.name=Fixture','-c','user.email=fixture@localhost','commit','--quiet','-m','installer')
+            wanted=git('rev-parse','HEAD').stdout.strip()
+            git('checkout','main')
+            bin_dir=root/'bin';bin_dir.mkdir()
+            wrapper=f'''#!{sys.executable}
+import os,sys
+from pathlib import Path
+name=Path(sys.argv[0]).name
+if name=='sudo':
+    if sys.argv[1:]==['-v']:sys.exit(0)
+    os.execvp(sys.argv[1],sys.argv[1:])
+if name=='git':
+    args=[{str(repo)!r} if value=='https://github.com/playa77/cursus.git' else value for value in sys.argv[1:]]
+    os.execv('/usr/bin/git',['git',*args])
+'''
+            for name in ('sudo','git','apt-get','env'):
+                path=bin_dir/name;path.write_text(wrapper);path.chmod(0o755)
+            os_release=root/'os-release';os_release.write_text('ID=ubuntu\nVERSION_ID="26.04"\n')
+            script=(ROOT/'install.sh').read_text().replace('/etc/os-release',json.dumps(str(os_release),ensure_ascii=False))
+            target=root/'fresh source'
+            result=subprocess.run(['bash','-s','--','--host','worker','--yes','--non-interactive',
+                                   '--config',str(root/'unused-fixture-config'),'--source-dir',str(target),
+                                   '--ref','codex/native-fixture'],input=script,text=True,capture_output=True,
+                                  cwd=root,env={**os.environ,'HOME':folder,'PATH':str(bin_dir)+':/usr/bin:/bin'})
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            actual=subprocess.check_output(['/usr/bin/git','-C',str(target),'rev-parse','HEAD'],text=True).strip()
+            self.assertEqual(actual,wanted)
+            self.assertTrue((target/'deploy/install.py').exists())
+
+            # Simulate the operator's prior installer checkout: main does not
+            # contain the new helper, but the downloaded entry point does.
+            default=root/'cursus-source'
+            subprocess.run(['/usr/bin/git','clone',str(repo),str(default)],check=True,capture_output=True)
+            base=subprocess.check_output(['/usr/bin/git','-C',str(default),'rev-parse','HEAD'],text=True).strip()
+            arguments=['bash','-s','--','--host','worker','--yes','--non-interactive',
+                       '--config',str(root/'unused-fixture-config'),'--ref','codex/native-fixture']
+            environment={**os.environ,'HOME':folder,'PATH':str(bin_dir)+':/usr/bin:/bin'}
+            updated=subprocess.run(arguments,input=script,text=True,capture_output=True,cwd=root,env=environment)
+            self.assertEqual(updated.returncode,0,updated.stdout+updated.stderr)
+            self.assertEqual(subprocess.check_output(['/usr/bin/git','-C',str(default),'rev-parse','HEAD'],text=True).strip(),wanted)
+            subprocess.run(['/usr/bin/git','-C',str(default),'checkout','main'],check=True,capture_output=True)
+            (default/'keep.txt').write_text('operator work')
+            preserved=subprocess.run(arguments,input=script,text=True,capture_output=True,cwd=root,env=environment)
+            self.assertEqual(preserved.returncode,0,preserved.stdout+preserved.stderr)
+            self.assertEqual((default/'keep.txt').read_text(),'operator work')
+            self.assertEqual(subprocess.check_output(['/usr/bin/git','-C',str(default),'rev-parse','HEAD'],text=True).strip(),base)
+            fresh=list(root.glob('cursus-installer.*/source'))
+            self.assertEqual(len(fresh),1)
+            self.assertTrue((fresh[0]/'deploy/install.py').exists())

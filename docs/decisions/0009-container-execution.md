@@ -8,6 +8,10 @@
   (`20831cffc28ff6452788409a3d5581800f6701ad`). ADR 0008 is absent from main.
 - Acceptance: [finding matrix](../acceptance/container-execution.md).
 
+Native onboarding update: [ADR 0011](0011-native-install-and-login.md) assigns
+image creation and native login guidance to the installer, introduces scoped
+`native-checked` metadata, and keeps full live qualification distinct.
+
 ## Context
 
 Main is `38ea8ed`, including merged PR #5/WP-15/16. PR #6 is open and unmerged

@@ -164,8 +164,8 @@ def load(process_kind, path, release_root=None):
             fail('Capability digest mismatch.')
         settings['profiles'] = tomllib.loads(profile.decode())
         settings['profiles']['digest'] = service['capabilities_digest']
-        if settings['profiles'].get('qualification') != 'qualified':
-            fail('Capability profile is not qualified.')
+        if settings['profiles'].get('qualification') not in ('qualified','native-checked'):
+            fail('Capability profile has not completed native setup checks.')
         if settings['profiles'].get('image') != settings['containers']['image']:
             fail('Capability profile image differs from execution image.')
         for cli in ('pi','claude','codex','agy'):
@@ -206,7 +206,10 @@ def capacity(value):
 
 
 def container_settings(value, ceilings, service, publisher):
-    keys(value, ('binary','version','image','network','disk_reserve_mb','resources','budget','credentials'))
+    keys(value, ('binary','version','image','network','disk_reserve_mb','resources','budget','credentials'), ('native_keyring','hide_project_customizations'))
+    for flag in ('native_keyring','hide_project_customizations'):
+        if flag in value and type(value[flag]) is not bool:
+            fail('Native container feature switches must be booleans.')
     if value['binary'] != '/usr/bin/podman' or not value['version'].startswith('5.'):
         fail('This release supports an explicitly pinned Podman 5.x version.')
     import re
