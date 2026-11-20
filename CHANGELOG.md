@@ -25,6 +25,13 @@ Source update; no intended-host/provider qualification or release tag implied.
 
 ### Setup
 
+- Explain guided inputs in plain English, including units, sources and account permissions.
+- Import saved native model/provider choices without ID transcription; extract
+  repository owner/name from its URL and expand branch names automatically.
+- Discover Tailscale peers/accounts and worker hardware locally; select deployment
+  roles by number, carry the worker DNS name in pairing metadata, and reject a
+  pairing code addressed to another controller (ADR 0012).
+
 - Add one top-level `install.sh` for both hosts, with fresh-checkout bootstrap,
   terminal-safe guided setup, optional automatic hash-locked wheel acquisition,
   private configuration/credential preparation and guarded stage/activation.

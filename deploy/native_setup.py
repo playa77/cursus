@@ -218,6 +218,60 @@ class NativeSetup:
                     self.podman('exec','--interactive','--tty',identity,*args,
                                 stdin=self.guide.tty.reader,stdout=self.guide.tty.writer,stderr=self.guide.tty.writer,timeout=900)
 
+    def selection(self, image, cli, domain):
+        """Export only model/provider fields from this install's own settings.
+
+        Settings locations/keys: Claude settings/model-config docs, Codex config
+        basics, Antigravity settings, and pi configuration/settings references.
+        Never return whole settings, auth files, or developer-agent state.
+        """
+        script = r"""
+import json, os, sys, tomllib
+from pathlib import Path
+cli = sys.argv[1]
+paths = {'claude':'.claude/settings.json', 'codex':'.codex/config.toml',
+         'agy':'.gemini/antigravity-cli/settings.json', 'pi':'.pi/agent/settings.json'}
+try:
+    path = Path('/home/session') / paths[cli]
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as source:
+        raw = source.read(1048577)
+    if len(raw) > 1048576:
+        raise ValueError()
+    data = tomllib.loads(raw.decode()) if cli == 'codex' else json.loads(raw)
+    result = {'model':data.get('defaultModel' if cli == 'pi' else 'model')}
+    if cli == 'pi': result['provider'] = data.get('defaultProvider')
+    if any(not isinstance(v,str) or not v.strip() or len(v)>256 or any(ord(c)<32 for c in v) for v in result.values()):
+        raise ValueError()
+except (OSError, ValueError, TypeError, AttributeError):
+    result = {}
+print(json.dumps(result))
+"""
+        with self.session(image,domain,readonly=True) as identity:
+            result = self.podman('exec',identity,'/usr/bin/python3','-c',script,cli,
+                                 capture_output=True,text=True,timeout=15)
+        return json.loads(result.stdout)
+
+    def selections(self, image, credentials):
+        models = {}
+        provider = None
+        for cli in CLIS:
+            domain = credentials[cli][0]
+            selected = self.selection(image,cli,domain)
+            if not selected:
+                self.guide.tty.write('\nChoose the model for '+cli+' in its own model selector and save it as the default.\nFor pi also choose the provider. Exit the app after saving. Do not send a task or prompt.\n')
+                self.guide.tty.flush()
+                self.guide.ask('Press Enter to open '+cli+' for this choice.','open')
+                with self.session(image,domain) as identity:
+                    self.podman('exec','--interactive','--tty',identity,cli,
+                                stdin=self.guide.tty.reader,stdout=self.guide.tty.writer,stderr=self.guide.tty.writer,timeout=1800)
+                selected = self.selection(image,cli,domain)
+            if not selected:
+                raise RuntimeError(cli+' did not save a readable model selection. Save a default using its native model selector, then rerun. No model ID transcription is required.')
+            models[cli] = selected['model']
+            if cli == 'pi': provider = selected['provider']
+        return models,provider
+
     def probe(self, identity, argv, body, rpc=False):
         # Keep RPC stdin open until agent_end. communicate(input=...) closes it
         # immediately and can abort pi before its terminal event.
@@ -339,8 +393,7 @@ class NativeSetup:
         self.config['containers'].update(image=image,credentials=credentials)
         container_settings(self.config['containers'],self.config['capacity'],self.config['service'],self.config['publisher'])
         self.login(image,credentials)
-        models={cli:self.guide.ask(cli+' model ID selected/shown in that native app') for cli in CLIS}
-        provider=self.guide.ask('pi OpenCode Go provider ID selected during /login')
+        models,provider=self.selections(image,credentials)
         with self.session(image) as identity:
             manifest=json.loads(self.podman('exec',identity,'/bin/cat','/opt/cursus-native/manifest.json',capture_output=True,text=True).stdout)
         profile=profiles(manifest,image,models,provider,self.config['capacity'])

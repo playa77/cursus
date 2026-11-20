@@ -180,12 +180,15 @@ class PairingIntegrationTests(unittest.TestCase):
         code=native.pairing_code(dict(format=1,config=worker,profile=writer(profile),bearer_digest='c'*64))
         guide=helper().Guide(SimpleNamespace(source=str(ROOT),host='controller',non_interactive=True))
         guide.user=pwd.getpwuid(__import__('os').getuid()).pw_name
+        guide._tailscale = dict(BackendState='Running', Self={'DNSName':'fixture.example.ts.net.'},
+                                Peer={'worker':{'DNSName':'worker.example.ts.net.'}},
+                                User={'1':{'LoginName':'operator@example.com'}})
         questions=[]
         def ask(question,default=None):
             questions.append(question)
-            if 'pairing code' in question:return code
-            if 'operator_login' in question:return 'operator@example.com'
-            if 'tailnet_node' in question:return 'worker'
+            if question.startswith('Paste the pairing code'):return code
+            if 'Which Tailscale account' in question:return '1'
+            if 'older pairing code' in question:return '1'
             if 'off_host_destination' in question:return 'private-backup'
             self.fail('Unexpected setup question: '+question)
         guide.ask=ask
@@ -199,6 +202,20 @@ class PairingIntegrationTests(unittest.TestCase):
             self.assertEqual(config['service']['external_origin'],worker['service']['origin'])
             self.assertEqual(guide.pending_bearer_digest,'c'*64)
             self.assertFalse(any('Absolute path' in q for q in questions))
+            self.assertEqual(config['runner']['tailnet_node'],'worker.example.ts.net')
+            self.assertEqual(config['service']['operator_login'],'operator@example.com')
+        worker['service']['tailnet_node']='worker.example.ts.net'
+        code=native.pairing_code(dict(format=1,config=worker,profile=writer(profile),bearer_digest='c'*64))
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root=Path(folder)
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):path=guide.configure()
+            self.assertEqual(tomllib.loads(path.read_text())['runner']['tailnet_node'],'worker.example.ts.net')
+        guide._tailscale['Self']['DNSName']='wrong.example.ts.net.'
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root=Path(folder)
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):
+                with self.assertRaisesRegex(RuntimeError,'different controller'):guide.configure()
+            self.assertFalse((guide.root/'control.toml').exists())
 
 class NativeChecksTests(unittest.TestCase):
     def test_completed_checks_generate_immutable_scoped_evidence_and_failure_does_not(self):
@@ -236,3 +253,43 @@ class NativeChecksTests(unittest.TestCase):
                 with self.assertRaises(Problem):manager.check('fixture-image',credentials,failed)
             self.assertEqual(failed['qualification'],'unqualified')
             self.assertEqual(len(list(Path(folder).glob('checks-*.json'))),1)
+
+class NativeSelectionTests(unittest.TestCase):
+    def test_reader_exports_only_selected_fields_and_handles_missing_defaults(self):
+        native=module('deploy/native_setup.py','native_selection_fixture')
+        manager=object.__new__(native.NativeSetup)
+        @contextmanager
+        def session(*args,**kwargs):yield 'fixture-container'
+        manager.session=session
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            fixtures={'.claude/settings.json':json.dumps(dict(model='chosen-claude',env={'PRIVATE_FIXTURE':'do-not-export'})),
+                      '.codex/config.toml':'model = "chosen-codex"\nprivate_fixture = "do-not-export"\n',
+                      '.gemini/antigravity-cli/settings.json':json.dumps(dict(model='Chosen AGY',private_fixture='do-not-export')),
+                      '.pi/agent/settings.json':json.dumps(dict(defaultModel='chosen-pi',defaultProvider='chosen-provider',private_fixture='do-not-export'))}
+            for name,content in fixtures.items():
+                path=root/name;path.parent.mkdir(parents=True);path.write_text(content)
+            def podman(*args,**kwargs):
+                self.assertEqual(args[:4],('exec','fixture-container','/usr/bin/python3','-c'))
+                script=args[4].replace("Path('/home/session')",'Path('+repr(folder)+')')
+                result=subprocess.run([sys.executable,'-c',script,args[5]],text=True,capture_output=True,check=True,timeout=5)
+                self.assertNotIn('do-not-export',result.stdout+result.stderr)
+                return result
+            manager.podman=podman
+            for cli,model in [('claude','chosen-claude'),('codex','chosen-codex'),('agy','Chosen AGY'),('pi','chosen-pi')]:
+                selected=manager.selection('image',cli,{})
+                self.assertEqual(selected['model'],model)
+                self.assertEqual(set(selected),{'model','provider'} if cli=='pi' else {'model'})
+            (root/'.claude/settings.json').write_text('{}')
+            self.assertEqual(manager.selection('image','claude',{}),{})
+            (root/'.claude/settings.json').unlink()
+            (root/'.claude/settings.json').symlink_to(root/'.pi/agent/settings.json')
+            self.assertEqual(manager.selection('image','claude',{}),{})
+
+    def test_saved_models_are_reused_without_input_or_inference(self):
+        native=module('deploy/native_setup.py','native_selection_no_input')
+        manager=object.__new__(native.NativeSetup)
+        manager.selection=lambda image,cli,domain:dict(model='selected-'+cli,**({'provider':'selected-provider'} if cli=='pi' else {}))
+        models,provider=manager.selections('image',{cli:[{}] for cli in native.CLIS})
+        self.assertEqual(models,{cli:'selected-'+cli for cli in native.CLIS})
+        self.assertEqual(provider,'selected-provider')

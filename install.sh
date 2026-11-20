@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cursus installer entry point, revision 2026-11-20-r4. See ADR 0010.
+# Cursus installer entry point, revision 2026-11-20-r5. See ADR 0010.
 set -euo pipefail
 trap 'printf "Cursus bootstrap failed at line %s. No success is implied; inspect the error above.\n" "$LINENO" >&2' ERR
 
@@ -100,7 +100,7 @@ if ((!noninteractive)); then
     printf '%s\n' 'No terminal. Download the script and run it in SSH, or supply --non-interactive --host ... --config ... --yes.' >&2; exit 2
   fi
   if [[ -z "$host" ]]; then
-    printf 'Which machine? controller = B (database/website), worker = A (containers): ' >&3
+    printf '\nChoose the role of THIS server.\n  worker     Server A: runs the AI tools and task containers. Install this first.\n  controller Server B: runs the database and website. Requires the worker pairing code.\nEnter worker or controller: ' >&3
     read -r host <&3
     [[ "$host" == controller || "$host" == worker ]] || { printf 'Choose controller or worker.\n' >&2; exit 2; }
   fi
