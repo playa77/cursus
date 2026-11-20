@@ -1,19 +1,16 @@
-"""Distinct Unix operator, Serve browser and bearer runner authorization paths."""
+"""Unix operator socket and loopback browser surfaces; the runner is in-process (ADR 0016)."""
 
 import asyncio
 import grp
-from hashlib import sha256
-import hmac
 import http.client
 import os
 from pathlib import Path
 import socket
 import signal
-import re
 from contextlib import nullcontext
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 import uvicorn
 from cursus.contracts import Problem, decode_json, canonical_json, validate, MAX_REQUEST_BYTES
 
@@ -23,41 +20,28 @@ def application(control, local=False, browser=False, templates=None):
 
     browser_surface = None
 
-    def runner_route(request):
-        path = request.url.path
-        return bool(re.fullmatch(r'/(jobs/next|runners/[^/]+/(heartbeat|reconcile|deployment)|'
-            r'attempts/[^/]+/(events|artifacts/[^/]+)|runner/artifacts/[^/]+)', path))
-
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
         code = 409 if exc.code in ('idempotency_conflict', 'sequence_conflict', 'state_conflict', 'artifact_conflict') else 422
         code = {'forbidden': 403, 'unauthorized': 401, 'not_found': 404,
                 'payload_too_large': 413, 'unavailable': 503}.get(exc.code, code)
-        if browser_surface and not runner_route(request):
+        if browser_surface:
             return browser_surface.render(request, 'problem.html', status=code, problem=exc.as_dict(), title='Problem')
         return JSONResponse(exc.as_dict(), status_code=code, headers={'Cache-Control': 'no-store'})
 
     @app.middleware('http')
     async def guard(request, call_next):
         # Authentication happens before payload decoding, including failures.
-        if browser_surface and not runner_route(request):
+        if browser_surface:
             try:
                 browser_surface.authorize(request)
             except Problem as exc:
                 return await problem_handler(request, exc)
-        elif not local:
-            tokens = request.headers.getlist('authorization')
-            expected = control.settings['bearer_digest']
-            token = tokens[0][7:] if len(tokens) == 1 and tokens[0].startswith('Bearer ') else ''
-            if not token or not hmac.compare_digest(sha256(token.encode()).hexdigest(), expected):
-                return JSONResponse({'code': 'unauthorized', 'message': 'Runner authentication required.'}, 401)
-            if request.url.path.startswith('/operator') or request.url.path.startswith('/phases'):
-                return JSONResponse({'code': 'forbidden', 'message': 'Local operator ingress required.'}, 403)
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'same-origin'
-        if browser_surface and not runner_route(request):
+        if browser_surface:
             response.headers['Content-Security-Policy'] = ("default-src 'self'; script-src 'self'; "
                 "style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; "
                 "base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
@@ -106,21 +90,6 @@ def application(control, local=False, browser=False, templates=None):
         @app.get('/')
         async def overview():
             return await control.query('local_operator', 'overview')
-    else:
-        @app.api_route('/{route:path}', methods=['GET', 'POST'])
-        async def runner(request: Request, route: str):
-            if not hasattr(control, 'runner_request'):
-                raise Problem('unsupported_milestone', 'Runner not enabled.')
-            generation = request.headers.getlist('x-cursus-generation')
-            if len(generation) != 1:
-                raise Problem('invalid_fields', 'Runner generation is required.')
-            validate('Id', generation[0])
-            if request.method == 'GET' and len(request.query_params.multi_items()) != len(dict(request.query_params)):
-                raise Problem('invalid_fields', 'Duplicate query parameter.')
-            data = dict(request.query_params) if request.method == 'GET' else await body(request)
-            response = await control.runner_request(control.settings['runner']['id'], route, data,
-                                                    generation[0], request_id(request))
-            return Response(status_code=204) if response is None else JSONResponse(response)
     return app
 
 

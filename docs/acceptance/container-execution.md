@@ -1,3 +1,5 @@
+> **Obsolete (ADR 0016):** describes the removed 0.6.0 container/two-host design. Rewritten in work package D.
+
 # Container execution acceptance
 
 Baseline: clean main `38ea8ed`; PR #6 open/unmerged `20831cf`, explicitly rejected.

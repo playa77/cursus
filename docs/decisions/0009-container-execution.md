@@ -1,6 +1,6 @@
 # ADR 0009: Container execution on VPS-A
 
-- Status: accepted direction; implementation and qualification tracked separately
+- Status: superseded by [ADR 0016](0016-host-native-single-host.md) (runtime, image, credential domains); workflow-side invariants retained
 - Date: 2026-11-20
 - Authority: operator takeover instruction; PR #6 is rejected, not accepted precedent.
 - Supersedes: account allocation, host identity and shared frontier limits in

@@ -25,8 +25,8 @@ async def request(control, runner_id, route, data, generation, request_id):
         runner['reachable'] = True
         await tx.save('runners', runner)
         if route == f'runners/{runner_id}/reconcile':
-            _object(data, {'generation', 'observations', 'pending_request_ids'}, {'capacity'})
-            if 'capacity' in control.settings and data.get('capacity') != control.settings['capacity']:
+            _object(data, {'generation', 'observations', 'pending_request_ids', 'capacity'})
+            if data['capacity'] != control.settings['capacity']:
                 raise Problem('capacity_mismatch', 'Controller and runner capacity must match exactly.')
             if data['generation'] != generation:
                 raise Problem('state_conflict', 'Generation mismatch.')
@@ -81,9 +81,9 @@ async def request(control, runner_id, route, data, generation, request_id):
             active = await tx.connection.fetchval("SELECT count(*) FROM attempts WHERE status IN ('active','unknown')")
             return dict(drain=await tx.connection.fetchval('SELECT drain FROM coordination'), unresolved_attempts=active, queued_jobs=await tx.connection.fetchval("SELECT count(*) FROM jobs WHERE state='queued'"))
         if route == f'runners/{runner_id}/heartbeat':
-            _object(data, {'slots', 'spool_bytes', 'boot_id', 'health'}, {'capacity','execution'})
-            _object(data['slots'], set(control.settings.get('capacity', {'worker':2,'verifier':1,'frontier':1,'repository':1})))
-            if 'capacity' in control.settings and data.get('capacity') != control.settings['capacity']:
+            _object(data, {'slots', 'spool_bytes', 'boot_id', 'health', 'capacity'}, {'execution'})
+            _object(data['slots'], set(control.settings['capacity']))
+            if data['capacity'] != control.settings['capacity']:
                 raise Problem('capacity_mismatch', 'Heartbeat capacity mismatch.')
             for value in data['slots'].values():
                 _integer(value, 0)
@@ -94,7 +94,7 @@ async def request(control, runner_id, route, data, generation, request_id):
                     'reconciled': runner['reconciled'], 'dispositions': {}}
         if route == 'jobs/next':
             _object(data, {'slot'})
-            _enum(data['slot'], tuple(control.settings.get('capacity', {'worker':2,'verifier':1,'frontier':1,'repository':1})))
+            _enum(data['slot'], tuple(control.settings['capacity']))
             if not runner['reconciled']:
                 raise Problem('state_conflict', 'Reconcile before claiming.')
             if await tx.connection.fetchval('SELECT drain FROM coordination'):
@@ -106,7 +106,7 @@ async def request(control, runner_id, route, data, generation, request_id):
             count = await tx.connection.fetchval(
                 "SELECT count(*) FROM attempts a JOIN jobs j ON a.job_id=j.id "
                 "WHERE a.runner_id=$1 AND a.status IN ('active','unknown') AND j.slot=$2", runner_id, data['slot'])
-            capacity = control.settings.get('capacity', {'worker':2,'verifier':1,'frontier':1,'repository':1})[data['slot']]
+            capacity = control.settings['capacity'][data['slot']]
             if count >= capacity:
                 return None
             job_row = await tx.connection.fetchrow("SELECT j.id,j.payload FROM jobs j JOIN phases p ON j.phase_id=p.id WHERE j.state='queued' AND (p.payload->>'state' NOT IN ('parked','canceling','canceled','delivered') OR j.step='reconcile_publication') "

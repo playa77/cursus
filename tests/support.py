@@ -62,8 +62,8 @@ def settings():
     return {
         'service': {'role_release_commit': '0' * 40},
         'runner': {'id': str(uuid4())},
-        'bearer_digest': __import__('hashlib').sha256(b'fixture-bearer').hexdigest(),
-        'roles': {}, 'limits': {'repair_retries': 2, 'long_poll_seconds': 1},
+        'capacity': {'worker': 4, 'claude': 2, 'codex': 2, 'agy': 2, 'verifier': 1, 'repository': 1},
+        'roles': {}, 'limits': {'repair_retries': 2},
         'repositories': [{'owner': 'fixture', 'name': 'repo', 'object_format': 'sha1',
                           'allowed_target_refs': ['refs/heads/main'],
                           'checks': [{'id': 'unit', 'argv': ['/usr/bin/true'],
@@ -168,48 +168,91 @@ class GitRemote:
         return Repository(ws.root / 'cache', ws.worktrees, ws.root / 'reviews', enrollment, self)
 
 
-def control_config(ws, dsn):
-    """Committed role release plus non-secret, private local control settings."""
+def toml_text(value):
+    """Minimal TOML writer for test configuration (strings, ints, bools, lists, tables)."""
+    import json
+    lines = []
+
+    def scalar(item):
+        if isinstance(item, bool):
+            return 'true' if item else 'false'
+        if isinstance(item, list):
+            return '[' + ', '.join(scalar(i) for i in item) + ']'
+        return json.dumps(item)
+
+    def is_tables(item):
+        return isinstance(item, list) and bool(item) and all(isinstance(i, dict) for i in item)
+
+    def emit(name, table, array=False):
+        if name:
+            lines.append(('[[%s]]' if array else '[%s]') % name)
+        for key, item in table.items():
+            if not isinstance(item, dict) and not is_tables(item):
+                lines.append(f'{key} = {scalar(item)}')
+        for key, item in table.items():
+            if isinstance(item, dict):
+                emit(f'{name}.{key}' if name else key, item)
+            elif is_tables(item):
+                for entry in item:
+                    emit(f'{name}.{key}' if name else key, entry, True)
+
+    emit('', value)
+    return '\n'.join(lines) + '\n'
+
+
+def serve_config(ws, dsn, clis=None):
+    """A real, loadable single-process config built from the public example template.
+
+    Returns (path, release_dir, release_commit, remote). Roles come from a committed
+    role release; the fixture remote is a local bare repository (set `remote` on the
+    loaded enrollment, which the production loader does not accept).
+    """
     import grp
     import os
+    import pwd
     import shutil
+    import sys
+    import tomllib
     from uuid import uuid4
     remote = GitRemote(ws.root)
-    release = remote.seed
+    release = ws.root / 'release'  # Separate from the fixture remote's content.
+    release.mkdir()
+    remote.git(release, 'init', '--initial-branch=main')
     role_text = Path('roles.toml').read_text()
-    for old, new in {'REPLACE_SHA256_OF_QUALIFIED_PROFILE':'a'*64,
-                     'REPLACE_QUALIFIED_MODEL':'fixture','REPLACE_QUALIFIED_REASONING':'fixture',
-                     'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID':'fixture-go'}.items():
-        role_text = role_text.replace(old,new)
-    (release/'roles.toml').write_text(role_text)
-    shutil.copytree('prompts', release/'prompts')
+    for old, new in {'REPLACE_QUALIFIED_MODEL': 'fixture', 'REPLACE_QUALIFIED_REASONING': 'fixture',
+                     'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID': 'fixture-go'}.items():
+        role_text = role_text.replace(old, new)
+    (release / 'roles.toml').write_text(role_text)
+    shutil.copytree('prompts', release / 'prompts')
     remote.git(release, 'add', '.')
     remote.git(release, 'commit', '-m', 'Fixture role release')
     commit = remote.git(release, 'rev-parse', 'HEAD')
-    dsn_file, digest = ws.root/'dsn', ws.root/'digest'
+    dsn_file = ws.root / 'dsn'
     dsn_file.write_text(dsn)
-    digest.write_text('a'*64)
     dsn_file.chmod(0o600)
-    digest.chmod(0o600)
-    text = Path('deploy/control.example.toml').read_text()
-    for old, new in {
-        '/opt/cursus/current/source/roles.toml':str(release/'roles.toml'),
-        '/opt/cursus/current/source/prompts':str(release/'prompts'),
-        '/etc/cursus/control/database-dsn':str(dsn_file),
-        '/etc/cursus/control/runner-bearer.sha256':str(digest),
-        '/run/cursus/operator.sock':str(ws.root/'operator.sock'),
-        '/var/lib/cursus-control/artifacts':str(ws.artifacts),
-        '"cursus-operators"':json_quote(grp.getgrgid(os.getgid()).gr_name),
-        'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
-        'REPLACE_GITHUB_OWNER':'fixture', 'REPLACE_TRUSTED_REPO':'repo',
-        'listen_port = 8787':'listen_port = 0',
-    }.items():
-        text = text.replace(old,new)
-    path = ws.root/'control.toml'
-    for placeholder in ('WORKER_1_TO_4','CLAUDE_1_TO_2','CODEX_1_TO_2','AGY_1_TO_2'):
-        text = text.replace('"REPLACE_' + placeholder + '"', '1')
-    path.write_text(text)
-    return path
+    config = tomllib.loads(Path('deploy/cursus.example.toml').read_text())
+    service = config['service']
+    service.update(user=pwd.getpwuid(os.getuid()).pw_name, operator_group=grp.getgrgid(os.getgid()).gr_name,
+                   operator_socket=str(ws.root / 'operator.sock'), listen_port=0, dsn_file=str(dsn_file),
+                   artifact_root=str(ws.artifacts), roles_file=str(release / 'roles.toml'),
+                   prompts_root=str(release / 'prompts'), role_release_commit=commit,
+                   operator_login='fixture', external_origin='https://fixture.example.ts.net',
+                   state_root=str(ws.state), repository_root=str(ws.root / 'cache'),
+                   worktree_root=str(ws.worktrees), review_root=str(ws.root / 'reviews'))
+    config['runner']['id'] = str(uuid4())
+    config['publisher'].update(git_credential_file=str(ws.root / 'git-credential'),
+                               github_credential_file=str(ws.root / 'github-credential'))
+    config['backup'].update(root=str(ws.root / 'backups'), off_host_destination='fixture')
+    config['capacity'].update(worker=2, claude=1, codex=1, agy=1)
+    config['execution'] = dict(disk_reserve_mb=1, host_reserve_mb=1)
+    if clis:
+        config['execution']['clis'] = dict(clis)
+    config['repositories'] = [{'owner': 'fixture', 'name': 'repo', 'object_format': 'sha1',
+        'allowed_target_refs': ['refs/heads/main'], 'phase_check_ids': ['unit'],
+        'checks': [{'id': 'unit', 'argv': [sys.executable, 'check.py'], 'cwd': '.', 'timeout_seconds': 10}]}]
+    path = ws.root / 'cursus.toml'
+    path.write_text(toml_text(config))
+    return path, release, commit, remote
 
 
 def json_quote(value):

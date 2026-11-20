@@ -1,0 +1,100 @@
+# Cursus single-process configuration worksheet (ADR 0016). Replace every REPLACE_* value.
+#
+# Cursus runs on ONE host as ONE process. It uses the Claude Code, Codex CLI, Antigravity
+# and pi installations that already exist for the user below and are already signed in as
+# that user; it never installs, updates or authenticates them (`cursus preflight` checks the
+# installs, not the sign-in). There is NO isolation: agents and verifier checks run as this
+# user, with its real HOME, files and network. Enroll only trusted repositories.
+schema_version = 3
+process_kind = "serve"
+
+[service]
+# The signed-in, non-root user that owns the CLI logins. The service must run as this user.
+user = "REPLACE_SIGNED_IN_USER"
+# A group allowed to use the operator socket; the user's own group is fine on a single-user host.
+operator_group = "REPLACE_GROUP"
+listen_host = "127.0.0.1"
+listen_port = 8787
+operator_socket = "REPLACE_RUNTIME_DIR/cursus/operator.sock"
+# How you reach the website (for example through Tailscale Serve). This is checked, not set up.
+external_origin = "https://REPLACE_HOST.REPLACE_TAILNET.ts.net"
+operator_login = "REPLACE_EXACT_TAILSCALE_LOGIN"
+# Only this service reads the DSN; never place the DSN itself in TOML.
+dsn_file = "REPLACE_HOME/.config/cursus/database-dsn"
+artifact_root = "REPLACE_HOME/.local/state/cursus/artifacts"
+# Committed role and prompt files; startup rejects any difference from this release.
+roles_file = "REPLACE_SOURCE/roles.toml"
+prompts_root = "REPLACE_SOURCE/prompts"
+role_release_commit = "REPLACE_FULL_RELEASE_COMMIT"
+state_root = "REPLACE_HOME/.local/state/cursus/state"
+repository_root = "REPLACE_HOME/.local/state/cursus/repositories"
+worktree_root = "REPLACE_HOME/.local/state/cursus/worktrees"
+review_root = "REPLACE_HOME/.local/state/cursus/reviews"
+
+[runner]
+id = "REPLACE_RUNNER_UUID"
+
+[publisher]
+git_binary = "/usr/bin/git"
+git_credential_file = "REPLACE_HOME/.config/cursus/publisher-git-credential"
+github_credential_file = "REPLACE_HOME/.config/cursus/publisher-github-credential"
+
+[backup]
+root = "REPLACE_HOME/.local/state/cursus/backups"
+off_host_destination = "REPLACE_OPERATOR_MANAGED_BACKUP_DESTINATION"
+
+# Concurrency ceilings; there are no per-session resource limits on the host.
+[capacity]
+worker = "REPLACE_WORKER_1_TO_4"
+claude = "REPLACE_CLAUDE_1_TO_2"
+codex = "REPLACE_CODEX_1_TO_2"
+agy = "REPLACE_AGY_1_TO_2"
+verifier = 1
+repository = 1
+
+[limits]
+heartbeat_seconds = 10
+unreachable_after_missed_heartbeats = 3
+repair_retries = 2
+interrupted_retries = 2
+debate_rounds = 3
+debug_turns = 10
+interview_rounds = 20
+request_bytes = 1048576
+spec_bytes = 262144
+log_event_bytes = 65536
+events_per_batch = 100
+artifact_bytes = 33554432
+phase_artifact_bytes = 268435456
+spool_bytes = 2147483648
+
+[execution]
+# New sessions wait while free disk is below, or available memory is at or below, these.
+disk_reserve_mb = "REPLACE_POLICY_MB"
+host_reserve_mb = "REPLACE_HOST_RESERVE_MB"
+# Where to find the installed CLIs and their interpreters (each CLI's own directory is added
+# first). A service has a minimal PATH, so list the directories holding claude, codex,
+# agy (or antigravity) and pi, for example ~/.local/bin or your node bin directory.
+# `cursus preflight --roles roles.toml --config <this file>` checks them.
+# path = "/home/you/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# Optional: variables copied from the service's environment into children. Nothing else is
+# inherited. List only what a CLI's own login store needs, for example:
+# pass_env = ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]
+# Or name binaries explicitly (keep this table last in [execution]):
+# [execution.clis]
+# claude = "/home/you/.local/bin/claude"
+
+# Enrollment is data. Replace this with an operator-approved repository and literal
+# verification argv. The check runs as your user, from the candidate's worktree.
+[[repositories]]
+owner = "REPLACE_GITHUB_OWNER"
+name = "REPLACE_TRUSTED_REPO"
+object_format = "sha1"
+allowed_target_refs = ["refs/heads/main"]
+phase_check_ids = ["unit"]
+
+[[repositories.checks]]
+id = "unit"
+argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
+cwd = "."
+timeout_seconds = 300

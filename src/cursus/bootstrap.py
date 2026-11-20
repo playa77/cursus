@@ -13,12 +13,11 @@ def parser():
     root = argparse.ArgumentParser(prog='cursus', description='Private evidence-driven work coordination.')
     root.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     commands = root.add_subparsers(dest='command')
-    for name in ('control', 'runner'):
-        command = commands.add_parser(name)
-        command.add_argument('--config', required=True)
+    command = commands.add_parser('serve', help='run the control plane and the runner in one process')
+    command.add_argument('--config', required=True)
     command = commands.add_parser('preflight', help='check installed native CLIs (version/help only; no login, no inference)')
     command.add_argument('--roles', required=True, help='roles.toml naming the CLIs this deployment uses')
-    command.add_argument('--config', help='runner config; only its [execution] section is read')
+    command.add_argument('--config', help='service config; only its [execution] section is read')
     for name in ('submit', 'action', 'status'):
         command = commands.add_parser(name)
         command.add_argument('--socket', default='/run/cursus/operator.sock')
@@ -71,75 +70,86 @@ def preflight(args):
     return 1 if failures else 0
 
 
+def check_identity(settings):
+    """The service must run as the non-root user whose CLI logins it uses (ADR 0016)."""
+    import os
+    import pwd
+    if os.geteuid() == 0:
+        raise Problem('identity_boundary', 'Run as the non-root user whose CLI logins Cursus uses.')
+    account = pwd.getpwnam(settings['service']['user'])
+    if (account.pw_uid, account.pw_gid) != (os.getuid(), os.getgid()):
+        raise Problem('identity_boundary', 'The running user differs from service.user.')
+
+
 async def service(args):
     import logging
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     from cursus.config import load
-    settings = load(args.command, args.config)
-    if args.command == 'control':
-        import asyncpg
-        from cursus.control import Control
-        from cursus.store import Store
-        from cursus.http import serve
-        pool = await asyncpg.create_pool(settings['dsn'], min_size=1, max_size=10)
+    settings = load('serve', args.config)
+    check_identity(settings)
+    await run(settings)
+
+
+async def run(settings, github=None):
+    """Control plane, runner and HTTP surfaces in one supervised process.
+
+    Any component ending, normally or not, ends the process; a supervisor restarts
+    it and the runner reconciles from its journal and the database. `github` is a
+    test seam for the publication client; production builds the real one.
+    """
+    import asyncpg
+    import logging
+    from cursus.artifacts import Artifacts
+    from cursus.browser import environment
+    from cursus.control import Control
+    from cursus.execution import Execution
+    from cursus.host import HostRuntime
+    from cursus.http import serve
+    from cursus.recipes import discover
+    from cursus.repository import GitHub, Repository
+    from cursus.runner import Journal, LocalTransport, Runner
+    from cursus.store import Store
+    service = settings['service']
+    pool = await asyncpg.create_pool(settings['dsn'], min_size=1, max_size=10)
+    try:
+        store = Store(pool)
+        await store.migrate()
+        control = Control(settings, store, artifacts=Artifacts(service['artifact_root']))
+        await control.maintain('boot')
+        journal = Journal(service['state_root'], settings['limits']['spool_bytes'])
         try:
-            store = Store(pool)
-            await store.migrate()
-            from cursus.artifacts import Artifacts
-            artifacts = Artifacts(settings['service']['artifact_root'])
-            control = Control(settings, store, artifacts=artifacts)
-            if hasattr(control, 'maintain'):
-                await control.maintain('boot')
+            publisher = settings['publisher']
+            enrollment = {(r['owner'], r['name']): r for r in settings['repositories']}
+            repository = Repository(service['repository_root'], service['worktree_root'], service['review_root'],
+                enrollment, github or GitHub(publisher['github_credential_file']), publisher['git_binary'],
+                publisher['git_credential_file'])
+            runtime = HostRuntime(settings['execution'], journal.root / 'execution', settings['capacity'])
+            await runtime.preflight()
+            clis = discover(settings['execution'])
+            logging.getLogger('cursus.runner').info(json.dumps({'event': 'clis_resolved', 'clis': clis,
+                'missing': sorted({'pi', 'claude', 'codex', 'agy'} - set(clis))}))
+            runner_id = settings['runner']['id']
+            runner = Runner(runner_id, journal, LocalTransport(control, runner_id, journal.generation),
+                            repository, Execution(clis, runtime))
             async def maintenance():
                 while True:
                     await asyncio.sleep(settings['limits']['heartbeat_seconds'])
                     await control.maintain('tick')
-            timer = asyncio.create_task(maintenance())
-            from cursus.browser import environment
-            server = asyncio.create_task(serve(settings, control, environment()))
+            tasks = [asyncio.create_task(maintenance(), name='maintenance'),
+                     asyncio.create_task(serve(settings, control, environment()), name='http'),
+                     asyncio.create_task(runner.serve(), name='runner')]
             try:
-                done, _ = await asyncio.wait((timer,server), return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     await task
             finally:
-                timer.cancel()
-                server.cancel()
-                await asyncio.gather(timer,server,return_exceptions=True)
-        finally:
-            await pool.close()
-    else:
-        import os
-        from cursus.runner import HTTPS, Journal, Runner
-        from cursus.repository import Repository, GitHub
-        from cursus.execution import Execution
-        if os.geteuid() == 0:
-            raise Problem('identity_boundary', 'The runner must run as the non-root user whose CLI logins it uses.')
-        service = settings['service']
-        import pwd
-        account = pwd.getpwnam(service['user'])
-        if (account.pw_uid,account.pw_gid) != (os.getuid(),os.getgid()):
-            raise Problem('identity_boundary', 'Runner service numeric identity differs from configuration.')
-        journal = Journal(service['state_root'], settings['limits']['spool_bytes'])
-        try:
-            transport = HTTPS(service['origin'], settings['bearer'], journal.generation)
-            enrollment = {(r['owner'], r['name']): r for r in settings['repositories']}
-            publisher = settings['publisher']
-            repository = Repository(service['repository_root'], service['worktree_root'], service['review_root'],
-                enrollment, GitHub(publisher['github_credential_file']), publisher['git_binary'],
-                publisher['git_credential_file'])
-            from cursus.host import HostRuntime
-            runtime = HostRuntime(settings['execution'], journal.root / 'execution', settings['capacity'])
-            await runtime.preflight()
-            from cursus.recipes import discover
-            clis = discover(settings['execution'])
-            import logging
-            logging.getLogger('cursus.runner').info(json.dumps({'event': 'clis_resolved', 'clis': clis,
-                'missing': sorted({'pi', 'claude', 'codex', 'agy'} - set(clis))}))
-            execution = Execution(clis, runtime)
-            runner = Runner(service['runner_id'], journal, transport, repository, execution)
-            await runner.serve()
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             journal.close()
+    finally:
+        await pool.close()
 
 
 def main(argv=None):
@@ -149,7 +159,7 @@ def main(argv=None):
         root.print_help()
         return 0
     try:
-        if args.command in ('control', 'runner'):
+        if args.command == 'serve':
             asyncio.run(service(args))
             return 0
         if args.command == 'preflight':

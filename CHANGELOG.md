@@ -8,6 +8,29 @@ Planned for 0.7.0; the version is not bumped until the installer work package la
 The branch is not releasable meanwhile: the installer and stage engine still emit
 the 0.6.0 container configuration, which the runner no longer loads.
 
+### Changed (work package C1) - breaking
+
+- Run the control plane and the runner in one process: `cursus serve --config` replaces
+  `cursus control` and `cursus runner`. The runner reaches control through an in-process
+  transport; the HTTPS pull transport, runner HTTP routes, bearer and digest, pairing
+  metadata and cross-host settings (`service.origin`, `bearer_file`, `runner.tailnet_node`)
+  are removed.
+- Single configuration `schema_version = 3`, `process_kind = "serve"`
+  (`deploy/cursus.example.toml`); `capacity` is required; the `long_poll_seconds` and
+  `runner_spool_bytes` limits are removed. `cursus serve` refuses to run as root or as a
+  user other than `service.user`.
+- The runner/control protocol and runner journal are unchanged in meaning, so crash
+  recovery semantics are retained. Control's specific error codes now reach the runner.
+- Remove the two-process systemd units and templates; a single unit comes with the installer.
+
+### Removed (work package C0)
+
+- Remove the 0.6.0 installer stack, which built container images and paired two hosts:
+  `deploy/install.py`, `native_setup.py`, `setup.py`, `setup-*.sh`, `deploy/native/*`,
+  `deploy/runner.example.toml`, `cursus.containers`, `config.container_settings`,
+  `config.capability` and their tests. `install.sh` now only explains that the installer is
+  being rebuilt and changes nothing. README and ops documents are marked obsolete.
+
 ### Changed (work package B)
 
 - Replace generated capability profiles with in-source CLI recipes (`cursus.recipes`):

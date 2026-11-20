@@ -35,7 +35,7 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Problem):
                 await download(rt['control'], 'wrong-principal', ref['id'])
             with self.assertRaises(Problem):
-                await rt['runner'].transport.binary('runner/artifacts/' + ref['id'] + '?claim_id=' + str(uuid4()))
+                await rt['runner'].transport.download(ref, str(uuid4()))  # Not a current claim.
             before = len(rows)
             await rt['runner'].replay()
             self.assertEqual(len((await rt['db'].store.read('artifacts'))['items']), before)
@@ -75,38 +75,36 @@ class ArtifactTests(unittest.IsolatedAsyncioTestCase):
     async def test_mismatch_unsafe_names_limits_and_partial_bytes(self):
         async with phase_runtime() as rt:
             claim = await rt['runner'].claim('repository')
-            wire = rt['runner'].transport
-            from cursus.runner_files import headers
+            from cursus.artifact_control import upload
+            runner_id, generation = rt['config']['runner']['id'], rt['journal'].generation
             ref = dict(id=str(uuid4()), digest=sha256(b'abc').hexdigest(), length=3,
                        name='evidence.txt', media_type='text/plain')
-            route = f"attempts/{claim['attempt_id']}/artifacts/{ref['id']}"
+            async def body(raw):
+                yield raw
+            async def put(item, raw, attempt=claim['attempt_id']):
+                return await upload(rt['control'], runner_id, generation, attempt, item, body(raw))
             # A disconnected producer leaves staged metadata, never ready bytes.
-            from cursus.artifact_control import upload
             async def interrupted():
                 yield b'ab'
                 raise OSError('Interrupted body stream')
             with self.assertRaises(OSError):
-                await upload(rt['control'],rt['config']['runner']['id'],rt['journal'].generation,
-                             claim['attempt_id'],ref,interrupted())
+                await upload(rt['control'], runner_id, generation, claim['attempt_id'], ref, interrupted())
             with self.assertRaises(Problem):
-                await download(rt['control'],'local_operator',ref['id'])
+                await download(rt['control'], 'local_operator', ref['id'])
             # A digest mismatch cannot make the reservation ready.
-            for raw in (b'bad',):
-                h = headers(ref)
-                h['Content-Length'] = str(len(raw))
-                with self.assertRaises(Problem):
-                    await wire.binary(route, raw, h)
-            self.assertEqual(await wire.binary(route, b'abc', headers(ref)), ref)
-            self.assertEqual(await wire.binary(route, b'abc', headers(ref)), ref)
             with self.assertRaises(Problem):
-                await wire.binary(route, b'abc', headers(dict(ref, name='other.txt')))
+                await put(ref, b'bad')
+            self.assertEqual(await put(ref, b'abc'), ref)
+            self.assertEqual(await put(ref, b'abc'), ref)
+            with self.assertRaises(Problem):
+                await put(dict(ref, name='other.txt'), b'abc')
             for name in ('../escape', 'a/b', 'a\\b', '..', 'x\nheader'):
                 with self.assertRaises(Problem):
-                    await wire.binary(route, b'abc', headers(dict(ref, name=name)))
+                    await put(dict(ref, name=name), b'abc')
             with self.assertRaises(Problem):
-                await wire.binary(route, b'', headers(dict(ref, length=32*1024*1024+1)))
+                await put(dict(ref, length=32*1024*1024+1), b'')
             with self.assertRaises(Problem):
-                await wire.binary(f'attempts/{uuid4()}/artifacts/{uuid4()}', b'abc', headers(ref))
+                await put(dict(ref, id=str(uuid4())), b'abc', attempt=str(uuid4()))
             self.assertEqual(list(rt['ws'].artifacts.glob('.upload-*')), [])
 
     async def test_abandoned_pending_upload_does_not_block_replay(self):

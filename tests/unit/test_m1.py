@@ -66,53 +66,52 @@ class M1ContractsTests(unittest.TestCase):
             validate('Role', {'name':'reviewer','cli':'codex','tier':'organization','model':'x',
                               'reasoning':'x','tools':['bash'],'timeout_seconds':1})
 
-    def test_control_configuration_pins_prompt_release(self):
-        from pathlib import Path
-        import shutil
+    def test_serve_configuration_pins_the_role_release_and_rejects_unsafe_values(self):
         from cursus.config import load
-        from tests.support import GitRemote
+        from tests.support import serve_config
         with workspace() as ws:
-            remote = GitRemote(ws.root)
-            release = remote.seed
-            role_text = Path('roles.toml').read_text()
-            replacements = {'REPLACE_QUALIFIED_MODEL':'fixture', 'REPLACE_QUALIFIED_REASONING':'fixture',
-                            'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID':'fixture-go'}
-            for old, new in replacements.items():
-                role_text = role_text.replace(old, new)
-            (release / 'roles.toml').write_text(role_text)
-            shutil.copytree('prompts', release / 'prompts')
-            remote.git(release, 'add', '.')
-            remote.git(release, 'commit', '-m', 'Fixture role release')
-            commit = remote.git(release, 'rev-parse', 'HEAD')
-            dsn = ws.root / 'dsn'
-            digest = ws.root / 'digest'
-            dsn.write_text('postgresql://fixture')
-            digest.write_text('a'*64)
-            dsn.chmod(0o600)
-            digest.chmod(0o600)
-            text = Path('deploy/control.example.toml').read_text()
-            for old, new in {
-                '/opt/cursus/current/source/roles.toml':str(release/'roles.toml'),
-                '/opt/cursus/current/source/prompts':str(release/'prompts'),
-                '/etc/cursus/control/database-dsn':str(dsn),
-                '/etc/cursus/control/runner-bearer.sha256':str(digest),
-                'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
-            }.items():
-                text = text.replace(old,new)
-            config = ws.root / 'control.toml'
-            for placeholder in ('WORKER_1_TO_4','CLAUDE_1_TO_2','CODEX_1_TO_2','AGY_1_TO_2'):
-                text = text.replace('"REPLACE_' + placeholder + '"', '1')
-            config.write_text(text)
-            self.assertNotIn('profile_digest', load('control', str(config)))
-            (release/'prompts'/'worker.md').write_text('Uncommitted changed authority')
+            path, release, commit, remote = serve_config(ws, 'postgresql://fixture')
+            settings = load('serve', str(path))
+            self.assertNotIn('profile_digest', settings)
+            self.assertEqual(settings['repositories'][0]['name'], 'repo')
+            self.assertEqual(settings['roles']['worker']['cli'], 'pi')
+            (release / 'prompts' / 'worker.md').write_text('Uncommitted changed authority')
             with self.assertRaises(Problem):
-                load('control', str(config))
+                load('serve', str(path))
             # A committed role whose model could be read as a CLI option is refused at load.
             remote.git(release, 'checkout', '--', 'prompts')
-            (release / 'roles.toml').write_text(role_text.replace('model = "fixture"', 'model = "--evil"', 1))
+            roles = (release / 'roles.toml').read_text()
+            (release / 'roles.toml').write_text(roles.replace('model = "fixture"', 'model = "--evil"', 1))
             remote.git(release, 'add', '.')
             remote.git(release, 'commit', '-m', 'Unsafe model')
-            unsafe = config.with_name('unsafe.toml')
-            unsafe.write_text(text.replace(commit, remote.git(release, 'rev-parse', 'HEAD')))
+            path.write_text(path.read_text().replace(commit, remote.git(release, 'rev-parse', 'HEAD')))
             with self.assertRaises(Problem):
-                load('control', str(unsafe))
+                load('serve', str(path))
+
+    def test_serve_configuration_is_strict_and_single_process(self):
+        import tomllib
+        from cursus.config import load
+        from tests.support import serve_config, toml_text
+        with workspace() as ws:
+            path, *_ = serve_config(ws, 'postgresql://fixture')
+            good = tomllib.loads(path.read_text())
+            load('serve', str(path))
+            def variant(change):
+                value = tomllib.loads(path.read_text())
+                change(value)
+                other = ws.root / 'variant.toml'
+                other.write_text(toml_text(value))
+                return str(other)
+            for kind in ('control', 'runner'):
+                with self.assertRaises(Problem):
+                    load(kind, str(path))  # The two-process kinds no longer exist.
+            for change in (lambda v: v.update(schema_version=2),
+                           lambda v: v['service'].update(bearer_file='/x'),   # No runner bearer exists.
+                           lambda v: v['service'].update(origin='https://x.example'),
+                           lambda v: v['service'].update(listen_host='0.0.0.0'),
+                           lambda v: v['runner'].update(bearer_digest_file='/x'),
+                           lambda v: v['limits'].update(long_poll_seconds=30),
+                           lambda v: v.pop('execution'),
+                           lambda v: v['capacity'].update(worker=9)):
+                with self.assertRaises(Problem):
+                    load('serve', variant(change))

@@ -67,7 +67,7 @@ class Control:
                 raise Problem('invalid_config', 'Required role is unavailable.')
             extra['invocation'] = {'role': role, 'registry_commit': phase['registry_commit'],
                 'prompt_text': role['prompt_text'] + '\nTask data:\n' + canonical_json(inputs).decode()}
-        if 'capacity' in self.settings and 'invocation' in extra:
+        if 'invocation' in extra:
             cli = extra['invocation']['role']['cli']
             slot = 'worker' if cli == 'pi' else cli
         job = {'id': identity(), 'phase_id': phase['id'], 'step': step,
@@ -108,12 +108,7 @@ class Control:
 
     async def runner_request(self, runner_id, route, data, generation, request_id):
         from cursus.transport import request
-        result = await request(self, runner_id, route, data, generation, request_id)
-        if route == 'jobs/next' and result is None and 'capacity' not in self.settings:
-            import time
-            await self.wait(time.monotonic() + self.settings['limits']['long_poll_seconds'])
-            result = await request(self, runner_id, route, data, generation, request_id)
-        return result
+        return await request(self, runner_id, route, data, generation, request_id)
 
     async def maintain(self, trigger):
         if trigger not in ('boot','tick'):

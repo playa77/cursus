@@ -1,6 +1,6 @@
 # ADR 0015: Installation ends before manual native login
 
-- Status: accepted; intended-host verification pending
+- Status: superseded by [ADR 0016](0016-host-native-single-host.md); its rule that the installer never drives authentication is retained
 - Date: 2026-11-20
 - Authority: operator instruction after the installed image built successfully but the installer-launched Claude login failed: “at that point just say you finished install and remind me to login into all the cli's.”
 - Supersedes: ADR 0011's installer-driven login, model selection and authenticated native-check workflow. Runtime qualification and isolation requirements remain.

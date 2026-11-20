@@ -1,6 +1,6 @@
 # ADR 0011: Install native apps, then use their native logins
 
-- Status: accepted implementation direction; intended-host verification pending
+- Status: superseded by [ADR 0016](0016-host-native-single-host.md)
 - Date: 2026-11-20
 - Authority: operator correction: install Claude Code, Codex CLI, Antigravity and
   pi, remind the operator to log in to those installs, and execute through them.

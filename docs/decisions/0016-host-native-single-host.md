@@ -143,6 +143,18 @@ operator already has. Installation also repeatedly failed at the login step
 - The normative design and technical specification documents describe the old
   topology and contracts and need a revision (work package D).
 
+## Implementation notes (WP-C)
+
+- The runner journal and the transactional runner/control protocol are retained; only
+  the transport became in-process. They are what recover a crash between a database
+  commit and a journal write, which one process still suffers. Removing the protocol
+  would rewrite those guarantees and is not planned.
+- One configuration (`schema_version = 3`, `process_kind = "serve"`) and one command
+  (`cursus serve`). The service must run as the non-root user named in `service.user`.
+- Operator access is unchanged: a Unix socket plus a loopback listener whose
+  `external_origin` is checked, not provisioned. How the operator reaches that listener
+  (open question 1) remains the operator's choice.
+
 ## Open questions
 
 1. How is the operator's browser access exposed on one host? Today the installer
