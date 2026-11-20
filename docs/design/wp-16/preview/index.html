@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en" data-behavior="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cursus — overview (WP-16 visual reference)</title>
+<link rel="stylesheet" href="cursus.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<div class="app">
+  <!-- ============ Sidebar (Dashboard 02 app-navigation shell) ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">C</span>
+      <span class="brand__name">Cursus</span>
+      <span class="chip chip--neutral">preview</span>
+    </div>
+
+    <div class="search">
+      <label class="search__label" for="phase-filter">Filter phases</label>
+      <input id="phase-filter" type="search" placeholder="Filter phases…" autocomplete="off">
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      <a class="nav__item" href="#/overview" data-route="overview">Overview</a>
+      <a class="nav__item" href="#/attempts" data-route="attempts">Attempts</a>
+      <a class="nav__item" href="#/intake" data-route="intake">New run &amp; intake</a>
+      <button class="nav__item nav__parent" id="nav-preview-toggle" type="button" aria-expanded="true" aria-controls="nav-preview-group">Open in this preview <span class="nav__chev" aria-hidden="true">▾</span></button>
+      <div class="nav__subgroup" id="nav-preview-group">
+        <a class="nav__item nav__item--sub" href="#/phase/auth-refactor" data-route="phase-auth">auth-refactor</a>
+        <a class="nav__item nav__item--sub" href="#/phase/fix-sse-flap" data-route="phase-pr">fix-sse-flap</a>
+        <a class="nav__item nav__item--sub" href="#/phase/launch-brief" data-route="phase-files">launch-brief</a>
+      </div>
+    </nav>
+
+    <div id="ov-preview-states" class="preview-states-group">
+      <div class="nav__group-label">Preview state · overview</div>
+      <div class="preview-states">
+        <button class="btn btn--ghost btn--sm" data-ovstate="loaded" aria-pressed="true">Loaded</button>
+        <button class="btn btn--ghost btn--sm" data-ovstate="empty" aria-pressed="false">Empty</button>
+        <button class="btn btn--ghost btn--sm" data-ovstate="loading" aria-pressed="false">Loading</button>
+        <button class="btn btn--ghost btn--sm" data-ovstate="reconnecting" aria-pressed="false">Reconnecting</button>
+        <button class="btn btn--ghost btn--sm" data-ovstate="error" aria-pressed="false">Error</button>
+      </div>
+    </div>
+
+    <div class="sidebar__foot">
+      <div class="operator">
+        <span class="avatar" aria-hidden="true">d</span>
+        <div class="operator__meta">
+          <div class="operator__name">daniel</div>
+          <div class="operator__sub">identity via Tailscale Serve headers</div>
+        </div>
+      </div>
+      <p class="sidebar__note">No separate login exists (TS v0.1.2 §7). Sign-out is a host action, not a Cursus control.</p>
+    </div>
+  </aside>
+
+  <!-- ============ Main frame ============ -->
+  <div class="frame">
+    <main id="main" tabindex="-1">
+      <!-- Page-title row — dashboard-02 keeps the title inside the content column; there is no top bar -->
+      <div class="pagehead">
+        <h1 class="pagehead__title" id="view-title">Overview</h1>
+        <div class="pagehead__actions">
+          <span class="env-chip" title="Synthetic data — no orchestrator is contacted">synthetic data</span>
+          <fieldset class="seg" aria-label="Theme behavior (preview-only)">
+            <legend class="visually-hidden">Theme behavior</legend>
+            <label class="seg__opt"><input type="radio" name="theme-behavior" value="dark"><span>Dark default</span></label>
+            <label class="seg__opt"><input type="radio" name="theme-behavior" value="light"><span>Light default</span></label>
+            <label class="seg__opt"><input type="radio" name="theme-behavior" value="system" checked><span>Follow OS</span></label>
+          </fieldset>
+        </div>
+      </div>
+
+
+      <!-- ================= OVERVIEW (GET /) ================= -->
+      <section class="view" id="view-overview" aria-label="Overview">
+
+        <p class="conn-banner" id="ov-reconnect" hidden data-show-when="reconnecting" aria-live="polite">
+          Event stream reconnecting — resuming from committed cursor 8,423. State shown is the last committed snapshot.
+        </p>
+
+        <div class="problem" id="ov-error" hidden data-show-when="error" role="alert">
+          <div class="problem__code">Problem 503 · control-store-unavailable</div>
+          <p class="problem__msg">The coordination store is temporarily unavailable. No action was taken; committed state is unchanged. Retry after the service reports healthy.</p>
+          <p class="problem__meta">Problem payloads carry a stable code and a safe message only (TS v0.1.2 §5.1, §11).</p>
+        </div>
+
+        <div class="ov-body" data-show-when="loaded,loading,empty">
+          <!-- Metric strip -->
+          <div class="metrics" id="ov-metrics">
+            <article class="metric">
+              <h3 class="metric__label">Runner slots</h3>
+              <div class="metric__rows">
+                <div class="slot"><span class="slot__name">pi worker</span><span class="meter" role="img" aria-label="2 of 2 pi slots busy"><span class="meter__fill" style="width:100%"></span></span><span class="slot__val">2/2</span></div>
+                <div class="slot"><span class="slot__name">verifier</span><span class="meter" role="img" aria-label="1 of 1 verifier slot busy"><span class="meter__fill" style="width:100%"></span></span><span class="slot__val">1/1</span></div>
+                <div class="slot"><span class="slot__name">frontier</span><span class="meter" role="img" aria-label="0 of 1 frontier slot busy"><span class="meter__fill" style="width:0%"></span></span><span class="slot__val">0/1</span></div>
+                <div class="slot"><span class="slot__name">repository</span><span class="meter" role="img" aria-label="0 of 1 repository slot busy"><span class="meter__fill" style="width:0%"></span></span><span class="slot__val">0/1</span></div>
+              </div>
+              <p class="metric__note">Readiness is shown separately from reachability (TS §10).</p>
+            </article>
+            <article class="metric">
+              <h3 class="metric__label">Work queue</h3>
+              <p class="metric__big"><span class="metric__num">1</span> ready · <span class="metric__num">1</span> claimed</p>
+              <p class="metric__note">parked <strong>1</strong> — owned attempt, awaiting operator recovery decision</p>
+            </article>
+            <article class="metric">
+              <h3 class="metric__label">Runner contact</h3>
+              <p class="metric__big">vps-a-1 <span class="chip chip--ok">reachable</span></p>
+              <p class="metric__note">last heartbeat 9s ago · spool backlog 0 B · boot identity 4f2a…</p>
+            </article>
+            <article class="metric">
+              <h3 class="metric__label">Usage (reported)</h3>
+              <p class="metric__big">7.4M in / 2.1M out tok</p>
+              <p class="metric__note">$4.12 reported · unreported usage shows <em>unknown</em>, never zero, and never affects dispatch (TS §10).</p>
+            </article>
+          </div>
+
+          <!-- Skeleton (loading state) -->
+          <div class="skeletons" data-show-when="loading" hidden>
+            <div class="skel skel--bar w-40"></div>
+            <div class="skel skel--card"></div>
+            <div class="skel skel--row"></div>
+            <div class="skel skel--row"></div>
+            <div class="skel skel--row"></div>
+            <p class="skeletons__note">Skeletons while the committed View is being read — no invented values appear (TS §6.2).</p>
+          </div>
+
+          <!-- Phases table -->
+          <div class="tablecard" data-show-when="loaded,empty">
+            <div class="tablecard__head">
+              <h2 class="tablecard__title">Phases</h2>
+              <span class="tablecard__meta">sorted by last event · cursor 8,423</span>
+            </div>
+            <div class="tablewrap">
+              <table class="tbl" data-filterable>
+                <thead>
+                  <tr><th scope="col">Phase</th><th scope="col">Workflow</th><th scope="col">State</th><th scope="col">Packages</th><th scope="col">Open questions</th><th scope="col">Last event</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row"><a class="rowlink" href="#/phase/auth-refactor">auth-refactor</a></th>
+                    <td>code · phase</td>
+                    <td><span class="chip chip--active">execution</span></td>
+                    <td><span class="meter meter--sm" role="img" aria-label="3 of 5 packages integrated"><span class="meter__fill" style="width:60%"></span></span> 3/5 integrated</td>
+                    <td>—</td>
+                    <td><code class="mono">8,423</code> · 12s ago</td>
+                  </tr>
+                  <tr>
+                    <th scope="row"><a class="rowlink" href="#/phase/grant-spec-q3">grant-spec-q3</a></th>
+                    <td>grant · intake</td>
+                    <td><span class="chip chip--warn">intake</span> <span class="chip chip--warn">open questions</span></td>
+                    <td>not planned yet</td>
+                    <td><strong>2</strong> required</td>
+                    <td><code class="mono">8,410</code> · 4m ago</td>
+                  </tr>
+                  <tr>
+                    <th scope="row"><a class="rowlink" href="#/phase/fix-sse-flap">fix-sse-flap</a></th>
+                    <td>debug</td>
+                    <td><span class="chip chip--ok">delivery</span></td>
+                    <td>1 package · PR ready</td>
+                    <td>—</td>
+                    <td><code class="mono">8,401</code> · 22m ago</td>
+                  </tr>
+                  <tr>
+                    <th scope="row"><a class="rowlink" href="#/phase/launch-brief">launch-brief</a></th>
+                    <td>marketing <span class="chip chip--neutral">M4 preview</span></td>
+                    <td><span class="chip chip--ok">delivered</span></td>
+                    <td>1 file delivered</td>
+                    <td>—</td>
+                    <td><code class="mono">8,377</code> · 1h ago</td>
+                  </tr>
+                  <tr class="empty-demo">
+                    <th scope="row" colspan="6" class="tbl__empty">No phases yet — the list renders exactly this empty state until the first run is submitted (TS §6.2 View).</th>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="tablecard__foot">Rows link to the phase View (<code class="mono">GET /phases/{id}</code>). The grant row’s interview pane is reachable under “New run &amp; intake”.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ATTEMPTS (GET /attempts/{id} index) ================= -->
+      <section class="view" id="view-attempts" aria-label="Attempts" hidden>
+        <div class="tablecard">
+          <div class="tablewrap">
+            <table class="tbl">
+              <thead>
+                <tr><th scope="col">Attempt</th><th scope="col">Step</th><th scope="col">Package</th><th scope="col">Ownership</th><th scope="col">Runner</th><th scope="col">Outcome</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><a class="rowlink" href="#/attempt/att-9f2c41d0">att-9f2c41d0</a></th>
+                  <td>produce</td><td>WP-14</td>
+                  <td><span class="chip chip--active">active · owned</span></td>
+                  <td>vps-a-1 <span class="chip chip--ok">reachable</span></td>
+                  <td><span class="chip chip--active">running</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><a class="rowlink" href="#/attempt/att-8d41b2e7">att-8d41b2e7</a></th>
+                  <td>verify</td><td>WP-13</td>
+                  <td><span class="chip chip--active">active · owned</span></td>
+                  <td>vps-a-1 <span class="chip chip--warn">unreachable · 3 missed heartbeats</span></td>
+                  <td><span class="chip chip--neutral">terminal pending</span></td>
+                </tr>
+                <tr>
+                  <th scope="row"><a class="rowlink" href="#/attempt/att-5e93c8aa">att-5e93c8aa</a></th>
+                  <td>produce</td><td>WP-12</td>
+                  <td><span class="chip chip--warn">ownership held</span></td>
+                  <td>vps-a-1 <span class="chip chip--neutral">superseded record</span></td>
+                  <td><span class="chip chip--warn">parked · unknown</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">att-5e94d1bb</th>
+                  <td>produce</td><td>WP-12</td>
+                  <td><span class="chip chip--neutral">released</span></td>
+                  <td>vps-a-1 <span class="chip chip--ok">reachable</span></td>
+                  <td><span class="chip chip--ok">completed → integrated</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="tablecard__foot">att-5e93c8aa is the parked-unknown case; its replacement att-5e94d1bb was only eligible after explicit operator abandonment (TS §8.3.8). A runner marked unreachable never released the claim.</p>
+        </div>
+      </section>
+
+      <!-- ================= PHASE DETAIL (GET /phases/{id}) ================= -->
+      <section class="view" id="view-phase" aria-label="Phase" hidden>
+
+        <!-- ---- Variant A: phase in progress ---- -->
+        <article class="ph" data-phase-block="auth" hidden>
+          <div class="ph__tags">
+              <span class="chip chip--neutral">workflow: code</span>
+              <span class="chip chip--neutral">form: phase</span>
+              <span class="chip chip--neutral">repo playa77/auth-service → main</span>
+              <span class="chip chip--neutral">spec rev 3</span>
+              <span class="chip chip--neutral">plan rev 2</span>
+              <span class="chip chip--neutral">registry c1a2…</span>
+          </div>
+
+          <!-- Lifecycle stepper -->
+          <ol class="stepper" aria-label="Phase lifecycle">
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">intake</span><span class="step__time">14:02</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">planning</span><span class="step__time">14:19</span></li>
+            <li class="step step--current" aria-current="step"><span class="step__dot" aria-hidden="true"></span><span class="step__label">execution</span><span class="step__time">live</span></li>
+            <li class="step"><span class="step__dot" aria-hidden="true"></span><span class="step__label">delivery</span><span class="step__time"></span></li>
+            <li class="step"><span class="step__dot" aria-hidden="true"></span><span class="step__label">delivered</span><span class="step__time"></span></li>
+          </ol>
+
+          <div class="cancel-banner" id="ph-cancel-banner" hidden aria-live="polite">
+            <div><strong>cancel: pending.</strong> Phase is locked; no new work is claimed. Cancellation is reported final only after live attempts are proven stopped and outstanding publication intents are reconciled (TS §8.3.8).</div>
+            <span class="chip chip--warn">command pending</span>
+          </div>
+
+          <div class="ph__grid">
+            <!-- Packages table (primary content) -->
+            <div class="tablecard ph__main">
+              <div class="tablecard__head"><h4 class="tablecard__title">Packages</h4><span class="tablecard__meta">plan rev 2 · 5 packages · ready work dispatched in plan order</span></div>
+              <div class="tablewrap">
+                <table class="tbl">
+                  <thead><tr><th scope="col">Package</th><th scope="col">Depends on</th><th scope="col">State</th><th scope="col">Attempt</th><th scope="col">Verification</th><th scope="col">Repairs</th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">WP-10</th><td>—</td><td><span class="chip chip--ok">integrated</span></td><td>att-4a10 · att-4a11</td><td>3/3 criteria pass</td><td>0/2</td></tr>
+                    <tr><th scope="row">WP-11</th><td>WP-10</td><td><span class="chip chip--ok">integrated</span></td><td>att-5b22</td><td>2/2 criteria pass</td><td>1/2</td></tr>
+                    <tr><th scope="row">WP-12</th><td>WP-11</td><td><span class="chip chip--ok">integrated</span></td><td>att-5e94d1bb (replacement)</td><td>2/2 criteria pass</td><td>0/2</td></tr>
+                    <tr><th scope="row">WP-13</th><td>WP-12</td><td><span class="chip chip--neutral">verification</span></td><td><a class="rowlink" href="#/attempt/att-8d41b2e7">att-8d41b2e7</a></td><td><span class="chip chip--warn">runner unreachable</span></td><td>0/2</td></tr>
+                    <tr><th scope="row">WP-14</th><td>WP-13</td><td><span class="chip chip--active">active</span></td><td><a class="rowlink" href="#/attempt/att-9f2c41d0">att-9f2c41d0</a></td><td>pending</td><td>0/2</td></tr>
+                    <tr><th scope="row">WP-15</th><td>WP-14</td><td><span class="chip chip--neutral">blocked</span></td><td>—</td><td>—</td><td>—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="tablecard__foot">WP-12’s first attempt (att-5e93c8aa) is parked with an unknown outcome; the integrated result came from its replacement, dispatched only after abandonment. WP-13’s liveness is degraded but its claim is intact — liveness never releases ownership (TS §8.3).</p>
+            </div>
+
+            <div class="ph__side">
+              <!-- Interview / open questions -->
+              <div class="card" id="ph-questions">
+                <div class="card__head"><h4 class="card__title">Open questions</h4><span class="chip chip--warn">1 required</span></div>
+                <div class="q">
+                  <p class="q__text"><code class="mono">Q4</code> · required — “Which session backend should the phase target: the existing cookie store, or the new token store being introduced by WP-11?”</p>
+                  <form class="q__form" data-demo-answer>
+                    <label class="visually-hidden" for="q4-answer">Answer to Q4</label>
+                    <textarea id="q4-answer" rows="3" placeholder="Type your answer…"></textarea>
+                    <div class="q__actions">
+                      <button class="btn btn--primary btn--sm" type="submit">Record answer</button>
+                      <span class="q__hint">An answer is recorded once; a repeated reply returns the recorded response (TS §8.3.1).</span>
+                    </div>
+                  </form>
+                  <p class="q__done" hidden><span class="chip chip--ok">recorded</span> Answer committed to spec rev 4; the next interview round will pick it up.</p>
+                </div>
+              </div>
+
+              <!-- Steering -->
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Steering</h4><span class="chip chip--neutral">eligible: att-9f2c41d0</span></div>
+                <form class="steer" data-demo-steer>
+                  <label class="visually-hidden" for="steer-text">Steering message</label>
+                  <textarea id="steer-text" rows="2" placeholder="Send a steering message to the running pi RPC session…"></textarea>
+                  <div class="steer__actions">
+                    <button class="btn btn--secondary btn--sm" type="submit">Send steer</button>
+                    <span class="steer__state" aria-live="polite"></span>
+                  </div>
+                  <p class="card__note">A submitted request is shown as <em>pending</em>; the chip flips to <em>accepted</em> only on the runner’s actual disposition. A steer response establishes acceptance, not model consumption (TS §4.1, §5.1).</p>
+                </form>
+              </div>
+
+              <!-- Phase controls -->
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Phase controls</h4></div>
+                <button class="btn btn--danger" data-demo-cancel>Cancel phase</button>
+                <p class="card__note">Cancels unclaimed work and queues stop for active attempts. No destructive action runs without this confirmation dialog; the request stays <em>pending</em> until its effects are proven (TS §8.3.8).</p>
+              </div>
+
+              <!-- Events -->
+              <div class="card card--events">
+                <div class="card__head"><h4 class="card__title">Committed events</h4><span class="chip chip--neutral">cursor 8,423</span></div>
+                <ul class="events">
+                  <li class="event"><time class="event__t">16:41:22</time><span class="chip chip--neutral">log</span><span class="event__p">att-9f2c41d0 · pi turn 3 started (session kept alive)</span></li>
+                  <li class="event"><time class="event__t">16:40:57</time><span class="chip chip--neutral">command_result</span><span class="event__p">steer cmd-77 → accepted</span></li>
+                  <li class="event"><time class="event__t">16:39:10</time><span class="chip chip--neutral">usage</span><span class="event__p">att-9f2c41d0 · in 1.2M / out 0.4M tok</span></li>
+                  <li class="event"><time class="event__t">16:38:02</time><span class="chip chip--neutral">checkpoint</span><span class="event__p">att-9f2c41d0 · candidate 4d1e… pinned on attempt ref</span></li>
+                </ul>
+                <p class="card__note">SSE (<code class="mono">GET /phases/{id}/events</code>) replays by cursor; reconnect resyncs without duplicating committed events (TS §6.2).</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---- Variant B: delivered, PR handoff ---- -->
+        <article class="ph" data-phase-block="pr" hidden>
+          <div class="ph__tags">
+              <span class="chip chip--neutral">workflow: debug</span>
+              <span class="chip chip--neutral">repo playa77/cursus → main</span>
+              <span class="chip chip--ok">delivered</span>
+          </div>
+          <ol class="stepper" aria-label="Phase lifecycle">
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">intake</span><span class="step__time">11:04</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">planning</span><span class="step__time">11:05</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">execution</span><span class="step__time">13:26</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">delivery</span><span class="step__time">13:41</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">delivered</span><span class="step__time">13:41</span></li>
+          </ol>
+
+          <div class="ph__grid">
+            <div class="card ph__main">
+              <div class="card__head"><h4 class="card__title">Pull request — ready for your decision</h4><span class="chip chip--ok">reviewed</span></div>
+              <div class="pr">
+                <div class="pr__title">PR <strong>#142</strong> — Fix runner flap: reconcile duplicate heartbeats across reconnects</div>
+                <dl class="pr__meta">
+                  <div><dt>head</dt><dd><code class="mono">wp/…/att-7a11…/candidate</code> <code class="mono">9c41e2f</code></dd></div>
+                  <div><dt>base</dt><dd><code class="mono">main</code> <code class="mono">7c3e534</code></dd></div>
+                  <div><dt>checks</dt><dd>phase checks pass on the exact proposed head · target verified unmoved at publication</dd></div>
+                  <div><dt>review</dt><dd>verdict <span class="chip chip--ok">accept</span> · reviewer: codex exec (read-only) · criteria 3/3 with evidence</dd></div>
+                </dl>
+                <div class="pr__actions">
+                  <a class="btn btn--primary" href="#/phase/fix-sse-flap" title="Synthetic reference — in the product this is the recorded GitHub PR URL">Open pull request on GitHub ↗</a>
+                  <span class="pr__note">Cursus opened and reviewed this PR; <strong>merging is your action on GitHub</strong>. No merge control exists here (TS §7, §8.5).</span>
+                </div>
+              </div>
+            </div>
+            <div class="ph__side">
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Evidence</h4></div>
+                <ul class="evidence">
+                  <li>reproduction check failed on turn 1 → <code class="mono">continue_debug</code> accepted (same RPC session)</li>
+                  <li>fix verified on turn 2 checkpoint <code class="mono">4f7d…</code> — regression check exit 0</li>
+                  <li>independent review verdict <span class="chip chip--ok">accept</span> against the exact verified candidate</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Downloads</h4></div>
+                <div class="dl">
+                  <div class="dl__row">
+                    <div class="dl__meta"><span class="dl__name">verification-evidence.log</span><span class="dl__sub">48.2 KiB · sha256 9f2c…e41 · FileRef art-31c0</span></div>
+                    <button class="btn btn--secondary btn--sm" data-demo-download="verification-evidence.log">Download</button>
+                  </div>
+                </div>
+                <p class="card__note">Served by <code class="mono">GET /artifacts/{id}</code> as an attachment with digest headers; never rendered inline (TS §6.2).</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---- Variant C: delivered, non-code file handoff (M4) ---- -->
+        <article class="ph" data-phase-block="files" hidden>
+          <div class="ph__tags">
+              <span class="chip chip--neutral">workflow: marketing</span>
+              <span class="chip chip--neutral">non-code · files</span>
+              <span class="chip chip--ok">delivered</span>
+              <span class="chip chip--neutral">M4 preview</span>
+          </div>
+          <ol class="stepper" aria-label="Phase lifecycle">
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">intake</span><span class="step__time">09:12</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">planning</span><span class="step__time">09:30</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">execution</span><span class="step__time">10:48</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">delivery</span><span class="step__time">11:02</span></li>
+            <li class="step step--done"><span class="step__dot" aria-hidden="true">✓</span><span class="step__label">delivered</span><span class="step__time">11:02</span></li>
+          </ol>
+          <div class="ph__grid">
+            <div class="card ph__main">
+              <div class="card__head"><h4 class="card__title">Deliverables — reviewed files</h4><span class="chip chip--ok">accepted</span></div>
+              <div class="tablewrap">
+                <table class="tbl">
+                  <thead><tr><th scope="col">File</th><th scope="col">Size</th><th scope="col">Digest</th><th scope="col">Review</th><th scope="col"></th></tr></thead>
+                  <tbody>
+                    <tr><th scope="row">q3-launch-brief.md</th><td>22.1 KiB</td><td><code class="mono">sha256 7a11…b90</code></td><td><span class="chip chip--ok">accept</span> · claude -p (read-only)</td><td><button class="btn btn--secondary btn--sm" data-demo-download="q3-launch-brief.md">Download</button></td></tr>
+                    <tr><th scope="row">launch-checklist.md</th><td>6.4 KiB</td><td><code class="mono">sha256 1c3d…7f2</code></td><td><span class="chip chip--ok">accept</span> · claude -p (read-only)</td><td><button class="btn btn--secondary btn--sm" data-demo-download="launch-checklist.md">Download</button></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="card__note">Same download contract as M3 evidence (TS §6.2). Delivery means the file is downloadable and reviewed — Cursus never publishes, submits or distributes it (TS §8.5, D1 R08).</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ================= ATTEMPT DETAIL (GET /attempts/{id}) ================= -->
+      <section class="view" id="view-attempt" aria-label="Attempt" hidden>
+
+        <!-- attempt header (shared) -->
+        <div class="atthead">
+          <div class="atthead__tags">
+            <span class="chip chip--neutral">phase auth-refactor</span>
+            <span class="chip chip--neutral" id="atthead-pkg">package WP-14</span>
+            <span class="chip chip--neutral" id="atthead-step">step produce</span>
+            <span class="chip chip--neutral">role worker · pi · OpenCode Go deepseek-v4.1-flash</span>
+            <span class="chip chip--neutral">tools: edit, read</span>
+            <span class="chip chip--neutral">registry c1a2…</span>
+          </div>
+          <div class="atthead__meta">claimed 16:31:02 · attempt ref <code class="mono" id="atthead-ref">wp/m3/auth-refactor/WP-14/att-9f2c41d0/candidate</code> · repair budget 0/2</div>
+        </div>
+
+        <!-- ---- Variant 1: running ---- -->
+        <article class="at" data-attempt-block="run" hidden>
+          <div class="statusrow">
+            <span class="chip chip--active">running</span>
+            <span class="chip chip--active">claim held</span>
+            <span class="chip chip--ok">runner reachable</span>
+            <span class="chip chip--neutral">pi slot 2/2</span>
+            <span class="chip chip--neutral">steer: accepted</span>
+          </div>
+          <div class="at__grid">
+            <div class="card card--log at__main">
+              <div class="card__head">
+                <h4 class="card__title">Live log — SSE</h4>
+                <div class="logtools">
+                  <span class="chip chip--neutral">cursor 8,401</span>
+                  <button class="btn btn--ghost btn--sm" data-log-pause aria-pressed="false">Pause autoscroll</button>
+                  <button class="btn btn--ghost btn--sm" data-log-copy>Copy</button>
+                </div>
+              </div>
+              <div class="log" id="log-stream" tabindex="0" aria-label="Live worker log (demo stream)" aria-live="off">
+                <!-- demo lines injected by app.js -->
+              </div>
+              <p class="card__note">Long lines wrap with a hanging indent; scrolling up pauses autoscroll so history stays readable. Sanitized text only — payloads are data, never markup (TS §10).</p>
+            </div>
+            <div class="at__side">
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Verification queue</h4></div>
+                <ul class="evidence">
+                  <li>candidate <code class="mono">4d1e…</code> pinned · verifier slot: running</li>
+                  <li><code class="mono">pytest tests/auth -x</code> — expected exit 0 · required literal “17 passed”</li>
+                  <li>check results must agree with the completion report and the independent verdict before acceptance (TS §8.3.4)</li>
+                </ul>
+              </div>
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Usage (reported)</h4></div>
+                <p class="at__usage">in <strong>1.2M</strong> / out <strong>0.4M</strong> tok · cost <strong>$0.84</strong></p>
+                <p class="card__note">Reported by the CLI only; unknown usage would display as <em>unknown</em>, never zero (TS §10).</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---- Variant 2: runner disconnected, ownership intact ---- -->
+        <article class="at" data-attempt-block="disc" hidden>
+          <div class="statusrow">
+            <span class="chip chip--active">running</span>
+            <span class="chip chip--active">claim held</span>
+            <span class="chip chip--warn">runner unreachable · 3 missed heartbeats</span>
+            <span class="chip chip--neutral">events spooling locally</span>
+          </div>
+          <div class="own-banner">
+            <div>
+              <strong>The runner lost contact — the attempt still owns the work.</strong>
+              The claim remains in force; elapsed time never releases it (TS §8.3). The pi process keeps running on VPS-A and its events are spooling locally for replay.
+            </div>
+          </div>
+          <div class="at__grid">
+            <div class="card at__main">
+              <div class="card__head"><h4 class="card__title">What happens without your action</h4></div>
+              <ul class="evidence">
+                <li>On reconnect the runner replays its spool in order; replayed events deduplicate by key and the original attempt is reconciled (TS §8.4).</li>
+                <li>A durable terminal result on the runner enters normal verification — no operator step is required.</li>
+                <li>Ordinary liveness failures need no operator action; readiness is shown separately from reachability (TS §10).</li>
+              </ul>
+            </div>
+            <div class="at__side">
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Pending steering</h4><span class="chip chip--warn">steer: pending</span></div>
+                <p class="q__hint">One steer was submitted at 16:44, during the outage.</p>
+                <p class="card__note">A steer submitted during the outage stays <em>pending</em> and is applied to the original attempt only after reconnect, with its actual disposition acknowledged (TS §9.2). Nothing is silently repeated.</p>
+              </div>
+              <div class="card">
+                <div class="card__head"><h4 class="card__title">Recovery actions</h4></div>
+                <button class="btn btn--danger btn--sm" data-demo-unrecoverable>Declare unrecoverable…</button>
+                <p class="card__note">Requires your positive evidence of permanent loss or a missing record for this unavailable attempt (TS §8.3.8). A disconnected runner alone is not that evidence.</p>
+                <button class="btn btn--ghost btn--sm" disabled title="Only attempts already parked with an unknown outcome can be abandoned">Abandon attempt</button>
+                <p class="card__note">Abandonment applies only to attempts already parked with an unknown outcome — it is enabled on the “Parked” variant.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- ---- Variant 3: parked, unknown outcome ---- -->
+        <article class="at" data-attempt-block="parked" hidden>
+          <div class="statusrow">
+            <span class="chip chip--warn">parked · unknown</span>
+            <span class="chip chip--warn">ownership held</span>
+            <span class="chip chip--neutral">outcome could not be established</span>
+          </div>
+          <div class="own-banner own-banner--warn">
+            <div>
+              <strong>Unknown outcome — parked with ownership intact.</strong>
+              The runner restarted during this attempt and its durable record is incomplete: no terminal result, no proven stop. The package keeps this attempt as owner; no replacement attempt is eligible yet. A late report from this attempt can still reconcile it while it remains current.
+            </div>
+          </div>
+          <div class="at__grid">
+            <div class="card at__main">
+              <div class="card__head"><h4 class="card__title">Why this is parked (not retried)</h4></div>
+              <ul class="evidence">
+                <li>Journal integrity was uncertain after the runner restart — absence of a record cannot prove the attempt never started (TS §6.3).</li>
+                <li>A timeout alone never proves a stop, never releases ownership, and never authorizes a second attempt (TS §11).</li>
+                <li>Releasing the package requires your explicit decision below — recovery by evidence or by abandonment.</li>
+              </ul>
+            </div>
+            <div class="at__side">
+              <div class="card card--recovery">
+                <div class="card__head"><h4 class="card__title">Abandon attempt</h4><span class="chip chip--warn">exceptional</span></div>
+                <form data-demo-abandon>
+                  <label class="fieldlabel" for="abandon-reason">Reason (required)</label>
+                  <textarea id="abandon-reason" rows="3" placeholder="Record why this attempt’s outcome is unrecoverable…"></textarea>
+                  <div class="q__actions">
+                    <button class="btn btn--danger btn--sm" type="submit" data-abandon-submit disabled>Abandon att-5e93c8aa…</button>
+                  </div>
+                  <p class="card__note">Enabled only for this parked-unknown attempt and only with a nonempty reason (TS §8.3.8). Abandonment invalidates this attempt’s ability to advance the phase; a late result cannot change the replacement’s state or be accepted for integration.</p>
+                </form>
+                <p class="q__done" id="abandon-done" hidden><span class="chip chip--danger">abandoned</span> Decision recorded. A replacement attempt on WP-12 may now start in a fresh worktree and ref.</p>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ================= NEW RUN & INTAKE (intake form + interview pane) ================= -->
+      <section class="view" id="view-intake" aria-label="New run and intake" hidden>
+
+        <div class="intake-grid">
+          <!-- Submit a spec -->
+          <form class="card card--form" data-intake-submit>
+            <div class="card__head"><h4 class="card__title">Submit a spec</h4></div>
+            <div class="frow">
+              <div class="field">
+                <label class="fieldlabel" for="in-workflow">Workflow</label>
+                <select id="in-workflow">
+                  <option>code</option><option>debug</option><option>marketing</option><option>grant</option><option>business development/planning</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="fieldlabel" for="in-form">Form <span class="fieldhint">code only</span></label>
+                <select id="in-form"><option>phase</option><option>one-shot</option><option>ticket</option></select>
+              </div>
+            </div>
+            <fieldset class="field field--group">
+              <legend class="fieldlabel">Source</legend>
+              <label class="radio"><input type="radio" name="in-source" value="inline" checked> Inline spec text</label>
+              <label class="radio"><input type="radio" name="in-source" value="repo"> Repository file (owner/name · commit · path)</label>
+              <label class="radio"><input type="radio" name="in-source" value="interview"> Guided interview</label>
+            </fieldset>
+            <div class="frow">
+              <div class="field"><label class="fieldlabel" for="in-repo">Repository (code/debug)</label><input id="in-repo" placeholder="playa77/auth-service"></div>
+              <div class="field"><label class="fieldlabel" for="in-ref">Target ref</label><input id="in-ref" placeholder="main"></div>
+            </div>
+            <div class="field">
+              <label class="fieldlabel" for="in-spec">Spec text <span class="fieldhint">≤ 256 KiB UTF-8</span></label>
+              <textarea id="in-spec" rows="6" placeholder="Describe the phase…"></textarea>
+            </div>
+            <fieldset class="field field--group">
+              <legend class="fieldlabel">Optional adversarial review</legend>
+              <label class="radio"><input type="checkbox" id="in-debate-plan"> Debate the phase plan (three frontier seats, ≤ 3 rounds)</label>
+              <label class="radio"><input type="checkbox" id="in-debate-spec"> Debate the spec (judge questions come back through the interview)</label>
+            </fieldset>
+            <div class="q__actions">
+              <button class="btn btn--primary" type="submit">Submit run</button>
+              <span class="intake-state" aria-live="polite"></span>
+            </div>
+            <p class="card__note">Submit pins the spec revision and queues the first job; the reply carries the phase ID and cursor. No run starts planning before the spec is accepted (TS §8.3.1).</p>
+          </form>
+
+          <!-- Interview pane (open questions on a phase) -->
+          <div class="card card--form" id="interview">
+            <div class="card__head"><h4 class="card__title">Interview — grant-spec-q3</h4><span class="chip chip--warn">2 required open</span></div>
+            <div class="q">
+              <p class="q__text"><code class="mono">Q1</code> · required — “Which funder portal is this application for, and what is the submission deadline?”</p>
+              <p class="q__locked"><span class="chip chip--ok">recorded</span> “European Research Council · Consolidator Grant, deadline 2027-02-04.”</p>
+            </div>
+            <div class="q">
+              <p class="q__text"><code class="mono">Q2</code> · required — “Should the budget table follow the portal’s own template or our standard finance format?”</p>
+              <form class="q__form" data-demo-answer>
+                <label class="visually-hidden" for="q2-answer">Answer to Q2</label>
+                <textarea id="q2-answer" rows="2" placeholder="Type your answer…"></textarea>
+                <div class="q__actions"><button class="btn btn--primary btn--sm" type="submit">Record answer</button></div>
+              </form>
+            </div>
+            <div class="q">
+              <p class="q__text"><code class="mono">Q3</code> · optional — “Any reporting milestones to mirror from the 2025 award?”</p>
+              <p class="q__hint">Optional questions may stay open; the interviewer proceeds once required questions are answered.</p>
+            </div>
+            <p class="card__note">You are asked only while a required input is missing; each answer is recorded once against the spec revision it informed (TS §8.3.1). The interview is capped at 20 rounds.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- Shared confirmation dialog -->
+<dialog class="confirm" id="confirm-dialog">
+  <form method="dialog">
+    <h3 class="confirm__title" id="confirm-title">Confirm</h3>
+    <p class="confirm__body" id="confirm-body"></p>
+    <div class="confirm__actions">
+      <button class="btn btn--ghost" value="cancel" autofocus>Cancel</button>
+      <button class="btn btn--danger" value="confirm" id="confirm-action">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
