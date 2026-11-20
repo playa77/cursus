@@ -4,7 +4,23 @@ Notable changes are recorded here using Semantic Versioning.
 
 ## [Unreleased]
 
-Planned for 0.7.0; documentation only so far, no code or version change.
+Planned for 0.7.0; the version is not bumped until the installer work package lands.
+The branch is not releasable meanwhile: the installer and stage engine still emit
+the 0.6.0 container configuration, which the runner no longer loads.
+
+### Changed (work package A)
+
+- Run CLIs and verifier checks directly on the host as the service user through
+  `HostRuntime`: allowlisted environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`,
+  per-attempt `TMPDIR`, plus configured `pass_env`), worktree working directory,
+  own process group, durable process ledger and identity-checked group termination
+  after restarts. No isolation (ADR 0016).
+- New runner `[execution]` configuration (`deploy/runner.host.example.toml`)
+  replaces `[containers]`; credential domains, image pin and credential-concurrency
+  enforcement are gone. Workspaces are always self-contained clones.
+- Journal record kinds `container_*` are now `execution_*`; no migration of old journals.
+- Fix: a command that exits before reading stdin no longer raises
+  `ConnectionResetError` from the execution layer.
 
 ### Decided
 

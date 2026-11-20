@@ -69,6 +69,13 @@ class SchedulingTests(unittest.IsolatedAsyncioTestCase):
         value=code_input(); value['form']='phase'
         async with phase_runtime({'claude':packages()},value) as rt:
             rt['config']['limits']['long_poll_seconds']=.01
+            identities=[]
+            record=rt['execution'].runtime.record
+            def spy(kind,value):
+                if kind=='execution_identity':
+                    identities.append(value)
+                return record(kind,value)
+            rt['execution'].runtime.record=spy
             task=asyncio.create_task(rt['runner'].serve())
             try:
                 async with asyncio.timeout(20):
@@ -80,9 +87,10 @@ class SchedulingTests(unittest.IsolatedAsyncioTestCase):
                             await task
                         await asyncio.sleep(.05)
                 self.assertEqual(phase['state'],'delivered',phase.get('reason'))
-                process_records=[r for r in rt['journal'].records if r['kind']=='process']
-                self.assertEqual(len(process_records),3)
-                self.assertTrue(all('start_ticks' in r['value'] for r in process_records))
+                # Each package's worker process was identified before its output was read.
+                workers=[v for v in identities if v['cli']=='pi']
+                self.assertEqual(len(workers),3)
+                self.assertTrue(all('start_ticks' in v['process'] for v in workers))
             finally:
                 task.cancel()
                 await asyncio.gather(task,return_exceptions=True)

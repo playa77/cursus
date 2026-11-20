@@ -1,4 +1,7 @@
-"""Lifecycle fixtures, not Podman/namespace/provider qualification."""
+"""Legacy 0.6.0 Podman lifecycle fixtures; removed with the container code in WP-D (ADR 0016).
+
+Not Podman/namespace/provider qualification. The runtime path now lives in test_host.py.
+"""
 import asyncio
 from copy import deepcopy
 import json
@@ -174,60 +177,6 @@ class ContainerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(Problem):
                 container_settings(changed, ceilings, service, publisher)
 
-    async def test_missing_ledger_recovers_identity_from_launch_journal(self):
-        from cursus.runner import Journal, Runner
-        with workspace() as ws:
-            settings, ceilings = policy(ws.root)
-            fixture = RuntimeFixture()
-            runtime = Containers(settings, ws.state/'runtime', ceilings, fixture)
-            journal = Journal(ws.state/'journal')
-            execution = type('ExecutionFixture', (), {'runtime':runtime})()
-            Runner(str(uuid4()),journal,None,execution=execution)
-            attempt = str(uuid4())
-            await runtime.reserve(attempt,'worker','pi')
-            await runtime.prepare(attempt,ws.worktrees)
-            runtime.path.unlink()  # Loss cannot turn a surviving container into absence.
-            restarted = Containers(settings,ws.state/'runtime',ceilings,fixture)
-            Runner(str(uuid4()),journal,None,execution=type('ExecutionFixture', (), {'runtime':restarted})())
-            self.assertIn(attempt,restarted.entries)
-            self.assertIsNotNone(restarted.entries[attempt]['id'])
-            self.assertTrue((await restarted.recover())[attempt])
-            self.assertIsNotNone(fixture.process.returncode)
-            journal.close()
-
-    def test_compaction_bounds_history_and_preserves_unresolved_launch(self):
-        from cursus.runner import Journal
-        with workspace() as ws:
-            journal = Journal(ws.state)
-            journal.compaction = True
-            unresolved = str(uuid4())
-            journal.record('grant',dict(attempt_id=unresolved,request_id=str(uuid4())))
-            journal.record('launch',unresolved)
-            for _ in range(200):
-                request, attempt = str(uuid4()),str(uuid4())
-                journal.record('pending',dict(id=request,slot='worker'))
-                journal.record('grant',dict(attempt_id=attempt,request_id=request))
-                journal.record('launch',attempt)
-                journal.record('retire',request)
-            self.assertEqual(len(journal.records),3)
-            self.assertLess(journal.path.stat().st_size,2048)
-            generation = journal.generation
-            journal.close()
-            journal = Journal(ws.state)
-            self.assertEqual(journal.generation,generation)
-            self.assertIn(dict(kind='launch',value=unresolved),journal.records)
-            journal.close()
-
-
-    def test_production_execution_constructor_has_no_account_inventory(self):
-        from cursus.execution import Execution
-        runtime = object()
-        execution = Execution({'digest':'a'*64}, {}, {'home':'/home/session'}, runtime=runtime)
-        self.assertIs(execution.runtime,runtime)
-        self.assertEqual(execution.configured({'role':{'cli':'pi','name':'another-coding-role'}})['home'],'/home/session')
-        with self.assertRaises(Problem):
-            Execution({}, {}, {})
-
     def test_native_capability_rejects_incomplete_profile_and_sdk_substitution(self):
         from cursus.config import capability
         profile = dict(binary='/usr/local/bin/codex',binary_digest='a'*64,version='fixture-version',
@@ -239,28 +188,3 @@ class ContainerTests(unittest.IsolatedAsyncioTestCase):
             capability('codex',dict(profile,fixed_argv=['sdk']))
         with self.assertRaises(Problem):
             capability('codex',dict(profile,probe_evidence=[]))
-
-    async def test_stop_recovery_waits_for_unknown_final_receipt(self):
-        from cursus.runner import Journal, Runner
-        with workspace() as ws:
-            settings, ceilings = policy(ws.root)
-            runtime = Containers(settings,ws.state/'runtime',ceilings,RuntimeFixture())
-            journal = Journal(ws.state/'journal')
-            attempt = str(uuid4())
-            journal.record('grant',dict(attempt_id=attempt,request_id=str(uuid4())))
-            journal.record('launch',attempt)
-            journal.record('container_removed',attempt)
-            journal.record('event',dict(attempt_id=attempt,seq=2,kind='final',payload={'kind':'unknown'}))
-            journal.record('ack',dict(attempt_id=attempt,committed_through=1))
-            observations = []
-            class Wire:
-                async def exchange(self,route,value,*args):
-                    observations.append(value['observations'][0]['kind'])
-                    return dict(dispositions={},held_claims=[],commands=[],reconciled=True)
-            runner = Runner(str(uuid4()),journal,Wire(),execution=type('Fixture',(),{'runtime':runtime})())
-            await runner.reconcile()
-            self.assertEqual(observations[-1],'terminal_pending')
-            journal.record('ack',dict(attempt_id=attempt,committed_through=2))
-            await runner.reconcile()
-            self.assertEqual(observations[-1],'stopped')
-            journal.close()

@@ -25,27 +25,62 @@ separately. The version moves to 0.7.0 only in package D.
 
 - Unit: 79 run, 78 pass. One error: `test_bootstrap.test_installed_entry_point_and_module`
   needs the package installed in the venv; not a source defect.
-- Integration: 58 run, all error without `CURSUS_TEST_DSN` (disposable PostgreSQL).
-  Unverified until a disposable database is available; this must be resolved before
-  package C, which changes store-facing code.
+- Integration (disposable local PostgreSQL 16, run as root because no unprivileged
+  account could reach the scratch area): 58 run, 29 bad (15 failures, 14 errors),
+  reproduced on a clean export of `c636b78`. Most are the legacy privilege path
+  refusing uid 0 (`identity_boundary`); the baseline is therefore not a statement
+  about the legacy path on a non-root host.
 
-## WP-A: Host execution replaces containers
+## WP-A: Host execution replaces containers (implemented; see "Re-scope" below)
 
 Files: `src/cursus/execution.py`, `src/cursus/containers.py` (delete),
 `src/cursus/bootstrap.py`, `src/cursus/config.py`, `src/cursus/repository.py`,
 `src/cursus/runner.py`, `deploy/runner.example.toml`, tests under `tests/`.
 
-- [ ] Add failing tests: child env is exactly the allowlist; cwd is the worktree;
-  verifier uses the same path; process-group kill and no-orphan checks still hold;
-  admission applies ceilings plus memory/disk pressure guards.
-- [ ] Move the host spawn path out of the "test identity" seam into the production
-  path; drop `runtime`, identity switching and UID 1000 assumptions.
-- [ ] Extract the pressure guard from `Containers.fits` into a small admission helper.
-- [ ] Remove `container_settings`, credential domains, Podman checks, ledger,
-  `container_*` journal records and their recovery; keep the recovery constraints.
-- [ ] Decide and record how project customization directories are handled
-  (CLI clean-config flags versus explicit acceptance).
-- Acceptance: unit suite green; runner starts against a fixture CLI with no Podman.
+- [x] Failing tests first (`tests/unit/test_host.py`): child env is exactly the
+  allowlist; cwd is the worktree; process-group stop, restart recovery, PID-reuse
+  and boot-change safety; admission by ceilings plus memory/disk pressure guards.
+- [x] New `src/cursus/host.py` (`HostRuntime`): ceilings, pressure guards, durable
+  process ledger (`execution_intent`/`execution_identity`/`execution_removed`),
+  positively identified group termination, per-attempt `TMPDIR`.
+- [x] `Execution` takes `(profiles, runtime)`; identity switching, `allow_test_identity`,
+  UID 1000 and binary-digest pinning removed; every child, including verifier
+  checks, goes through `HostRuntime.spawn`.
+- [x] `Runner`, `Repository` (always self-contained clones), `bootstrap` and
+  `config` (`[execution]` section, `execution_settings`) use the host runtime.
+- [x] Customization directories (decided): no masks. The only control is each
+  profile's `clean_config_argv` already applied on every invocation; its effect on
+  real installed CLIs is unverified and is checked in WP-B.
+- [x] Fixed a race exposed by direct spawning: a command exiting before reading
+  stdin (a fast-failing check) raised `ConnectionResetError` out of `Execution`.
+- Acceptance results: unit 93/93, integration 58/58 (as root; see baseline).
+
+### Re-scope (recorded during WP-A)
+
+The installer, stage engine (`deploy/setup.py`) and about 30 installer tests are
+coupled to `cursus.containers`, `config.container_settings` and the `[containers]`
+template. To keep this package reviewable and the suite green, these are
+**deferred to WP-D** instead of deleted here: `src/cursus/containers.py`,
+`config.container_settings`, `deploy/native/*`, `deploy/native_setup.py`, the
+resource-prompt code, `deploy/runner.example.toml` (now marked legacy) and
+`tests/unit/test_containers.py` (legacy header). Consequence until WP-D: the
+installer and stage engine still emit and validate the 0.6.0 container schema,
+which the runner no longer loads. The new contract is
+`deploy/runner.host.example.toml`. The branch is not releasable until WP-D.
+
+Carry-overs for later packages:
+- WP-B: `capabilities_file`/`capabilities_digest`, `qualification`, `profile_digest`,
+  `credential_concurrency` (no longer enforced, still required by `capability()`),
+  and verification of every CLI's `clean_config_argv` against real installs.
+- WP-C: the controller still supports the capacity-less legacy `frontier` slot
+  path and `Runner` still tolerates `execution=None` for transport-only tests.
+- WP-D: `deploy/cursus-runner.service` and `setup.py` still assume the rootless
+  account, Podman, cgroup slice and subuid ranges; a service stop must kill the
+  whole control group so orphaned CLI descendants cannot survive.
+
+Not verified in WP-A: a real `cursus runner` process start (`bootstrap` refuses
+root and no unprivileged account could run it here), any real CLI or login,
+Antigravity session variables, and shared-login concurrency.
 
 ## WP-B: Roles, recipes and preflight
 

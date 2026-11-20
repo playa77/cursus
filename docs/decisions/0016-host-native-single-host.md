@@ -117,9 +117,16 @@ operator already has. Installation also repeatedly failed at the login step
   repository can read the user's credentials. This is accepted, documented, and
   limited to trusted repositories.
 - Project-local executable customizations (`.claude/`, `.codex/`, `.agents/`, ...)
-  are no longer masked by tmpfs overlays; their effect on host runs must be
-  contained with each CLI's own clean-configuration flags or accepted explicitly
-  in work package B.
+  are no longer masked by tmpfs overlays. Decided in WP-A: the only control is
+  each profile's `clean_config_argv`, applied on every invocation; no mask is
+  reintroduced. Whether those flags suppress project customizations on real
+  installed CLIs, and whether they leave the user's login intact, is unverified
+  and is checked in WP-B against real installs.
+- Read-only roles (review, scout, planning) previously had a read-only mount.
+  On the host they rely on the CLI's read-only flags, which `Execution.authorize`
+  already requires; the workspace is not made unwritable.
+- The CLI binary digest pin is dropped: an operator-installed CLI may update itself.
+  Only the presence of an absolute, executable path is checked.
 - Antigravity's login store may need `DBUS_SESSION_BUS_ADDRESS`/`XDG_RUNTIME_DIR`
   from the user's session; the allowlist and service unit must be verified on a
   real host. No such verification has been done.

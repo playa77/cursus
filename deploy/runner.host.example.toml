@@ -1,0 +1,58 @@
+# Host-native runner worksheet (ADR 0016). Explicit choices required.
+# The Claude Code, Codex CLI, Antigravity and pi CLIs this runner uses must already
+# be installed and signed in for the user named below. Cursus never installs or
+# authenticates them. There is NO isolation: agents and verifier checks run as this
+# user with its real HOME, so enroll only trusted repositories.
+# Replaces the container-based runner.example.toml (0.6.0), removed in WP-D.
+schema_version = 2
+process_kind = "runner"
+[service]
+# The signed-in, non-root user that owns the CLI logins. The service runs as this user.
+user = "REPLACE_SIGNED_IN_USER"
+origin = "https://REPLACE_CONTROLLER.REPLACE_TAILNET.ts.net"
+runner_id = "REPLACE_RUNNER_UUID"
+bearer_file = "REPLACE_HOME/.config/cursus/runner/bearer"
+state_root = "REPLACE_HOME/.local/state/cursus/state"
+spool_root = "REPLACE_HOME/.local/state/cursus/spool"
+repository_root = "REPLACE_HOME/.local/state/cursus/repositories"
+worktree_root = "REPLACE_HOME/.local/state/cursus/worktrees"
+review_root = "REPLACE_HOME/.local/state/cursus/reviews"
+# Transitional until WP-B replaces generated profiles with in-source recipes.
+capabilities_file = "REPLACE_HOME/.config/cursus/runner/capabilities.toml"
+capabilities_digest = "REPLACE_SHA256_OF_PROFILE"
+[publisher]
+git_binary = "/usr/bin/git"
+git_credential_file = "REPLACE_HOME/.config/cursus/runner/publisher-git-credential"
+github_credential_file = "REPLACE_HOME/.config/cursus/runner/publisher-github-credential"
+# Concurrency ceilings; there are no per-session resource limits on the host.
+[capacity]
+worker = "REPLACE_WORKER_1_TO_4"
+claude = "REPLACE_CLAUDE_1_TO_2"
+codex = "REPLACE_CODEX_1_TO_2"
+agy = "REPLACE_AGY_1_TO_2"
+verifier = 1
+repository = 1
+[limits]
+long_poll_seconds = 30
+heartbeat_seconds = 10
+spool_bytes = 2147483648
+[execution]
+# New sessions wait while free disk is below, or available memory is at or below, these.
+disk_reserve_mb = "REPLACE_POLICY_MB"
+host_reserve_mb = "REPLACE_HOST_RESERVE_MB"
+# Optional: directories for CLI launchers' interpreters (each CLI's own directory is added first).
+# path = "/usr/local/bin:/usr/bin:/bin"
+# Optional: variables copied from the runner's environment into children. Nothing else is
+# inherited. List only what a CLI's own login store needs, for example:
+# pass_env = ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]
+[[repositories]]
+owner = "REPLACE_GITHUB_OWNER"
+name = "REPLACE_TRUSTED_REPO"
+object_format = "sha1"
+allowed_target_refs = ["refs/heads/main"]
+phase_check_ids = ["unit"]
+[[repositories.checks]]
+id = "unit"
+argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
+cwd = "."
+timeout_seconds = 300

@@ -72,7 +72,7 @@ async def service(args):
         from cursus.repository import Repository, GitHub
         from cursus.execution import Execution
         if os.geteuid() == 0:
-            raise Problem('identity_boundary', 'Rootless runner must use its stable unprivileged service account.')
+            raise Problem('identity_boundary', 'The runner must run as the non-root user whose CLI logins it uses.')
         service = settings['service']
         import pwd
         account = pwd.getpwnam(service['user'])
@@ -86,11 +86,10 @@ async def service(args):
             repository = Repository(service['repository_root'], service['worktree_root'], service['review_root'],
                 enrollment, GitHub(publisher['github_credential_file']), publisher['git_binary'],
                 publisher['git_credential_file'])
-            from cursus.containers import Containers
-            runtime = Containers(settings['containers'], journal.root / 'execution', settings['capacity'])
+            from cursus.host import HostRuntime
+            runtime = HostRuntime(settings['execution'], journal.root / 'execution', settings['capacity'])
             await runtime.preflight()
-            execution = Execution(settings['profiles'], {}, {'user': 'session', 'home': '/home/session'}, runtime=runtime)
-            repository.container_workspaces = True
+            execution = Execution(settings['profiles'], runtime)
             runner = Runner(service['runner_id'], journal, transport, repository, execution)
             await runner.serve()
         finally:

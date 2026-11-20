@@ -322,7 +322,7 @@ print(json.dumps(result))
         calls=sum(len(v) for v in credentials.values())*2+1
         answer=self.guide.ask(f'Authorize up to {calls} native CLI invocations, one at a time, 120s each, no installer retries; native internal retries/cost are provider-controlled. Budget: {amount}. Type yes to run checks')
         if answer!='yes':raise RuntimeError('Checks postponed; installed native logins retained. Re-run to continue.')
-        normalizer=Execution({}, {}, {},allow_test_identity=True)
+        normalizer=Execution({}, object())
         record_path=self.root/('checks-'+str(uuid4())+'.json')
         records=[]
         for cli in CLIS:
