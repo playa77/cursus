@@ -123,9 +123,8 @@ class SessionContainmentTests(unittest.IsolatedAsyncioTestCase):
         with workspace() as first, workspace() as second:
             good, bad = fixture_execution(first), fixture_execution(second)
             bad.runtime = good.runtime = good.runtime  # One shared runtime, as in production.
-            binary = Path(bad.profiles['pi']['binary'])
+            binary = Path(bad.clis['pi'])
             binary.write_text('#!/usr/bin/python3\nprint("[]",flush=True)\n')
-            good.profiles['pi']['qualified_roles'].append('artisan')
             invocation_good = invocation(good, 'pi', 'worker')
             invocation_good['role']['name'] = 'artisan'
             jobs = [dict(step='produce', invocation=invocation_good), dict(step='produce', invocation=invocation(bad, 'pi', 'worker'))]

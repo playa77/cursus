@@ -82,22 +82,39 @@ Not verified in WP-A: a real `cursus runner` process start (`bootstrap` refuses
 root and no unprivileged account could run it here), any real CLI or login,
 Antigravity session variables, and shared-login concurrency.
 
-## WP-B: Roles, recipes and preflight
+## WP-B: Roles, recipes and preflight (implemented)
 
 Files: `roles.toml`, `src/cursus/config.py`, `src/cursus/runtime_contracts.py`,
 `src/cursus/execution.py`, `src/cursus/control.py`, a new recipes module,
 `deploy/capabilities.example.toml` (delete), tests.
 
-- [ ] Failing tests: roles file alone defines the required CLI set; recipes cover
-  all four CLIs including output normalization already supported; unknown CLI
-  version is reported, not guessed.
-- [ ] Move fixed argv, transport, read-only and clean-config flags into source.
-- [ ] Remove capability file/digest, `qualification`, image pin,
-  `credential_concurrency`, `REPLACE_*` placeholders and `profile_digest` from
-  contracts and the control/runner exchange.
-- [ ] Add a read-only preflight (absolute path, version/help query; no inference,
-  no login probe) and decide its command name.
-- Acceptance: unit suite green; preflight never invokes a prompt path (tested).
+- [x] Failing tests first (`tests/unit/test_recipes.py`): exact argv per CLI and
+  tool set, authority limits by CLI/tier, value hygiene, resolution, preflight
+  (only `--version`/`--help` run), the `cursus preflight` command.
+- [x] New `src/cursus/recipes.py`: fixed argv, transport, read-only and clean-config
+  flags live in source and are built from the role (cli, model, reasoning, provider,
+  tools). pi's mode comes from the role's tools (write tools: rpc; read-only: json
+  print with the prompt as an argument), never from a role name.
+- [x] Removed from contracts, `Control`, the runner config and `roles.toml`: capability
+  file/digest, `profiles`, `qualified_roles`, `credential_concurrency` enforcement,
+  `profile_digest` (roles `schema_version` is now 2). `Execution(clis, runtime)`
+  holds installed absolute paths; a missing CLI fails the job with `cli_missing`.
+- [x] `cursus preflight --roles roles.toml [--config runner.toml]`: resolves each CLI
+  the roles use (PATH search or `[execution.clis]`, `antigravity` accepted for
+  `agy`), runs version and help queries only, and checks every option the recipe can
+  emit is advertised. Signed-in state is not and cannot be checked.
+- [x] `deploy/capabilities.example.toml` deleted.
+- Acceptance results: unit 110/110, integration 58/58.
+- Verified against a real install: Claude Code 2.1.330 `--help` advertises every
+  option in its recipe (including `--safe-mode`, whose documentation says it disables
+  project/user customizations while auth, model and built-in tools work), and the
+  real preflight passed. NOT verified: codex, agy and pi recipes (not installed
+  here; carried over from 0.6.0), any CLI's behavior under a real login, and whether
+  `--ignore-user-config`/`--ephemeral` (codex) leave its login intact.
+
+Carry-overs: `config.capability()`, `deploy/native_setup.profiles` and the guided
+installer's profile-driven role derivation remain as legacy until WP-D;
+`ops/runbook.md` and the README still describe the capability file.
 
 ## WP-C: One process
 

@@ -1,5 +1,4 @@
 import asyncio
-from hashlib import sha256
 import json
 from pathlib import Path
 import sys
@@ -16,7 +15,7 @@ def conversation_binaries(rt, blocking=False, amendments=False, spec_question=Fa
     plan={'packages':[dict(id='one',dependencies=[],objective='Write result.txt',inputs=[],criteria=[criterion()])],
           'phase_check_ids':['unit']}
     for cli in ('claude','codex','agy'):
-        binary=Path(rt['execution'].profiles[cli]['binary'])
+        binary=Path(rt['execution'].clis[cli])
         binary.write_text(f'''#!{sys.executable}
 import json,sys
 prompt=sys.stdin.read()
@@ -50,7 +49,6 @@ if {cli!r}=='codex':
 else:
     print(json.dumps({{'type':'result','subtype':'success','result':json.dumps(value)}}))
 ''')
-        rt['execution'].profiles[cli]['binary_digest']=sha256(binary.read_bytes()).hexdigest()
 
 
 async def answer(rt):

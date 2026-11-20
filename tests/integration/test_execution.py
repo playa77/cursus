@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import sys
 import unittest
-from hashlib import sha256
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -21,8 +20,6 @@ def criterion():
 
 
 # Session ceilings for host-native fixtures (ADR 0016).
-FIXED_ARGV = {'pi': ['--mode', 'rpc'], 'claude': ['-p', '--output-format', 'stream-json'],
-              'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}
 CAPACITY = {'worker': 4, 'claude': 2, 'codex': 2, 'agy': 2, 'verifier': 1, 'repository': 1}
 
 
@@ -37,8 +34,8 @@ async def run(execution, job, workspace, attempt=None, *args, **kwargs):
 
 def fixture_execution(ws, overrides=None):
     """Four real executables; no provider credentials or inherited environment."""
-    clis = ('pi', 'claude', 'codex', 'agy')
-    profiles = {'digest': 'a' * 64}
+    names = ('pi', 'claude', 'codex', 'agy')
+    binaries = {}
     plan = {'packages': [{'id': 'one', 'dependencies': [], 'objective': 'Write result.txt',
                          'inputs': [], 'criteria': [criterion()]}], 'phase_check_ids': ['unit']}
     verdict = {'verdict': 'accept', 'criteria': [{'id': 'correct', 'passed': True,
@@ -46,7 +43,7 @@ def fixture_execution(ws, overrides=None):
     values = {'pi': {'summary': 'Wrote result.txt', 'suggested_files': ['result.txt']},
               'claude': plan, 'codex': verdict, 'agy': {'findings': [], 'source_references': []}}
     values.update(overrides or {})
-    for cli in clis:
+    for cli in names:
         binary = ws.root / cli
         script = f'''#!{sys.executable}
 import json, os, sys
@@ -76,20 +73,16 @@ else:
 '''
         binary.write_text(script)
         binary.chmod(0o755)
-        profiles[cli] = {'binary': str(binary), 'binary_digest': sha256(binary.read_bytes()).hexdigest(),
-            'model': 'fixture', 'reasoning': 'fixture', 'qualified_roles': ['worker', 'planner', 'reviewer', 'scout'],
-            'tool_allowlist': ['read', 'write'] if cli == 'pi' else ['read'], 'fixed_argv': FIXED_ARGV[cli], 'clean_config_argv': ['--clean'],
-            'read_only_argv': ['--read-only'], 'prompt_transport': 'rpc' if cli == 'pi' else 'stdin',
-            'probe_evidence': ['controlled-executable-fixture']}
+        binaries[cli] = str(binary)
     runtime = HostRuntime({'disk_reserve_mb': 1, 'host_reserve_mb': 1}, ws.state / 'execution', dict(CAPACITY))
-    return Execution(profiles, runtime)
+    return Execution(binaries, runtime)
 
 
 def invocation(execution, cli, role):
     return {'role': {'name': role, 'cli': cli, 'model': 'fixture', 'reasoning': 'fixture',
                      'tier': 'production' if role == 'worker' else 'organization',
                      'tools': ['read', 'write'] if role == 'worker' else ['read'], 'timeout_seconds': 5},
-            'registry_commit': '0' * 40, 'profile_digest': execution.profiles['digest'],
+            'registry_commit': '0' * 40,
             'prompt_text': 'Use only supplied task context.'}
 
 

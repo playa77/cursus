@@ -27,10 +27,9 @@ def role(value):
 
 
 def invocation(value):
-    _object(value, {'role','registry_commit','profile_digest','prompt_text'})
+    _object(value, {'role','registry_commit','prompt_text'})
     role(value['role'])
     _hex(value['registry_commit'], 40)
-    _hex(value['profile_digest'], 64)
     _text(value['prompt_text'])
     return value
 

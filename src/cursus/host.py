@@ -37,6 +37,21 @@ def start_ticks(pid):
         return None
 
 
+def child_environment(settings, argv0, temporary):
+    """The only environment a native child receives: an allowlist, never inherited."""
+    user = pwd.getpwuid(os.getuid())
+    # The CLI's own directory first: script launchers resolve their interpreter beside it.
+    path = settings.get('path', DEFAULT_PATH)
+    if Path(argv0).is_absolute():
+        path = str(Path(argv0).parent) + ':' + path
+    value = {'PATH': path, 'HOME': user.pw_dir, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
+             'LANG': 'C.UTF-8', 'TMPDIR': str(temporary)}
+    for name in settings.get('pass_env', ()):
+        if name in os.environ:
+            value[name] = os.environ[name]
+    return value
+
+
 class HostRuntime:
     def __init__(self, settings, root, capacity):
         self.settings, self.capacity = settings, capacity
@@ -119,17 +134,7 @@ class HostRuntime:
         self.state(item, 'running', 'Native execution may run on the host.')
 
     def environment(self, argv, attempt):
-        user = pwd.getpwuid(os.getuid())
-        # The CLI's own directory first: script launchers resolve their interpreter beside it.
-        path = self.settings.get('path', DEFAULT_PATH)
-        if Path(argv[0]).is_absolute():
-            path = str(Path(argv[0]).parent) + ':' + path
-        value = {'PATH': path, 'HOME': user.pw_dir, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
-                 'LANG': 'C.UTF-8', 'TMPDIR': str(self.temporary / attempt)}
-        for name in self.settings.get('pass_env', ()):
-            if name in os.environ:
-                value[name] = os.environ[name]
-        return value
+        return child_environment(self.settings, argv[0], self.temporary / attempt)
 
     async def spawn(self, argv, workspace, **kwargs):
         attempt = self.current.get()

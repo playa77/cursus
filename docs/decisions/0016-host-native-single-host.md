@@ -127,6 +127,16 @@ operator already has. Installation also repeatedly failed at the login step
   already requires; the workspace is not made unwritable.
 - The CLI binary digest pin is dropped: an operator-installed CLI may update itself.
   Only the presence of an absolute, executable path is checked.
+- Compatibility is checked by advertised options, not version ranges: the preflight
+  requires every long option a recipe can emit to appear in the installed CLI's help.
+  The version string is reported for information only.
+- Because host sessions write to the signed-in user's real configuration directory,
+  Claude's recipe adds `--no-session-persistence` so Cursus runs do not accumulate in
+  the user's own session history. Claude's `--safe-mode` (verified in its 2.1.330 help)
+  also disables CLAUDE.md; this is accepted.
+- Model, reasoning and provider values reach argv, so they must be plain identifiers
+  (no leading `-`, spaces or shell characters), checked when roles load and again when
+  an invocation is built.
 - Antigravity's login store may need `DBUS_SESSION_BUS_ADDRESS`/`XDG_RUNTIME_DIR`
   from the user's session; the allowlist and service unit must be verified on a
   real host. No such verification has been done.

@@ -1,6 +1,6 @@
-schema_version = 1
-# SHA-256 of the qualified capability file, filled at deployment.
-profile_digest = "REPLACE_SHA256_OF_QUALIFIED_PROFILE"
+schema_version = 2
+# One operator-authored file (ADR 0016). Each CLI must already be installed and signed in;
+# model, reasoning and provider values are passed to the CLI as plain identifiers.
 
 [roles.interviewer]
 tier = "organization"

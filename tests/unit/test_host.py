@@ -288,31 +288,32 @@ class RunnerRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ExecutionConstructionTests(unittest.TestCase):
-    def test_execution_requires_the_host_runtime_and_has_no_account_inventory(self):
+    def test_execution_requires_the_host_runtime_and_holds_only_installed_paths(self):
         from cursus.execution import Execution
         with self.assertRaises(Problem):
-            Execution({'digest': 'a' * 64}, None)
+            Execution({'claude': '/bin/claude'}, None)
         host = object()
-        self.assertIs(Execution({'digest': 'a' * 64}, host).runtime, host)
+        execution = Execution({'claude': '/bin/claude'}, host)
+        self.assertIs(execution.runtime, host)
+        self.assertEqual(execution.clis, {'claude': '/bin/claude'})
 
-    def test_missing_or_non_executable_cli_binary_is_refused_without_a_pinned_digest(self):
+    def test_authorize_uses_the_recipe_and_refuses_missing_or_non_executable_clis(self):
         from cursus.execution import Execution
         with workspace() as ws:
             binary = ws.root / 'claude'
             binary.write_text('#!/bin/sh\n')
-            profile = dict(binary=str(binary), model='m', provider=None, reasoning='r', qualified_roles=['planner'],
-                           tool_allowlist=['read'], fixed_argv=['-p', '--output-format', 'stream-json'],
-                           clean_config_argv=['--clean'], read_only_argv=['--read-only'], probe_evidence=['x'],
-                           prompt_transport='stdin')
-            profile = {k: v for k, v in profile.items() if v is not None}
-            execution = Execution({'digest': 'a' * 64, 'claude': profile}, object())
-            invocation = {'role': dict(name='planner', cli='claude', model='m', reasoning='r', tier='organization', tools=['read']),
-                          'profile_digest': 'a' * 64}
+            invocation = {'role': dict(name='planner', cli='claude', model='m', reasoning='r', tier='organization',
+                                       tools=['read']), 'registry_commit': '0' * 40}
+            with self.assertRaises(Problem) as missing:
+                Execution({}, object()).authorize(invocation)
+            self.assertEqual(missing.exception.code, 'cli_missing')
+            execution = Execution({'claude': str(binary)}, object())
             with self.assertRaises(Problem):
-                execution.authorize(invocation)  # Not executable yet.
+                execution.authorize(invocation)  # Present but not executable.
             binary.chmod(0o755)
-            _, argv = execution.authorize(invocation)
-            self.assertEqual(argv[0], str(binary))
+            argv, transport = execution.authorize(invocation)
+            self.assertEqual((argv[0], transport), (str(binary), 'stdin'))
+            self.assertIn('--safe-mode', argv)
 
 
 if __name__ == '__main__':

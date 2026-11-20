@@ -50,7 +50,6 @@ class Control:
             phase = {'id': phase_id, 'input': data, 'state': decision['state'],
                      'revision': 1, 'roles': self.settings.get('roles', {}),
                      'registry_commit': self.settings['service'].get('role_release_commit'),
-                     'profile_digest': self.settings.get('profile_digest'),
                      'references': []}
             await tx.save('phases', phase)
             await tx.revision('specs', phase_id, 1, source)
@@ -67,7 +66,6 @@ class Control:
             if role is None:
                 raise Problem('invalid_config', 'Required role is unavailable.')
             extra['invocation'] = {'role': role, 'registry_commit': phase['registry_commit'],
-                'profile_digest': phase['profile_digest'],
                 'prompt_text': role['prompt_text'] + '\nTask data:\n' + canonical_json(inputs).decode()}
         if 'capacity' in self.settings and 'invocation' in extra:
             cli = extra['invocation']['role']['cli']

@@ -8,6 +8,22 @@ Planned for 0.7.0; the version is not bumped until the installer work package la
 The branch is not releasable meanwhile: the installer and stage engine still emit
 the 0.6.0 container configuration, which the runner no longer loads.
 
+### Changed (work package B)
+
+- Replace generated capability profiles with in-source CLI recipes (`cursus.recipes`):
+  argv, prompt transport, read-only and clean-config flags are built from the role.
+  Remove the capability file and digest, `profile_digest`, `qualified_roles`,
+  `qualification` and the binary digest pin. `roles.toml` is `schema_version = 2`.
+- Add `cursus preflight --roles roles.toml [--config runner.toml]`: checks that each
+  CLI the roles use is installed and advertises every option its recipe emits, using
+  version and help queries only. It does not check sign-in. A missing CLI fails a job
+  with `cli_missing`.
+- Claude's recipe adds `--no-session-persistence`, so runs do not fill the signed-in
+  user's session history.
+- Role `model`, `reasoning` and `provider` must be plain identifiers.
+- Verified against Claude Code 2.1.330 help only; codex, agy and pi recipes are
+  unverified against real installs.
+
 ### Changed (work package A)
 
 - Run CLIs and verifier checks directly on the host as the service user through
