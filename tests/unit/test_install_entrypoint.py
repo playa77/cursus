@@ -94,11 +94,15 @@ class GuideContracts(unittest.TestCase):
         guide.user = pwd.getpwuid(os.getuid()).pw_name
         guide.controller_origin = lambda: 'https://controller.example.ts.net'
         guide.resource_summary = lambda: None
+        guide.hardware = dict(total=12288,available=11000,cpu=6,free=100000)
+        import io
+        guide.tty = io.StringIO()
         questions = []
         def ask(question, default=None):
             questions.append(question)
-            self.assertTrue(question.startswith('Setting: '), question)
-            self.assertTrue(question.splitlines()[0].split(': ',1)[1].startswith(('capacity.','containers.')), question)
+            if default is not None:
+                return str(default)
+            self.assertTrue(question.startswith('Setting: capacity.'), question)
             return '1'
         guide.ask = ask
         real_write = module.write_private
@@ -351,3 +355,81 @@ class DiscoveryContracts(unittest.TestCase):
             with self.assertRaises(RuntimeError):guide.node_name({'DNSName':name})
         guide._tailscale={'Peer':{}}
         with self.assertRaisesRegex(RuntimeError,'No candidates'):guide.controller_origin()
+
+
+class ResourcePromptContracts(unittest.TestCase):
+    def guide(self, answers='\n'*30, total=12288, available=11000, cpu=6, free=100000):
+        from types import SimpleNamespace
+        import io
+        guide=helper().Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+        reader=io.StringIO(answers)
+        output=io.StringIO()
+        guide.tty=SimpleNamespace(write=output.write,flush=output.flush,readline=reader.readline)
+        guide.hardware=dict(total=total,available=available,cpu=cpu,free=free)
+        return guide,output
+
+    def config(self):
+        import tomllib
+        containers=tomllib.loads((ROOT/'deploy/runner.example.toml').read_text())['containers']
+        containers['image']='fixture-image'
+        containers['version']='5.0'
+        containers['credentials']={}
+        return {'containers':containers}
+
+    def test_enter_accepts_a_coherent_plan_and_explains_each_scope(self):
+        guide,output=self.guide()
+        config=guide.fill(self.config())['containers']
+        budget=config['budget']; agent=config['resources']['agent']; verifier=config['resources']['verifier']
+        self.assertLessEqual(budget['memory_mb']+budget['host_reserve_mb'],12288)
+        self.assertLessEqual(budget['cpu_millis']+budget['host_reserve_cpu_millis'],6000)
+        for key in ('memory_mb','cpu_millis','pids'):
+            self.assertLessEqual(agent[key]+verifier[key],budget[key])
+        for resource in (agent,verifier):
+            self.assertLess(resource['tmp_mb']+resource['home_mb'],resource['memory_mb'])
+        self.assertGreater(config['disk_reserve_mb'],0)
+        self.assertLess(config['disk_reserve_mb'],100000)
+        text=output.getvalue()
+        self.assertIn('ALL running containers',text)
+        self.assertIn('ONE agent container',text)
+        self.assertIn('ONE verifier container',text)
+        self.assertIn('existing containers keep running',text)
+        self.assertIn('Suggested:',text)
+        self.assertNotIn('Under containers.budget',text)
+
+    def test_custom_reserves_change_later_suggestions(self):
+        guide,_=self.guide('4096\n1500\n'+'\n'*30)
+        config=guide.fill(self.config())['containers']
+        self.assertEqual(config['budget']['host_reserve_mb'],4096)
+        self.assertEqual(config['budget']['host_reserve_cpu_millis'],1500)
+        self.assertLessEqual(config['budget']['memory_mb'],6904)
+        self.assertEqual(config['budget']['cpu_millis'],4500)
+
+    def test_bad_numbers_retry_without_losing_previous_answers(self):
+        guide,output=self.guide('abc\n-1\n0\n999999\n2048\n'+'\n'*30)
+        config=guide.fill(self.config())['containers']
+        self.assertEqual(config['budget']['host_reserve_mb'],2048)
+        self.assertGreaterEqual(output.getvalue().count('Enter a whole number'),4)
+
+    def test_small_and_large_hosts_get_valid_supported_plans(self):
+        for total,available,cpu,free in ((2048,1800,1,3000),(65536,60000,32,1000000)):
+            guide,_=self.guide(total=total,available=available,cpu=cpu,free=free)
+            config=guide.fill(self.config())['containers']; budget=config['budget']
+            self.assertLessEqual(budget['memory_mb']+budget['host_reserve_mb'],min(total,12288))
+            self.assertLessEqual(budget['cpu_millis']+budget['host_reserve_cpu_millis'],min(cpu*1000,6000))
+            self.assertLess(config['disk_reserve_mb'],free)
+            for resource in config['resources'].values():
+                self.assertLess(resource['tmp_mb']+resource['home_mb'],resource['memory_mb'])
+
+    def test_custom_agent_limit_updates_verifier_suggestion(self):
+        guide,_=self.guide('\n'*6+'2048\n'+'\n'*30)
+        config=guide.fill(self.config())['containers']
+        self.assertEqual(config['resources']['agent']['memory_mb'],2048)
+        self.assertEqual(config['resources']['verifier']['memory_mb'],5880)
+
+    def test_invalid_preset_limit_fails_with_context_without_overwriting_it(self):
+        guide,_=self.guide()
+        config=self.config()
+        config['containers']['resources']['verifier']['memory_mb']=999999
+        with self.assertRaisesRegex(RuntimeError,'ONE verifier container'):
+            guide.fill(config)
+        self.assertEqual(config['containers']['resources']['verifier']['memory_mb'],999999)
