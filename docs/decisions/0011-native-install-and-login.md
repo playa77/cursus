@@ -78,3 +78,25 @@ Official references:
   [native login](https://antigravity.google/docs/install),
   [stream protocol](https://antigravity.google/docs/cli/headless).
 - [pi installation and /login](https://upd.dev/badlogic/pi-mono/src/branch/main/packages/coding-agent/README.md).
+
+
+## Antigravity extraction correction (2026-11-20)
+
+The official linux_amd64 manifest for version 1.5.13 points to an archive of
+100,548,668 compressed bytes whose regular `antigravity` executable is
+270,103,240 bytes. The former 256 MiB executable check rejected this legitimate
+artifact even though the compressed download and SHA-512 verification succeeded.
+Retain the 256 MiB compressed-download bound, use a separate 512 MiB executable
+bound, and copy/hash the file incrementally. Never extract arbitrary archive
+paths, directories or links. Errors identify the rejected type or actual size.
+
+Official evidence: [manifest](https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json)
+and [1.5.13 archive](https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.13-5999302598852608/linux-x64/cli_linux_x64.tar.gz).
+These measurements establish artifact structure, not runtime/login compatibility.
+Regression fixtures scale the two limits independently, accepting an executable
+larger than the compressed bound and rejecting empty/oversize/nonregular entries.
+
+Validation: the official archive passed SHA-512 verification against that manifest;
+full local extraction reached a sandbox disk quota and did not complete. Scaled
+regression fixtures and the full 76-test unit suite pass. This is not evidence of
+a successful image build, native login or intended-host qualification.

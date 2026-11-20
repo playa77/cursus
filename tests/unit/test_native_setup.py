@@ -329,3 +329,36 @@ class NativeSelectionTests(unittest.TestCase):
         models,provider=manager.selections('image',{cli:[{}] for cli in native.CLIS})
         self.assertEqual(models,{cli:'selected-'+cli for cli in native.CLIS})
         self.assertEqual(provider,'selected-provider')
+
+
+class NativeArchiveTests(unittest.TestCase):
+    def artifact(self, data=b'x'*256, kind=tarfile.REGTYPE):
+        payload=io.BytesIO()
+        with tarfile.open(fileobj=payload,mode='w:gz') as archive:
+            entry=tarfile.TarInfo('antigravity');entry.type=kind
+            if kind==tarfile.REGTYPE:
+                entry.size=len(data);archive.addfile(entry,io.BytesIO(data))
+            else:
+                entry.linkname='/outside';archive.addfile(entry)
+        return payload.getvalue()
+
+    def test_unpacked_executable_can_exceed_compressed_download_limit(self):
+        installer=module('deploy/native/install-tools.py','native_archive_fixture')
+        artifact=self.artifact()
+        self.assertLess(len(artifact),128)
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'agy'
+            # Scale independent byte limits; no 270 MB fixture is needed.
+            with patch.object(installer,'ARCHIVE_MAX_BYTES',128), patch.object(installer,'BINARY_MAX_BYTES',512):
+                installer.unpack_antigravity(artifact,target)
+            self.assertEqual(target.read_bytes(),b'x'*256)
+
+    def test_invalid_entry_type_or_expanded_size_is_rejected_before_writing(self):
+        installer=module('deploy/native/install-tools.py','native_archive_reject_fixture')
+        for artifact in (self.artifact(kind=tarfile.DIRTYPE),self.artifact(kind=tarfile.SYMTYPE),self.artifact(kind=tarfile.LNKTYPE),self.artifact(data=b''),self.artifact(data=b'x'*513)):
+            with self.subTest(artifact_size=len(artifact)), tempfile.TemporaryDirectory() as folder:
+                target=Path(folder)/'agy'
+                with patch.object(installer,'BINARY_MAX_BYTES',512):
+                    with self.assertRaisesRegex(RuntimeError,'Antigravity.*(regular file|size)'):
+                        installer.unpack_antigravity(artifact,target)
+                self.assertFalse(target.exists())
