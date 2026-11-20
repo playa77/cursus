@@ -88,6 +88,25 @@ class M1ContractsTests(unittest.TestCase):
             with self.assertRaises(Problem):
                 load('serve', str(path))
 
+    def test_unfilled_placeholders_are_named_before_any_other_validation(self):
+        import tomllib
+        from pathlib import Path
+        from cursus.config import load
+        from tests.support import serve_config, toml_text
+        with self.assertRaises(Problem) as caught:
+            load('serve', str(Path('deploy/cursus.example.toml').resolve()))
+        self.assertIn('service.user', caught.exception.message)
+        self.assertIn('more.', caught.exception.message)  # The list is bounded.
+        with workspace() as ws:
+            path, *_ = serve_config(ws, 'postgresql://fixture')
+            value = tomllib.loads(path.read_text())
+            value['capacity']['worker'] = 'REPLACE_WORKER_1_TO_4'
+            value['repositories'][0]['owner'] = 'REPLACE_GITHUB_OWNER'
+            path.write_text(toml_text(value))
+            with self.assertRaises(Problem) as caught:
+                load('serve', str(path))
+            self.assertIn('Unfilled: capacity.worker, repositories[0].owner.', caught.exception.message)
+
     def test_serve_configuration_is_strict_and_single_process(self):
         import tomllib
         from cursus.config import load
