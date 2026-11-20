@@ -3,7 +3,25 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
-## [Unreleased]
+## [0.6.0] - 2026-11-20
+
+Source update; no intended-host/provider qualification or release tag implied.
+
+### Native install and login
+
+- Install Claude Code, Codex CLI, Antigravity and pi from their native distributions
+  in the supplied execution-image recipe; pin the built image and record versions.
+- Open those same installations for native login, preserve their isolated state
+  in place, and generate capability metadata from budgeted installed-interface and
+  login-persistence checks. Remove the user-authored measured-profile prerequisite.
+- Refresh a clean default installer checkout on rerun; preserve dirty/diverged
+  work and use a separate checkout so an old helper cannot restore the old prompt.
+- Pair the controller using generated non-secret metadata; no native credentials
+  are transferred. Distinguish native checks from full M3 acceptance (ADR 0011).
+- Start Antigravity's private keyring inside its container and mask executable
+  project customizations in generated native sessions. Support its actual native
+  result envelope in addition to previously supported fixtures.
+
 
 ### Setup
 

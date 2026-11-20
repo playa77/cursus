@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ubuntu 26.04 installer, 2026-11-20-r3. Dry-run by default; no native login."""
+"""Ubuntu 26.04 installer, 2026-11-20-r4. Dry-run by default; no native login."""
 import argparse
 from datetime import datetime, timezone
 import json

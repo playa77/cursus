@@ -1,6 +1,7 @@
 # ADR 0010: One fresh-host installation entry point
 
-- Status: accepted for implementation; intended-host qualification remains open
+- Status: accepted; external-profile/image prerequisite superseded by
+  [ADR 0011](0011-native-install-and-login.md); intended-host qualification remains open
 - Date: 2026-11-20
 - Authority: operator requested one installer, quick-install-first README, and a
   fix for the absent `~/cursus-source` failure after README PR #8.

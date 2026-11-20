@@ -15,6 +15,38 @@ def utc():
     return datetime.now(timezone.utc).isoformat()
 
 
+def customization_masks(workspace):
+    """Hide executable project discovery without changing repository bytes."""
+    masks=[]
+    visited=0
+    directories={'.agents','.agent','_agents','_agent','.claude','.codex','.pi','.gemini'}
+    for root,dirs,files in os.walk(workspace,followlinks=False):
+        visited+=1
+        if visited>10000 or len(masks)>128:
+            raise Problem('mount_boundary','Project customization scan exceeds its bound.')
+        dirs[:]=[name for name in dirs if name not in {'.git','node_modules','.venv','__pycache__'}]
+        for name in list(dirs):
+            if name in directories:
+                path=Path(root)/name
+                if path.is_symlink():
+                    raise Problem('mount_boundary','Project customization directory must not be a symlink.')
+                target='/workspace/'+str(path.relative_to(workspace))
+                if any(c in target for c in (':',',','\n')):
+                    raise Problem('mount_boundary','Unsupported customization mount delimiter.')
+                masks.append('--tmpfs='+target+':ro,nosuid,nodev,mode=0555,size=1m')
+                dirs.remove(name)
+        for name in ('.mcp.json','.claude.json'):
+            if name in files:
+                path=Path(root)/name
+                if path.is_symlink():
+                    raise Problem('mount_boundary','Project customization file must not be a symlink.')
+                target='/workspace/'+str(path.relative_to(workspace))
+                if any(c in target for c in (':',',','\n')):
+                    raise Problem('mount_boundary','Unsupported customization mount delimiter.')
+                masks.extend(['--volume','/dev/null:'+target+':ro'])
+    return masks
+
+
 class Containers:
     def __init__(self, settings, root, capacity, command=None):
         self.settings, self.capacity = settings, capacity
@@ -176,6 +208,11 @@ class Containers:
             '--env=HOME=/home/session', '--env=PATH=/usr/local/bin:/usr/bin:/bin', '--env=LANG=C.UTF-8',
             '--env=TMPDIR=/tmp', '--workdir=/workspace', '--log-driver=none', '--restart=no',
             '--volume', str(workspace) + ':/workspace:' + ('ro' if readonly else 'rw')]
+        if self.settings.get('hide_project_customizations'):
+            argv += customization_masks(workspace)
+        if item['cli'] == 'agy' and self.settings.get('native_keyring'):
+            argv += ['--env=DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/cursus-session-bus',
+                     '--env=XDG_RUNTIME_DIR=/tmp/cursus-runtime']
         if (workspace / '.git').is_dir():
             argv += ['--volume', str(workspace / '.git') + ':/workspace/.git:ro']
         if item['cli']:
@@ -199,6 +236,10 @@ class Containers:
         code, _ = await self.command('start', item['id'])
         if code:
             raise Problem('runtime_unavailable', 'Container start failed.')
+        if item['cli'] == 'agy' and self.settings.get('native_keyring'):
+            code, _ = await self.command('exec', item['id'], '/usr/local/bin/cursus-start-keyring')
+            if code:
+                raise Problem('runtime_unavailable', 'Private native keyring could not start; execution cannot use its login.')
         self.state(item, 'running', 'Native execution may run in the owned container.')
 
     async def spawn(self, argv, workspace, **kwargs):

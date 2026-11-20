@@ -439,3 +439,39 @@ not an applied deployment or native provider qualification.
   enrollment, Tailscale changes or real GitHub publication tests were performed.
   A qualified native image/profile/auth domains remain explicit prerequisites;
   the installer does not manufacture them or assert end-to-end readiness.
+
+
+## Native installation and login correction — 2026-11-20
+
+Source version 0.6.0 adds the four-native-tool image recipe, interactive native
+login routing, generated native capability/pairing metadata and optional private
+keyring/project-customization container settings. ADR 0011 supersedes the
+externally supplied image/profile requirement. This entry is local evidence;
+intended-host installation and real account login remain unrun here.
+
+- Full unit discovery: **52 passed** using an isolated `/tmp` virtual environment
+  with the built/installed 0.6.0 wheel for entrypoint checks and source imports
+  for the current unit suite. The declared flit_core 4.2.0 backend was obtained
+  from PyPI and verified against `requirements.lock`; wheel build/install then
+  ran without index access or dependency resolution. Runtime dependencies were
+  not installed for this offline CLI/unit-only check; no dependency or service
+  integration readiness claim follows.
+- Targeted installer/native/container suite: **34 passed**. New checks exercise
+  all four native distribution installs through mocked package/artifact seams,
+  generated profile contracts, all four native login command/TTY routes,
+  a real local RPC fixture requiring stdin remain open until terminal response,
+  current AGY success/failure envelopes, controller config generation from worker
+  output, pairing limits, real remote-branch checkout/default-checkout update and preservation,
+  in-container keyring start and non-mutating executable
+  customization masks. Fixtures use no native account credentials or inference.
+- Downloaded official Antigravity 1.5.13 Linux artifact, verified its official
+  manifest SHA-512 and ran `--help`/`--version` with a fresh `/tmp` HOME and explicit
+  non-secret environment. No login or model prompt was executed. This established
+  available options/version only, not authenticated or deployed capability.
+- Bash syntax, Python compilation, both bootstrap dry-runs, README local
+  links/anchors and its **50 Bash blocks** passed syntax checks.
+- Generated `native-checked` means the installer on the target completed its
+  bounded login/persistence/protocol checks; it does not mean source fixtures
+  qualified actual provider concurrency/renewal or full M3 acceptance. No native
+  image was built or login/budgeted model probe executed on the intended hosts
+  in this development task. No database/HTTP integration suite was run here.

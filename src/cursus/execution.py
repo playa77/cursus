@@ -287,6 +287,11 @@ class Execution:
                     answer = frame['item']['text']
                 if kind == 'turn.completed':
                     terminal = True
+            elif cli == 'agy' and frame.get('event') == 'result':
+                result = frame.get('result', {})
+                if result.get('status') != 'SUCCESS':
+                    raise Problem('cli_failed', 'Antigravity reported non-success terminal state.')
+                answer, terminal = result.get('response'), True
             elif cli in ('claude', 'agy'):
                 if kind == 'result' and frame.get('subtype') == 'success':
                     answer, terminal = frame.get('result'), True

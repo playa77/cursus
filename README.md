@@ -24,17 +24,18 @@ sudo apt-get update
 sudo apt-get install --yes curl
 ```
 
-Start on B. Keep that SSH terminal open; when it prints a runner UUID and asks
-for A's bearer digest, start the same installer on A in another SSH terminal.
-Enter B's UUID on A, then copy **only the digest printed by A** back to B.
-Secrets themselves stay on their designated server.
+Start on **A (worker) first**. The installer builds its execution image and
+installs **Claude Code, Codex CLI, Antigravity and pi** in it. It then opens each
+of those installed apps and reminds you to complete its native login. Use your
+normal subscriptions/accounts. Cursus subsequently runs those same installed
+apps with that same persistent native login state.
 
-**Current prerequisite:** you need a qualified native-CLI execution image and
-its measured `capabilities.toml`. This release does not include a qualified
-four-vendor image or universal provider login recipe. The installer asks for
-that file and refuses to invent successful qualification. It can prepare the
-host before this point, but missing vendor prerequisites mean installation is
-**incomplete**, not a running whole system. See [native CLI prerequisites](#native-cli-prerequisites).
+You do **not** supply an image, write `capabilities.toml`, copy login files or
+provide replacement provider API keys. After login, the installer asks permission
+for a bounded set of native checks and generates the capability configuration.
+At the end it prints a **pairing code**. Run the same installer on **B
+(controller)** and paste that code when asked. The code contains deployment
+metadata and the bearer digest, never native credentials or the bearer token.
 
 To inspect the script before running it, use this equivalent workflow, which
 also detects a failed download before any script executes:
@@ -63,8 +64,10 @@ downloaded script from **any directory**, including an otherwise empty home.
 2. Checks Ubuntu 26.04, installs bootstrap tools, creates the source checkout if
    absent, and selects the requested source revision. Existing work is never reset.
 3. Prepares the stable service account, private directories, PostgreSQL on B or
-   rootless Podman/user manager on A. Asks for a measured profile and guides the
-   host configuration if you have not supplied one. Generates the runner bearer
+   rootless Podman/user manager on A. On A, installs all four native tools,
+   guides their native logins, checks the installed interfaces with your approved
+   budget, and generates the image/profile configuration. On B, imports that
+   generated metadata from A’s pairing code. Generates the runner bearer
    without printing it, and accepts publisher credentials through hidden input.
 4. Downloads hash-locked dependencies automatically (or uses your supplied
    offline wheelhouse), builds and stages an immutable Python release/config.
@@ -77,10 +80,11 @@ of the qualified roles and committed prompts. It pins that commit in the control
 config. It does not ask you to edit installed source or commit host settings to
 GitHub. Existing configurations and secrets are preserved, not overwritten.
 
-The script does not silently enroll Tailscale, change a firewall, spend money on
-model probes, or grant provider capabilities. Those account- and policy-specific
+The script does not silently enroll Tailscale, change a firewall or spend money on
+model checks. It asks for your check budget and confirmation after native login. Those account- and policy-specific
 steps are described below. [ADR 0010](docs/decisions/0010-unified-installer.md)
-records the installer boundary.
+records the bootstrap boundary; [ADR 0011](docs/decisions/0011-native-install-and-login.md)
+corrects its earlier external-profile prerequisite.
 
 ## What you need to answer
 
@@ -89,17 +93,19 @@ Have these values ready; private files stay outside the source checkout:
 | Question | Answer to supply |
 | --- | --- |
 | Host | `controller` on B; `worker` on A |
-| Capabilities file | Absolute path to your measured schema-2 `capabilities.toml`; use identical qualified bytes on both hosts |
+| Native app logins | Sign in when each installed app opens; pi uses `/login` and the selected OpenCode Go provider |
+| Model selection | Model IDs shown by the native apps; the installer records them and checks the installed invocation |
+| Native-check budget | Explicit charge authorization before bounded checks; native internal calls/billing are provider-controlled |
 | B origin | Exact private HTTPS URL from Tailscale, e.g. `https://controller.example.ts.net`, without trailing slash |
 | Operator identity | Exact Tailscale login/email, not display name |
-| Runner UUID | B generates/offers one; use the same UUID on A |
+| Pairing code on B | Paste the code printed by A; it includes the generated runner UUID and matching profile |
 | GitHub repository | Owner/name and full target ref, e.g. `refs/heads/main` |
 | Verification command | JSON argument array using paths inside the image, e.g. `["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]` only if that is the repository's real test command |
 | Provider capacity | pi 1–4; Claude, Codex and Antigravity independently 1–2; same values on A/B |
 | Resource policy | Explicit memory/CPU/task/tmp/HOME limits and disk/host reserves; explained in [configuration](#private-configuration-and-secrets) |
-| Auth domains | Actual private, runner-owned native auth-only directories and their measured container mount targets |
+| Auth domains | Installer creates isolated native-state directories and prompts for each requested concurrent login slot |
 | Publisher token on A | Dedicated GitHub credential with the necessary ref/PR rights, subject to target protections; hidden input |
-| A bearer digest on B | The SHA-256 printed by A; never the bearer secret |
+| A bearer digest on B | Imported automatically in the pairing code; never the bearer secret |
 
 If you already have complete configs, use the same entry point without answering
 the worksheet questions:
@@ -120,16 +126,19 @@ Useful options:
 | `--ref FULL_COMMIT` | Obtain a specific reviewed source revision |
 | `--source-dir /absolute/path` | Choose where source is obtained; no directory need exist yet |
 | `--wheelhouse /absolute/wheels` | Use offline locked dependencies instead of downloading |
+| `--native-only` | On A, install tools, guide login and generate config/pairing output without staging Cursus services |
 | `--stage-only` | Prepare an immutable release without switching or starting services |
 | `--activate-existing --config /absolute/config.toml` | Activate the exact previously staged commit/config |
 | `--non-interactive --yes --host ... --config ...` | Unattended host installation with all prerequisites already provisioned |
 | `--dry-run` | Print a no-change plan without requiring a checkout or configuration |
 | `--help` | Full option list |
 
-Existing source checkouts are never updated/reset automatically. To install a
-new revision without disturbing an old checkout, choose both `--ref FULL_COMMIT`
-and a new `--source-dir /absolute/new-checkout`. For activation of an old staged
-release, select its exact source commit and saved host configuration.
+A downloaded installer fast-forwards a clean default checkout so rerunning it
+uses the current installer, rather than an older helper. Dirty/diverged default
+checkouts are preserved and a separate checkout is obtained. Explicit
+`--source-dir` checkouts are never reset. To select an exact new release, use
+`--ref FULL_COMMIT` and a new `--source-dir /absolute/new-checkout`. For activation
+of an old stage, select its exact source commit and saved host configuration.
 
 A supplied configuration must be complete and use private regular secret files.
 Unattended mode never reads a token from a shell argument or falls back to a
@@ -367,13 +376,13 @@ python3 -m venv "$HOME/cursus-build-env"
 "$HOME/cursus-build-env/bin/python" -m pip download --require-hashes --only-binary=:all: --dest "$HOME/cursus-deployment/wheels" -r requirements.lock
 "$HOME/cursus-build-env/bin/python" -m pip install --no-index --find-links "$HOME/cursus-deployment/wheels" --require-hashes -r requirements.lock
 PIP_NO_INDEX=1 "$HOME/cursus-build-env/bin/python" -m build --wheel --no-isolation
-"$HOME/cursus-build-env/bin/python" -m pip install --no-index --no-deps dist/cursus-0.5.0-py3-none-any.whl
+"$HOME/cursus-build-env/bin/python" -m pip install --no-index --no-deps dist/cursus-0.6.0-py3-none-any.whl
 "$HOME/cursus-build-env/bin/python" -m pip check
 "$HOME/cursus-build-env/bin/cursus" --version
 ```
 
 Expected: dependency download/install succeeds, `pip check` reports no broken
-requirements and the version is `cursus 0.5.0`. The lock includes the build tools;
+requirements and the version is `cursus 0.6.0`. The lock includes the build tools;
 no global pip install is needed. If a compatible wheel is missing, stop and
 prepare a reviewed wheelhouse for the target; do not remove hash checking.
 
@@ -458,184 +467,112 @@ continue against an unrelated database. Use local peer authentication: Linux
 
 ## Native CLI prerequisites
 
+The installer provides the native image recipe in
+[`deploy/native/Containerfile`](deploy/native/Containerfile). It installs the
+native apps, records their resolved versions/digests, and pins the completed
+image ID. The image contains no login credentials. Native login happens afterward
+under the rootless runner identity, with isolated persistent state directories.
+There is no separate image or measured-profile prerequisite for normal setup.
 
-**On A.** Podman stores images separately for each Linux user. An image loaded as
-root is not automatically visible to `cursus-runner`; use `runner podman ...`.
+### Complete the four login prompts on A
 
-### Image contents
+1. **Claude Code:** the installer runs `claude auth login`. Choose your intended
+   account/subscription and complete the displayed browser instructions.
+2. **Codex CLI:** it runs `codex login --device-auth`. Open the displayed URL on
+   your PC, sign in with ChatGPT and enter the displayed device code.
+3. **Antigravity:** it opens `agy` in its private container session. Follow the
+   remote-login URL/code instructions and exit after signing in.
+4. **pi:** it opens `pi`. Type `/login`, select the agreed OpenCode Go provider,
+   complete enrollment, then exit. Select the intended model in the native UI.
 
-Build a reviewed Linux image matching A's architecture containing:
+Do not enable optional plugins/extensions or import another app’s configuration
+during onboarding. The image already contains the four required tools. If you
+chose more than one simultaneous session for a provider, login is repeated for
+each isolated domain. Credentials are not copied between domains. The native
+clients own their login/refresh state; Cursus reuses it in place.
 
-- `/usr/bin/sleep` (Cursus replaces the entrypoint with `sleep infinity`).
-- Direct native executables named `pi`, `claude`, `codex`, `agy`, at the absolute
-  paths recorded in your capability file (the worksheet uses `/usr/local/bin`).
-- Their runtime dependencies, such as Node where the selected distribution needs
-  it. Do not assume a host runtime is visible inside the image.
-- Git and your enrolled repository's build/test tools and dependencies. Verifiers
-  have **no network**, so checks must not download packages at runtime.
-- A writable-workspace-compatible toolchain running as UID/GID `1000:1000` with
-  `HOME=/home/session`, read-only image root and disposable `/tmp`/HOME.
+Antigravity's Secret Service runs inside its container. Its private keyring state
+persists in that domain; the keyring unlock is unattended and uses an empty
+password. Host file ownership protects this state, not encryption against the
+server administrator. No host keyring or host D-Bus socket is mounted.
 
-The image must contain **no credentials**, login tokens, copied personal home,
-automatically loaded executable extensions or publisher credentials. Pin vendor
-versions and base image digests. Retain its Containerfile, artifact checksums and
-build log privately so you can rebuild and requalify it.
+### Resume or install the native tools without starting Cursus
 
-Use the official distribution instructions for the selected builds:
-[pi](https://upd.dev/badlogic/pi-mono/src/branch/main/packages/coding-agent/README.md),
-[Claude Code](https://code.claude.com/docs/en/setup),
-[Codex CLI](https://developers.openai.com/codex/cli), and
-[Antigravity CLI](https://antigravity.google/docs/cli-getting-started).
-Download and review installation artifacts before running them, select exact
-versions, and install **during image build**, not in running Cursus sessions.
-These links explain vendor distribution, not evidence that those builds satisfy
-Cursus's contract. The repository currently ships no qualified Containerfile or
-pinned four-vendor bundle; this remains a deployment prerequisite, not a step
-the setup scripts secretly perform.
-
-If you receive an approved image archive from your release process:
+After obtaining source, the same installer supports:
 
 ```bash
-read -r -p 'Absolute path to approved image archive: ' CURSUS_IMAGE_ARCHIVE
-runner podman load --input "$CURSUS_IMAGE_ARCHIVE"
-runner podman images --no-trunc
+bash install.sh --host worker --native-only
 ```
 
-Or, once you have a reviewed build directory with a `Containerfile`:
+This prepares the native installations, opens the login prompts, generates the
+capability/configuration files, and prints the pairing code. It does not stage
+or start Cursus services. First-time native setup requires your SSH terminal;
+unattended mode is for already provisioned deployments.
+
+### Manual image build
+
+After the manual accounts/source steps, from the source checkout on A:
 
 ```bash
-read -r -p 'Absolute path to reviewed image build directory: ' CURSUS_IMAGE_BUILD
-runner podman build --pull=never --tag localhost/cursus-execution:qualified "$CURSUS_IMAGE_BUILD"
+runner podman build --pull=missing --tag localhost/cursus-native:manual deploy/native
+runner podman image inspect localhost/cursus-native:manual --format '{{.Id}}'
 ```
 
-`--pull=never` requires its reviewed base image already loaded for this account.
-The build directory must be readable/traversable by the runner; do not loosen
-permissions on your whole home to achieve that. Record the resulting image:
+The recipe installs Node/build tools and the actual native distributions. The
+installer normally copies the build context to runner-owned private storage so
+it is accessible even if your administrator home is private; for a direct manual
+build, place these three build files in a directory readable/traversable by the
+runner. Never loosen permissions on your whole home or put credentials in the
+build context. Verification tools/dependencies for your enrolled repository must
+also exist in the image; verifiers execute without network.
 
-```bash
-runner podman image inspect localhost/cursus-execution:qualified --format '{{.Id}}'
-```
-
-For a differently tagged imported image, substitute its tag. Save the full
-`sha256:` plus 64 hex digits as `containers.image` and the capability `image`.
-A tag is insufficient because tags can move. Runtime never pulls automatically.
-
-### Authentication directories
-
-Each simultaneous provider invocation needs its own disjoint **native auth-only
-directory**. For example, a pi ceiling of two needs `pi-1` and `pi-2`, even if all
-sessions use the same provider account. Separate directories do not prove the
-provider supports simultaneous refresh; that must be measured.
-
-Create the exact domain directories you chose, for example:
-
-```bash
-sudo install -d -m 700 -o cursus-runner -g cursus-runner /var/lib/cursus-runner/auth/pi-1 /var/lib/cursus-runner/auth/claude-1 /var/lib/cursus-runner/auth/codex-1 /var/lib/cursus-runner/auth/agy-1
-```
-
-Repeat for additional chosen domains. For each vendor, determine its supported
-native auth directory from that **installed version**, enroll through its native
-interactive login in an isolated provisioning container, and persist only that
-directory as the configured bind mount. Mount targets must be subdirectories
-of `/home/session`, never all of HOME. Never seed them by copying your PC's,
-another user's or the developer agent's credential store.
-
-Important compatibility check: Antigravity documents native keyring use and
-headless alternatives on its [authentication page](https://antigravity.google/docs/install).
-This backend does not mount a host keyring, D-Bus socket or arbitrary API-key
-environment. If your chosen native auth needs those, it does not yet fit the
-backend. Establish a supported directory-only native flow or record a required
-implementation change; do not expose the host session bus as a workaround.
-
-For each chosen version/domain, record the exact login command, mounted native
-subdirectory, renewal command, expiry behavior and recovery steps privately.
-There is currently no verified cross-vendor login command sequence in this
-repository. Do not proceed to activation until these records and working logins
-exist. Login may require opening a vendor URL on PC; the runtime must later work
-without a browser, approval prompt, copied credentials or interactive input.
+Manual native authentication uses the same supported vendor commands above,
+inside the image with persistent native-state subdirectories and a disposable
+HOME. The `--native-only` path performs this container plumbing and lifetime
+tracking for you; use it when you do not need to administer Podman manually.
+Existing manually maintained qualified images/profiles remain an advanced option.
 
 ## Measure capabilities and pin the role release
 
+`capabilities.toml` is generated **by setup from the installed apps**. The normal
+installer never asks you to author it or supply an absolute path to one.
 
-A capability profile records **observed behavior**, not desired behavior. Use
-`deploy/capabilities.example.toml` as a worksheet. Preserve measurements outside
-the public repository. Complete one base profile per CLI and overrides where a
-role needs different tools or transport.
+After the native logins, setup requests a charge authorization and confirmation
+for at most `2 × total native login domains + 1` CLI invocations: two checks per
+domain in separate containers, plus the read-only pi scout transport. Each has a
+120-second native timeout, 10-second kill grace, and 140-second supervisor bound;
+there are no installer inference retries. Native provider-side retries/request
+counts and billable cost are not an enforceable provider cap. Stop/retry decisions
+remain explicit after failure.
 
-Before live tests, write down a finite budget: maximum process invocations,
-one in-flight invocation per provider initially, at least one second between
-same-provider starts unless vendor limits require longer, maximum wall time,
-authorized monetary ceiling and a working process/container stop procedure.
-A useful first auth batch is one invocation per CLI, each at most 120 seconds
-plus a 10-second termination grace, no harness retries. This bounds processes,
-not hidden provider requests or billable spend. Obtain your own budget approval
-before running it; this README authorizes no provider spending.
+The checks use the logged-in native apps, validate installed options and terminal
+JSON/RPC responses, and verify login state persists after the first container is
+removed. pi RPC stdin remains open until its terminal turn. The generated profile
+records `native-checked`; this describes those actual checks, **not** completed
+maximum-concurrency refresh, resource-isolation or M3 acceptance. Full intended-host
+qualification remains recorded separately in [qualification](tests/qualification.md).
 
-Test in disposable workspaces using only your separately provisioned native
-logins. Never inherit the developer-agent environment or keys. Start with
-`Reply with exactly CURSUS_M0_OK. Do not use tools.` Stop on auth denial,
-throttling, unexpected approval prompts or unknown termination; honor vendor
-cooldowns. Independent providers need not wait for another provider's cooldown.
+Setup records exact app versions, executable hashes, image ID, model/reasoning
+settings, native invocation arguments and observed check digests. It persists
+only sanitized check metadata, not raw credentials or login output. A changed
+image/native interface needs new checks. A failed login or unknown required option
+fails visibly; it does not generate successful evidence or ask you to invent flags.
 
-Then establish these exact contracts in the pinned image and sandbox:
-
-| CLI / role | Invocation and observations required |
-| --- | --- |
-| pi worker/debug | Direct `pi --mode rpc` family; correlated `response`, assistant `message_end`, `agent_end`; prompt/steer/abort; same RPC process across debug turns |
-| pi scout | Read-only `pi --mode json` family with explicit tool restriction; normally needs `[pi.role_profiles.scout]` overriding RPC worker settings |
-| Claude organization roles | `claude -p --output-format stream-json` family; supported read-only tools; terminal `result` with subtype `success` |
-| Codex reviewer/organization roles | `codex exec --json` family; read-only tools; `item.completed` agent message and `turn.completed` |
-| Antigravity organization roles | `agy -p --output-format stream-json` family; read-only tools; terminal `result` with subtype `success` |
-
-The family prefixes above are **not complete runnable commands**. Append the
-installed-version model/provider/reasoning/config-isolation flags and establish
-prompt transport from its help and bounded probes. Record literal argument
-arrays; do not embed shell commands, pipes or shell expansion in TOML argv.
-
-For every profile fill `binary`, `version`, `binary_digest`, `model`, `reasoning`,
-`qualified_roles`, `fixed_argv`, `prompt_transport`, `tool_allowlist`,
-`clean_config_argv`, `probe_evidence`, and `credential_concurrency`; pi also needs
-the actual OpenCode Go provider identifier. OpenRouter is prohibited. Record
-success/failure/turn signatures, renewal procedures and correlation evidence.
-`fixed_argv` excludes the executable itself. The launcher appends
-`read_only_argv` for organizational/scout roles, then `clean_config_argv`.
-
-Match each role in `roles.toml` exactly: model, reasoning, optional provider and
-**the entire tool set** must equal its effective profile. Worker/debug use
-`read,list,search,write,edit,bash`; scout/organization use `read,list,search`.
-An override merges over its base profile, so explicitly replace inherited tool
-and transport settings. `credential_concurrency` must cover the configured
-ceiling for that provider, supported by concurrent renewal/expiry/recovery
-measurements using disjoint domains. Only after successful evidence set the
-worksheet's top-level `qualification = "qualified"` and schema version 2.
-
-Hash the finalized capability file on A (this is not a secret):
-
-```bash
-sha256sum "$HOME/cursus-deployment/capabilities.toml"
-```
-
-Put its 64-character digest in `roles.toml`'s `profile_digest` and runner config's
-`service.capabilities_digest`. Put the same image ID in profile and runner config.
-
-**Resolve the release ordering before installing:** control rejects dirty or
-uncommitted role/prompt bytes. In a private operator Git checkout, fill the
-non-secret model/reasoning/provider tuples and profile digest in `roles.toml`,
-review the diff, and commit those role changes through your release workflow.
-Do not commit host configs, auth directories or private evidence. This creates a
-new deployment commit. Set `CURSUS_RELEASE` to its full commit ID and set
-`control.toml`'s `role_release_commit` to it. Transfer that exact committed source
-to both hosts through your approved private release transport. Do not merely
-edit `/opt/cursus/current/source/roles.toml` after installation.
-
-Changing the image, executable, flags, model, permissions, profile bytes or
-credential concurrency invalidates affected measurements and may need a new
-committed role release. There is no automatic compatibility discovery.
+On A the generated capability file is content-addressed under
+`/etc/cursus/runner/capabilities-<digest>.toml`. The pairing code brings the same
+non-secret profile bytes to B. B automatically creates and pins its local role/
+prompt Git release. Native credentials remain on A. Supplied complete configs and
+legacy manually qualified role/profile releases are still supported for advanced
+and offline deployment; they are not first-time setup requirements.
 
 ## Private configuration and secrets
 
 
 ### Copy and edit configuration
+
+The guided installer generates these files and pins the native profile for you.
+The following template-editing steps are the advanced manual alternative. Do not
+replace working generated files with blank worksheets.
 
 **B:**
 
@@ -659,12 +596,12 @@ Set all of the following; do not leave any `REPLACE_*` text:
 | --- | --- | --- |
 | B service | `external_origin` | Exact `https://` B tailnet DNS origin, no path/trailing slash |
 | B service | `operator_login` | Exact Tailscale login of the one authorized operator |
-| B service | `role_release_commit` | Final committed qualified role release from [measure capabilities and pin the role release](#measure-capabilities-and-pin-the-role-release) |
+| B service | `role_release_commit` | The pinned local role commit generated from A’s pairing metadata, or your explicit manual role release |
 | B runner | `id`, `tailnet_node` | Shared runner UUID and actual A tailnet node |
 | B backup | `off_host_destination` | Your private backup destination; this field does not schedule backups |
 | A service | `origin`, `runner_id` | Same B HTTPS origin and runner UUID |
-| A service | `capabilities_digest` | SHA-256 of the finalized capability file |
-| A containers | `version`, `image` | Exact installed Podman `5.x.y` and full qualified image ID |
+| A service | `capabilities_digest` | SHA-256 of the generated native capability file |
+| A containers | `version`, `image` | Exact installed Podman `5.x.y` and the full image ID built by setup |
 | Both | `capacity` | Identical integer ceilings, as below |
 | Both | `repositories` | Identical owner/name/object format, full allowed target refs and checks |
 | A containers | `credentials` | Exactly one qualified domain per configured simultaneous provider invocation |
@@ -839,13 +776,13 @@ sudo git -C "$CURSUS_STAGE/source" remote remove origin
 sudo python3 -m venv "$CURSUS_STAGE/venv"
 sudo "$CURSUS_STAGE/venv/bin/python" -m pip install --no-index --find-links "$HOME/cursus-deployment/wheels" --require-hashes -r "$CURSUS_STAGE/source/requirements.lock"
 sudo env PIP_NO_INDEX=1 "$CURSUS_STAGE/venv/bin/python" -m build --wheel --no-isolation --outdir "$CURSUS_STAGE/wheels" "$CURSUS_STAGE/source"
-sudo "$CURSUS_STAGE/venv/bin/python" -m pip install --no-index --no-deps "$CURSUS_STAGE/wheels/cursus-0.5.0-py3-none-any.whl"
+sudo "$CURSUS_STAGE/venv/bin/python" -m pip install --no-index --no-deps "$CURSUS_STAGE/wheels/cursus-0.6.0-py3-none-any.whl"
 sudo "$CURSUS_STAGE/venv/bin/python" -m pip check
 sudo install -m 600 -o "$CURSUS_SERVICE_USER" -g "$CURSUS_SERVICE_USER" "$CURSUS_CONFIG" "$CURSUS_STAGE/config.toml"
 sudo "$CURSUS_STAGE/venv/bin/cursus" --version
 ```
 
-Expected: version 0.5.0, no missing requirements. Root owns source/venv; the
+Expected: version 0.6.0, no missing requirements. Root owns source/venv; the
 service user may read them but must not edit installed code.
 
 ### Validate before switching
@@ -1198,11 +1135,11 @@ code, time, host and release; never publish secrets or raw complete configs.
 | Configuration fails to load | Private file modes/paths and journal | Ensure service account can traverse/read exact files, secrets are regular `0600`, schema is 2 |
 | Role/prompt release mismatch | Final committed role release and staged bytes | Commit qualified role changes and stage a new clean release; do not edit installed files |
 | Capability digest/image mismatch | Final capability `sha256sum`, image ID | Requalify changed bytes and update the matching committed role/config release |
-| Insufficient credential concurrency | Provider ceiling vs domains vs measurements | Supply one disjoint measured domain per requested ceiling; do not share/copy rotating files or silently lower settings |
+| Insufficient credential concurrency | Provider ceiling vs domains vs measurements | Complete native login for each requested isolated domain; do not share/copy rotating files or bypass provider limits |
 | `Failed to connect to bus` on A | Linger, `/run/user/UID/bus`, correct UID | Start the service account's user manager; recreate [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage)'s function after reconnect |
 | Podman rootless/subuid/cgroup error | [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage) runtime checks | Repair host delegation/ranges through host policy; do not switch to root containers or mount a runtime socket |
 | Image missing | `runner podman images --no-trunc` | Load the exact approved image as runner, not root; runtime will not pull |
-| Provider auth works only outside container | Auth mount path, UID, HOME, keyring dependence | Qualify the actual directory-only native flow; a personal host login is not a container login |
+| Provider auth works only outside container | Auth mount path, UID, HOME, keyring dependence | Use the installer’s native login prompts for that image/domain; Antigravity’s private keyring runs inside the container |
 | Verifier command/dependency missing | Image's absolute command and network-free check | Bake dependencies into a new qualified image; do not enable verifier network |
 | PostgreSQL peer auth failure | Linux user, DB role, local socket DSN | Test [private configuration and secrets](#private-configuration-and-secrets) as `cursus-control`; preserve local auth policy, no remote DSN on A |
 | Operator socket access denied | `id -nG`, socket group/mode | Reconnect after group change; do not make socket world-writable |

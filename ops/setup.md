@@ -1,10 +1,14 @@
 # Ubuntu 26.04 deployment and release activation
 
-Revision 2026-11-20-r3. New deployments start with the single
+Revision 2026-11-20-r4. New deployments start with the single
 [`install.sh`](../install.sh) entry point and [README quick install](../README.md#quick-install).
 The per-host wrapper examples below are the lower-level compatibility interface;
 they assume prepared source/config/wheels. The unified installer performs that
-bootstrap and calls the same staging/activation engine.
+bootstrap and calls the same staging/activation engine. Native image installation,
+login guidance and generated pairing/profile metadata now follow
+[ADR 0011](../docs/decisions/0011-native-install-and-login.md); the operator-built
+image/profile discussion below is the advanced manual alternative, not a
+first-time prerequisite.
 
 [ADR 0009](../docs/decisions/0009-container-execution.md)
 supersedes host execution accounts and rejected PR #6. This is a source delivery;
