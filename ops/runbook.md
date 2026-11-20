@@ -1,3 +1,5 @@
+> **Obsolete (ADR 0016):** describes the removed 0.6.0 container/two-host design. Rewritten in work package D.
+
 # Cursus operations runbook
 
 Revision: 2026-11-20-r2. Current deployment: [schema-2 container setup](setup.md).

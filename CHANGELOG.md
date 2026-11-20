@@ -8,6 +8,14 @@ Planned for 0.7.0; the version is not bumped until the installer work package la
 The branch is not releasable meanwhile: the installer and stage engine still emit
 the 0.6.0 container configuration, which the runner no longer loads.
 
+### Removed (work package C0)
+
+- Remove the 0.6.0 installer stack, which built container images and paired two hosts:
+  `deploy/install.py`, `native_setup.py`, `setup.py`, `setup-*.sh`, `deploy/native/*`,
+  `deploy/runner.example.toml`, `cursus.containers`, `config.container_settings`,
+  `config.capability` and their tests. `install.sh` now only explains that the installer is
+  being rebuilt and changes nothing. README and ops documents are marked obsolete.
+
 ### Changed (work package B)
 
 - Replace generated capability profiles with in-source CLI recipes (`cursus.recipes`):

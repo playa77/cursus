@@ -1,6 +1,6 @@
 # ADR 0014: Session ceilings with shared execution resource pools
 
-- Status: accepted; intended-host load qualification pending
+- Status: superseded by [ADR 0016](0016-host-native-single-host.md) (shared cgroup pools); ceilings and pressure guards retained
 - Date: 2026-11-20
 - Authority: operator selected “use the session ceilings and shared host safeguards” after reporting that installer defaults admitted only one agent.
 - Supersedes: ADR 0009's per-container maximum reservation admission rule and ADR 0012's equal agent/verifier split suggestions. Container isolation, verifier resource separation and credential-domain leases remain.

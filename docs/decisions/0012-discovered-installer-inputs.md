@@ -1,6 +1,7 @@
 # ADR 0012: Discover installer facts; ask for deployment choices
 
 - Status: accepted; intended-host verification pending
+- Update: installer, pairing and discovery parts superseded by [ADR 0016](0016-host-native-single-host.md)
 - Date: 2026-11-20
 - Authority: operator instruction in this task: do not ask users to input information the installer can acquire itself.
 - Supplements: [ADR 0010](0010-unified-installer.md) and [ADR 0011](0011-native-install-and-login.md).

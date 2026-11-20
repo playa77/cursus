@@ -1,3 +1,5 @@
+> **Obsolete (ADR 0016):** describes the removed 0.6.0 container/two-host design. Rewritten in work package D.
+
 # Ubuntu 26.04 deployment and release activation
 
 Revision 2026-11-20-r4. New deployments start with the single
