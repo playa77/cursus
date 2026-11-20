@@ -23,7 +23,6 @@ class IdleDeploymentTests(unittest.TestCase):
         self.assertEqual(result.exception.code,'not_enrolled')
 
     def test_runner_loads_without_any_publisher_files(self):
-        native = module('deploy/native_setup.py','idle_native_profiles')
         writer = helper().toml_text
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -36,15 +35,8 @@ class IdleDeploymentTests(unittest.TestCase):
             for key in ('state_root','spool_root','repository_root','worktree_root','review_root'):
                 service[key] = str(root/key)
             service.update(user=user,origin='https://controller.example.ts.net',runner_id=str(uuid4()),
-                           bearer_file=str(root/'bearer'),capabilities_file=str(root/'capabilities.toml'))
+                           bearer_file=str(root/'bearer'))
             config['publisher'].update(git_credential_file=str(root/'git-token'),github_credential_file=str(root/'api-token'))
-            manifest = {'packages':{cli:dict(binary_digest='a'*64,observed_version='fixture-1.0') for cli in native.CLIS}}
-            profile = native.profiles(manifest,'unused-fixture-image',{cli:'fixture-model' for cli in native.CLIS},'fixture-provider',config['capacity'])
-            profile['qualification'] = 'native-checked'
-            for cli in native.CLIS:profile[cli]['probe_evidence'] = ['offline-fixture']
-            raw = writer(profile)
-            Path(service['capabilities_file']).write_text(raw)
-            service['capabilities_digest'] = sha256(raw.encode()).hexdigest()
             bearer = Path(service['bearer_file']);bearer.write_text('fixture-bearer\n');bearer.chmod(0o600)
             path = root/'runner.toml';path.write_text(writer(config))
             self.assertEqual(load('runner',str(path))['repositories'],[])

@@ -266,7 +266,7 @@ class Guide:
 
     def roles(self, raw, profile):
         registry = tomllib.loads((self.source/'roles.toml').read_text())
-        registry['profile_digest'] = sha256(raw).hexdigest()
+        # Legacy profile-driven derivation (removed in WP-D); the registry no longer carries a digest.
         for name,role in registry['roles'].items():
             base = profile[role['cli']]
             effective = dict(base,**base.get('role_profiles',{}).get(name,{}))

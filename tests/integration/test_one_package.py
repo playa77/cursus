@@ -22,7 +22,6 @@ class OnePackageTests(unittest.IsolatedAsyncioTestCase):
                 execution = fixture_execution(ws, overrides)
                 config = settings()
                 config['capacity'] = dict(CAPACITY)
-                config['profile_digest'] = execution.profiles['digest']
                 config['roles'] = {name: dict(invocation(execution, cli, name)['role'], prompt_text='Fixture role.')
                                    for name, cli in [('worker', 'pi'), ('planner', 'claude'), ('reviewer', 'codex')]}
                 config['repositories'][0]['checks'][0]['argv'] = [sys.executable, 'check.py']

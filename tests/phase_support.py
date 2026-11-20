@@ -28,14 +28,11 @@ async def phase_runtime(overrides=None, value=None):
             execution = fixture_execution(ws, overrides)
             config = settings()
             config['capacity'] = dict(CAPACITY)
-            config['profile_digest'] = execution.profiles['digest']
             config['roles'] = {name: dict(invocation(execution, cli, name)['role'], prompt_text='Fixture role.')
                 for name, cli in [('worker','pi'), ('debug','pi'), ('planner','claude'),
                     ('interviewer','claude'), ('reviewer','codex'), ('advocate','claude'),
                     ('critic','codex'), ('judge','agy')]}
             config['roles']['debug'].update(tier='production', tools=['read','write'])
-            for profile in (execution.profiles[c] for c in ('pi','claude','codex','agy')):
-                profile['qualified_roles'] += ['debug','interviewer','advocate','critic','judge']
             config['repositories'][0]['checks'][0]['argv'] = [sys.executable, 'check.py']
             from cursus.artifacts import Artifacts
             control = Control(config, db.store, artifacts=Artifacts(ws.artifacts))

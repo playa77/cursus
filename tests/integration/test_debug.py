@@ -1,5 +1,4 @@
 import asyncio
-from hashlib import sha256
 import json
 from pathlib import Path
 import sys
@@ -17,7 +16,7 @@ class DebugTests(unittest.IsolatedAsyncioTestCase):
         async with phase_runtime(value=value) as rt:
             if turn_cap:
                 rt['config']['limits']['debug_turns']=1
-            binary = Path(rt['execution'].profiles['pi']['binary'])
+            binary = Path(rt['execution'].clis['pi'])
             binary.write_text(f'''#!{sys.executable}
 import json, os, sys
 from pathlib import Path
@@ -34,7 +33,6 @@ for line in sys.stdin:
     print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content':[{{'type':'text','text':json.dumps(value)}}]}}}}),flush=True)
     print(json.dumps({{'type':'agent_end'}}),flush=True)
 ''')
-            rt['execution'].profiles['pi']['binary_digest'] = sha256(binary.read_bytes()).hexdigest()
             await drive(rt,lambda p:p['state']=='execution')
             claim = await rt['runner'].claim('worker')
             self.assertEqual(claim['job']['step'],'debug')

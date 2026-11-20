@@ -17,9 +17,6 @@ spool_root = "REPLACE_HOME/.local/state/cursus/spool"
 repository_root = "REPLACE_HOME/.local/state/cursus/repositories"
 worktree_root = "REPLACE_HOME/.local/state/cursus/worktrees"
 review_root = "REPLACE_HOME/.local/state/cursus/reviews"
-# Transitional until WP-B replaces generated profiles with in-source recipes.
-capabilities_file = "REPLACE_HOME/.config/cursus/runner/capabilities.toml"
-capabilities_digest = "REPLACE_SHA256_OF_PROFILE"
 [publisher]
 git_binary = "/usr/bin/git"
 git_credential_file = "REPLACE_HOME/.config/cursus/runner/publisher-git-credential"
@@ -40,11 +37,17 @@ spool_bytes = 2147483648
 # New sessions wait while free disk is below, or available memory is at or below, these.
 disk_reserve_mb = "REPLACE_POLICY_MB"
 host_reserve_mb = "REPLACE_HOST_RESERVE_MB"
-# Optional: directories for CLI launchers' interpreters (each CLI's own directory is added first).
-# path = "/usr/local/bin:/usr/bin:/bin"
+# Where to find the installed CLIs and their interpreters (each CLI's own directory is added
+# first). A service has a minimal PATH, so list the directories holding claude, codex,
+# agy (or antigravity) and pi, for example ~/.local/bin or your node bin directory.
+# `cursus preflight --roles roles.toml --config <this file>` checks them.
+# path = "/home/you/.local/bin:/usr/local/bin:/usr/bin:/bin"
 # Optional: variables copied from the runner's environment into children. Nothing else is
 # inherited. List only what a CLI's own login store needs, for example:
 # pass_env = ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]
+# Or name binaries explicitly (keep this table last in [execution]):
+# [execution.clis]
+# claude = "/home/you/.local/bin/claude"
 [[repositories]]
 owner = "REPLACE_GITHUB_OWNER"
 name = "REPLACE_TRUSTED_REPO"

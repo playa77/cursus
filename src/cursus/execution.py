@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import signal
 from cursus.contracts import Problem, canonical_json, decode_json, _object
+from cursus.recipes import build
 
 
 MAX_OUTPUT = 1024 * 1024
@@ -48,48 +49,22 @@ def review(value, criteria):
 
 
 class Execution:
-    def __init__(self, profiles, runtime):
+    def __init__(self, clis, runtime):
+        """`clis` maps a CLI family to the operator's installed absolute binary path."""
         if runtime is None:
             raise Problem('runtime_required', 'Execution requires the host runtime.')
-        self.profiles, self.runtime = profiles, runtime
+        self.clis, self.runtime = clis, runtime
 
     def authorize(self, invocation):
+        """Return (argv, prompt_transport) from the in-source recipe for this role."""
         role = invocation['role']
-        cli = role['cli']
-        profile = self.profiles[cli]
-        profile = dict(profile, **profile.get('role_profiles', {}).get(role['name'], {}))
-        if role['name'] not in profile['qualified_roles'] or role['model'] != profile['model']:
-            raise Problem('profile_mismatch', 'Role/model is not qualified.')
-        if (role['tier'] == 'production' and cli != 'pi') or role['tier'] not in ('production', 'organization'):
-            raise Problem('profile_mismatch', 'Invalid production CLI.')
-        if role['tier'] == 'organization' and set(role['tools']) - {'read', 'list', 'search'}:
-            raise Problem('profile_mismatch', 'Reviewer/organization tools must be read-only.')
-        if set(role['tools']) != set(profile['tool_allowlist']) or '*' in role['tools']:
-            raise Problem('profile_mismatch', 'Role tools exceed qualified authority.')
-        if invocation['profile_digest'] != self.profiles['digest']:
-            raise Problem('profile_mismatch', 'Invocation profile digest differs.')
-        for key in ('provider', 'reasoning'):
-            if role.get(key) != profile.get(key):
-                raise Problem('profile_mismatch', 'Invocation tuple is not qualified.')
-        binary = Path(profile['binary'])
+        binary = self.clis.get(role['cli'])
+        if not binary:
+            raise Problem('cli_missing', role['cli'] + ' is not installed or not configured for this runner.')
         # The operator's installed CLI may update itself, so no digest is pinned (ADR 0016).
-        if not binary.is_absolute() or not os.access(binary, os.X_OK):
-            raise Problem('profile_mismatch', 'CLI binary is missing or not executable.')
-        if not profile.get('probe_evidence') or not profile.get('clean_config_argv'):
-            raise Problem('profile_mismatch', 'Missing installed-version capability evidence.')
-        tokens = profile['fixed_argv']
-        required = {'pi': ['--mode', 'rpc' if profile['prompt_transport'] == 'rpc' else 'json'],
-                    'claude': ['-p', '--output-format', 'stream-json'],
-                    'codex': ['exec', '--json'], 'agy': ['-p', '--output-format', 'stream-json']}[cli]
-        if any(token not in tokens for token in required):
-            raise Problem('profile_mismatch', 'Required direct CLI invocation family is missing.')
-        argv = [str(binary), *profile['fixed_argv']]
-        if set(role['tools']) <= {'read', 'list', 'search'}:
-            if not profile.get('read_only_argv'):
-                raise Problem('profile_mismatch', 'Missing read-only qualification.')
-            argv += profile['read_only_argv']
-        argv += profile['clean_config_argv']
-        return profile, argv
+        if not os.access(binary, os.X_OK):
+            raise Problem('cli_missing', role['cli'] + ' binary is not executable.')
+        return build(role, binary)
 
     async def child(self, argv, workspace, stdin, timeout, sink=None, rpc=False, commands=None, command_sink=None, checkpoint=None):
         pipes = dict(stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -297,8 +272,7 @@ class Execution:
         if job['step'] == 'verify':
             return await self.verify(job, workspace, attempt_id)
         invocation = job['invocation']
-        profile, argv = self.authorize(invocation)
-        transport = profile['prompt_transport']
+        argv, transport = self.authorize(invocation)
         prompt = invocation['prompt_text']
         if transport == 'stdin':
             stdin = prompt.encode()

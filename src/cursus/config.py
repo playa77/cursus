@@ -79,9 +79,8 @@ def role_release(service):
         if result.returncode or result.stdout != item.read_bytes():
             fail('Role/prompt files differ from the pinned release.')
     registry = tomllib.loads(path.read_text())
-    keys(registry, ('schema_version', 'roles', 'profile_digest'))
-    validate('Digest', registry['profile_digest'])
-    if registry['schema_version'] != 1:
+    keys(registry, ('schema_version', 'roles'))
+    if registry['schema_version'] != 2:
         fail()
     if set(('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge')) - registry['roles'].keys():
         fail('Required roles are missing.')
@@ -98,6 +97,9 @@ def role_release(service):
         if role['tier'] == 'organization' and set(role['tools']) - {'read', 'list', 'search'}:
             fail('Organizational roles require read-only tools.')
         positive(role['timeout_seconds'])
+        from cursus.recipes import safe
+        if not all(safe(role[k]) for k in ('model','reasoning')) or ('provider' in role and not safe(role['provider'])):
+            fail('Role model, reasoning and provider must be plain identifiers.')
         prompt = absolute(service['prompts_root']) / role['prompt']
         if prompt.suffix != '.md' or prompt.resolve().parent != absolute(service['prompts_root']).resolve():
             fail()
@@ -140,7 +142,6 @@ def load(process_kind, path, release_root=None):
         enrollment(settings['repositories'])
         release = role_release(service)
         settings['roles'] = release['roles']
-        settings['profile_digest'] = release['profile_digest']
         settings['dsn'] = secret(service['dsn_file'])
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
@@ -148,7 +149,7 @@ def load(process_kind, path, release_root=None):
         keys(settings, (*required, 'publisher', 'capacity', 'execution', 'repositories'))
         service = settings['service']
         keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
-                       'repository_root', 'worktree_root', 'review_root', 'capabilities_file', 'capabilities_digest'))
+                       'repository_root', 'worktree_root', 'review_root'))
         validate('Id', service['runner_id'])
         for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
             absolute(service[key])
@@ -159,18 +160,6 @@ def load(process_kind, path, release_root=None):
         capacity(settings['capacity'])
         execution_settings(settings['execution'])
         settings['bearer'] = secret(service['bearer_file'])
-        profile = absolute(service['capabilities_file']).read_bytes()
-        if sha256(profile).hexdigest() != service['capabilities_digest']:
-            fail('Capability digest mismatch.')
-        settings['profiles'] = tomllib.loads(profile.decode())
-        settings['profiles']['digest'] = service['capabilities_digest']
-        if settings['profiles'].get('qualification') not in ('qualified','native-checked'):
-            fail('Capability profile has not completed native setup checks.')
-        for cli in ('pi','claude','codex','agy'):
-            measured = settings['profiles'].get(cli, {})
-            capability(cli, measured)
-            if Path(measured.get('binary', '')).name != cli:
-                fail('Required direct native binary is missing.')
         origin = service['origin']
     else:
         fail('Unsupported process kind.')
@@ -260,13 +249,17 @@ def container_settings(value, ceilings, service, publisher):
 def execution_settings(value):
     """Host-native execution policy (ADR 0016). No isolation settings exist."""
     import re
-    keys(value, ('disk_reserve_mb', 'host_reserve_mb'), ('path', 'pass_env'))
+    keys(value, ('disk_reserve_mb', 'host_reserve_mb'), ('path', 'pass_env', 'clis'))
     positive(value['disk_reserve_mb'])
     positive(value['host_reserve_mb'])
     if 'path' in value:
         directories = value['path'].split(':') if isinstance(value['path'], str) else []
         if not directories or not all(d.startswith('/') and '\n' not in d for d in directories):
             fail('Execution PATH must be absolute directories separated by colons.')
+    clis = value.get('clis', {})
+    if not isinstance(clis, dict) or set(clis) - {'pi', 'claude', 'codex', 'agy'} or not all(
+            isinstance(c, str) and c.startswith('/') for c in clis.values()):
+        fail('execution.clis must map pi/claude/codex/agy to absolute binary paths.')
     names = value.get('pass_env', [])
     base = {'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'TMPDIR'}
     if not isinstance(names, list) or any(

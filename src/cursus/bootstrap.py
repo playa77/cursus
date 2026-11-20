@@ -16,6 +16,9 @@ def parser():
     for name in ('control', 'runner'):
         command = commands.add_parser(name)
         command.add_argument('--config', required=True)
+    command = commands.add_parser('preflight', help='check installed native CLIs (version/help only; no login, no inference)')
+    command.add_argument('--roles', required=True, help='roles.toml naming the CLIs this deployment uses')
+    command.add_argument('--config', help='runner config; only its [execution] section is read')
     for name in ('submit', 'action', 'status'):
         command = commands.add_parser(name)
         command.add_argument('--socket', default='/run/cursus/operator.sock')
@@ -28,6 +31,44 @@ def parser():
             command.add_argument('--input', required=True)
             command.add_argument('--idempotency-key')
     return root
+
+
+def preflight(args):
+    """Operator check that each CLI the roles use is installed. Signed-in state is NOT checked."""
+    import os
+    import tomllib
+    from pathlib import Path
+    from cursus.config import execution_settings
+    from cursus.host import DEFAULT_PATH
+    from cursus.recipes import preflight as check, resolve
+    roles = tomllib.loads(Path(args.roles).read_text()).get('roles', {})
+    required = sorted({role['cli'] for role in roles.values()})
+    if args.config:
+        settings = tomllib.loads(Path(args.config).read_text()).get('execution', {})
+        execution_settings(settings)
+    else:
+        search = [d for d in os.environ.get('PATH', DEFAULT_PATH).split(':') if d.startswith('/')]
+        settings = {'path': ':'.join(search) or DEFAULT_PATH}
+        print('No --config: using your current PATH. Set [execution] path or clis for the service.')
+    print(f'Checking {len(required)} CLI(s) used by the roles: {", ".join(required)}. '
+          'Version and help queries only; sign-in is not checked.')
+    failures = 0
+    for cli in required:
+        binary = resolve(cli, settings)
+        if binary is None:
+            print(f'FAIL {cli}: not found. Install it and sign in as this user, then list its directory in [execution] path.')
+            failures += 1
+            continue
+        result = asyncio.run(check(cli, binary, settings))
+        if result['ok']:
+            print(f'ok   {cli}: {binary} ({result["version"] or "version unknown"})')
+        else:
+            failures += 1
+            reason = result.get('error') or 'missing options: ' + ', '.join(result['missing'])
+            print(f'FAIL {cli}: {binary} ({result["version"] or "version unknown"}): {reason}')
+    print('Preflight ' + ('passed.' if not failures else f'failed for {failures} CLI(s).') +
+          ' Signing in remains your responsibility; a signed-out CLI fails on first use.')
+    return 1 if failures else 0
 
 
 async def service(args):
@@ -89,7 +130,12 @@ async def service(args):
             from cursus.host import HostRuntime
             runtime = HostRuntime(settings['execution'], journal.root / 'execution', settings['capacity'])
             await runtime.preflight()
-            execution = Execution(settings['profiles'], runtime)
+            from cursus.recipes import discover
+            clis = discover(settings['execution'])
+            import logging
+            logging.getLogger('cursus.runner').info(json.dumps({'event': 'clis_resolved', 'clis': clis,
+                'missing': sorted({'pi', 'claude', 'codex', 'agy'} - set(clis))}))
+            execution = Execution(clis, runtime)
             runner = Runner(service['runner_id'], journal, transport, repository, execution)
             await runner.serve()
         finally:
@@ -106,6 +152,8 @@ def main(argv=None):
         if args.command in ('control', 'runner'):
             asyncio.run(service(args))
             return 0
+        if args.command == 'preflight':
+            return preflight(args)
         from cursus.http import request_local
         if args.command == 'status':
             route = '/'

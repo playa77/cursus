@@ -75,8 +75,7 @@ class M1ContractsTests(unittest.TestCase):
             remote = GitRemote(ws.root)
             release = remote.seed
             role_text = Path('roles.toml').read_text()
-            replacements = {'REPLACE_SHA256_OF_QUALIFIED_PROFILE':'a'*64,
-                            'REPLACE_QUALIFIED_MODEL':'fixture', 'REPLACE_QUALIFIED_REASONING':'fixture',
+            replacements = {'REPLACE_QUALIFIED_MODEL':'fixture', 'REPLACE_QUALIFIED_REASONING':'fixture',
                             'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID':'fixture-go'}
             for old, new in replacements.items():
                 role_text = role_text.replace(old, new)
@@ -104,7 +103,16 @@ class M1ContractsTests(unittest.TestCase):
             for placeholder in ('WORKER_1_TO_4','CLAUDE_1_TO_2','CODEX_1_TO_2','AGY_1_TO_2'):
                 text = text.replace('"REPLACE_' + placeholder + '"', '1')
             config.write_text(text)
-            self.assertEqual(load('control', str(config))['profile_digest'], 'a'*64)
+            self.assertNotIn('profile_digest', load('control', str(config)))
             (release/'prompts'/'worker.md').write_text('Uncommitted changed authority')
             with self.assertRaises(Problem):
                 load('control', str(config))
+            # A committed role whose model could be read as a CLI option is refused at load.
+            remote.git(release, 'checkout', '--', 'prompts')
+            (release / 'roles.toml').write_text(role_text.replace('model = "fixture"', 'model = "--evil"', 1))
+            remote.git(release, 'add', '.')
+            remote.git(release, 'commit', '-m', 'Unsafe model')
+            unsafe = config.with_name('unsafe.toml')
+            unsafe.write_text(text.replace(commit, remote.git(release, 'rev-parse', 'HEAD')))
+            with self.assertRaises(Problem):
+                load('control', str(unsafe))
