@@ -30,17 +30,17 @@ sudo apt-get install --yes curl
 ```
 
 Start on **A (worker) first**. The installer builds its execution image and
-installs **Claude Code, Codex CLI, Antigravity and pi** in it. It then opens each
-of those installed apps and reminds you to complete its native login. Use your
-normal subscriptions/accounts. Cursus subsequently runs those same installed
-apps with that same persistent native login state.
+installs **Claude Code, Codex CLI, Antigravity and pi** in it, then reports native
+CLI installation complete and reminds you to log into all four yourself.
+It does not open or control login flows, select models, inspect saved selections,
+or run authenticated/provider checks. Use your normal subscriptions/accounts.
 
-You do **not** supply an image, write `capabilities.toml`, copy login files or
-provide replacement provider API keys. After login, the installer asks permission
-for a bounded set of native checks and generates the capability configuration.
-At the end it prints a **pairing code**. Run the same installer on **B
-(controller)** and paste that code when asked. The code contains deployment
-metadata and the bearer digest, never native credentials or the bearer token.
+Setup choices are saved privately in `/etc/cursus/runner.pending.toml`.
+This is a pending setup record, not an activatable deployment configuration.
+Fresh worker installation stops here successfully: pairing and service activation
+remain separate until authenticated runtime configuration has been prepared.
+Rerunning the installer preserves those choices and does not take over login.
+Prepared complete configs retain the existing staging/activation workflow.
 
 To inspect the script before running it, use this equivalent workflow, which
 also detects a failed download before any script executes:
@@ -69,13 +69,13 @@ downloaded script from **any directory**, including an otherwise empty home.
 2. Checks Ubuntu 26.04, installs bootstrap tools, creates the source checkout if
    absent, and selects the requested source revision. Existing work is never reset.
 3. Prepares the stable service account, private directories, PostgreSQL on B or
-   rootless Podman/user manager on A. On A, installs all four native tools,
-   guides their native logins, checks the installed interfaces with your approved
-   budget, and generates the image/profile configuration. On B, imports that
-   generated metadata from A’s pairing code. Generates the runner bearer
+   rootless Podman/user manager on A. Fresh A setup installs all four native tools,
+   saves pending choices and finishes with a manual-login reminder. It does not
+   perform authentication or activate the worker. With a prepared deployment, B
+   imports metadata from its pairing code. Generates the runner bearer
    without printing it. Fresh setup enrolls no repositories and requests no
    GitHub publisher credentials.
-4. Downloads hash-locked dependencies automatically (or uses your supplied
+4. For prepared deployments, downloads hash-locked dependencies automatically (or uses your supplied
    offline wheelhouse), builds and stages an immutable Python release/config.
 5. Validates and activates using the existing drain, migration and runtime
    checks. An installation failure prints **INSTALLATION INCOMPLETE**; a staged
@@ -119,9 +119,8 @@ visibility and rerun; the installer does not ask you to transcribe missing facts
 | Shared resource pools | Setup derives one agents pool and a separate verifier allowance (one eighth of execution RAM, capped at 1024 MiB; one fifth CPU, capped at one core). Every agent can use the agents pool; its maximum is not reserved on admission. Up to your configured pi/provider counts can coexist, sharing CPU/RAM. Reaching a shared memory/process limit can fail work; session counts are not peak-load guarantees. Temporary/home storage is bounded inside container RAM; persistent login state is separate. |
 | Units | Enter positive whole numbers. 1024 MiB = 1 GiB; 1000 CPU millis = one core. `pids` counts processes and threads, not bytes. |
 | Disk reserve | When free runner disk falls below `disk_reserve_mb`, new containers wait; existing containers keep running. It does not allocate disk space or cap usage. Setup suggests 10% of currently free space, capped at 10 GiB. Increase the margin for large images, repositories or logs. |
-| Native logins | When each installed app opens, complete its own login flow with the account you authorize. For pi, use `/login` and choose the intended OpenCode Go provider. Complete each requested slot, then exit the app. No login files or replacement API keys are requested. |
-| Model and pi provider choices | Choose and save the default model in each installed app’s native model selector; choose pi’s provider there too. Setup reads only those selected fields from its own persistent settings inside the execution container. You do not retype IDs. If no saved selection exists, setup opens the app for you to choose and save one. |
-| Native-check budget | Enter the maximum charge you authorize, including currency, then explicitly approve the displayed invocation/time limits. This records consent; it does not enforce a provider billing cap. Checks stop on failure without installer inference retries. |
+| Native logins | After installation, log into Claude Code, Codex CLI, Antigravity and pi yourself, using the installed runtime image and its persistent native-state domains. The installer does not launch their login flows or ask you to confirm authentication. |
+| Model/provider choices | Choose these yourself in the native apps. Installation does not read them, reopen selectors or request model IDs. Authenticated deployment configuration remains a separate step. |
 | Off-host backup destination on B | Enter the destination used by your independently managed backup procedure, for example a private backup server/path. Cursus records it but does not provision, copy or schedule backups. Choose and verify that procedure separately. |
 
 The controller DNS name can exist before its website is ready. Constructing
@@ -163,7 +162,7 @@ Useful options:
 | `--ref FULL_COMMIT` | Obtain a specific reviewed source revision |
 | `--source-dir /absolute/path` | Choose where source is obtained; no directory need exist yet |
 | `--wheelhouse /absolute/wheels` | Use offline locked dependencies instead of downloading |
-| `--native-only` | On A, install tools, guide login and generate config/pairing output without staging Cursus services |
+| `--native-only` | On A, install tools and save pending choices, then remind you to log in manually; no service staging |
 | `--stage-only` | Prepare an immutable release without switching or starting services |
 | `--activate-existing --config /absolute/config.toml` | Activate the exact previously staged commit/config |
 | `--non-interactive --yes --host ... --config ...` | Unattended host installation with all prerequisites already provisioned |
@@ -512,40 +511,31 @@ image ID. The image contains no login credentials. Native login happens afterwar
 under the rootless runner identity, with isolated persistent state directories.
 There is no separate image or measured-profile prerequisite for normal setup.
 
-### Complete the four login prompts on A
+### Log into the four CLIs yourself
 
-1. **Claude Code:** the installer runs `claude auth login`. Choose your intended
-   account/subscription and complete the displayed browser instructions.
-2. **Codex CLI:** it runs `codex login --device-auth`. Open the displayed URL on
-   your PC, sign in with ChatGPT and enter the displayed device code.
-3. **Antigravity:** it opens `agy` in its private container session. Follow the
-   remote-login URL/code instructions and exit after signing in.
-4. **pi:** it opens `pi`. Type `/login`, select the agreed OpenCode Go provider,
-   complete enrollment, then exit. Select the intended model in the native UI.
+After installation, sign into **Claude Code**, **Codex CLI**, **Antigravity** and
+**pi** using their native interfaces and your intended accounts. Use the same
+installed image and persistent state domains that the runner will later use;
+logging into an unrelated host installation does not populate these domains.
+Credentials remain in place; do not copy authentication files between domains.
+The installer neither launches these interfaces nor verifies or controls login.
 
-Do not enable optional plugins/extensions or import another app’s configuration
-during onboarding. The image already contains the four required tools. If you
-chose more than one simultaneous session for a provider, login is repeated for
-each isolated domain. Credentials are not copied between domains. The native
-clients own their login/refresh state; Cursus reuses it in place.
+Antigravity's persistent private keyring belongs to its native-state domain;
+no host keyring or host D-Bus socket should be mounted into the execution image.
 
-Antigravity's Secret Service runs inside its container. Its private keyring state
-persists in that domain; the keyring unlock is unattended and uses an empty
-password. Host file ownership protects this state, not encryption against the
-server administrator. No host keyring or host D-Bus socket is mounted.
+### Install the native tools without starting Cursus
 
-### Resume or install the native tools without starting Cursus
-
-After obtaining source, the same installer supports:
+After obtaining source:
 
 ```bash
 bash install.sh --host worker --native-only
 ```
 
-This prepares the native installations, opens the login prompts, generates the
-capability/configuration files, and prints the pairing code. It does not stage
-or start Cursus services. First-time native setup requires your SSH terminal;
-unattended mode is for already provisioned deployments.
+Fresh worker setup (with or without `--native-only`) installs the native image,
+creates its persistent state directories, saves `runner.pending.toml` and ends
+successfully with the login reminder. It does not generate authenticated
+capability evidence, pairing output or an active worker configuration.
+Reruns reuse the image and saved choices; logins stay under your control.
 
 ### Manual image build
 
@@ -564,51 +554,42 @@ runner. Never loosen permissions on your whole home or put credentials in the
 build context. Verification tools/dependencies for your enrolled repository must
 also exist in the image; verifiers execute without network.
 
-Manual native authentication uses the same supported vendor commands above,
-inside the image with persistent native-state subdirectories and a disposable
-HOME. The `--native-only` path performs this container plumbing and lifetime
-tracking for you; use it when you do not need to administer Podman manually.
-Existing manually maintained qualified images/profiles remain an advanced option.
+Manual authentication uses the native vendor interfaces inside the installed
+image, with persistent native-state subdirectories and a disposable HOME.
+`--native-only` installs the image; it does not launch authentication sessions.
+Existing manually maintained qualified images/profiles remain supported.
 
 ## Measure capabilities and pin the role release
 
-`capabilities.toml` is generated **by setup from the installed apps**. The normal
-installer never asks you to author it or supply an absolute path to one.
+Native CLI installation is separate from authenticated capability qualification
+([ADR 0015](docs/decisions/0015-manual-native-login.md)). The installer no longer
+launches logins, reads model selections, asks for inference spending consent or
+runs provider checks. Its pending record is not a qualified profile, and logging
+in alone does not establish isolation, role/tool compatibility or concurrent
+refresh behavior. Those runtime requirements remain in
+[qualification](tests/qualification.md).
 
-After the native logins, setup requests a charge authorization and confirmation
-for at most `2 × total native login domains + 1` CLI invocations: two checks per
-domain in separate containers, plus the read-only pi scout transport. Each has a
-120-second native timeout, 10-second kill grace, and 140-second supervisor bound;
-there are no installer inference retries. Native provider-side retries/request
-counts and billable cost are not an enforceable provider cap. Stop/retry decisions
-remain explicit after failure.
+A prepared deployment still needs an independently established capability profile
+and role release before activation. No successful login/check evidence is
+fabricated to make fresh installation look like an active deployment.
+The manual configuration/activation instructions below remain available for
+prepared profiles; rerunning native installation does not perform qualification.
 
-The checks use the logged-in native apps, validate installed options and terminal
-JSON/RPC responses, and verify login state persists after the first container is
-removed. pi RPC stdin remains open until its terminal turn. The generated profile
-records `native-checked`; this describes those actual checks, **not** completed
-maximum-concurrency refresh, resource-isolation or M3 acceptance. Full intended-host
-qualification remains recorded separately in [qualification](tests/qualification.md).
-
-Setup records exact app versions, executable hashes, image ID, model/reasoning
-settings, native invocation arguments and observed check digests. It persists
-only sanitized check metadata, not raw credentials or login output. A changed
-image/native interface needs new checks. A failed login or unknown required option
-fails visibly; it does not generate successful evidence or ask you to invent flags.
-
-On A the generated capability file is content-addressed under
+Prepared capability files on A can be content-addressed under
 `/etc/cursus/runner/capabilities-<digest>.toml`. The pairing code brings the same
 non-secret profile bytes to B. B automatically creates and pins its local role/
 prompt Git release. Native credentials remain on A. Supplied complete configs and
 legacy manually qualified role/profile releases are still supported for advanced
-and offline deployment; they are not first-time setup requirements.
+and offline deployment; they are not required to finish native CLI installation.
 
 ## Private configuration and secrets
 
 
 ### Copy and edit configuration
 
-The guided installer generates these files and pins the native profile for you.
+Fresh worker installation saves its choices in `runner.pending.toml`. The
+following manual deployment path requires a separately prepared capability
+profile and role configuration; installation does not generate authenticated evidence.
 The following template-editing steps are the advanced manual alternative. Do not
 replace working generated files with blank worksheets.
 
@@ -1228,7 +1209,7 @@ code, time, host and release; never publish secrets or raw complete configs.
 | `Failed to connect to bus` on A | Linger, `/run/user/UID/bus`, correct UID | Start the service account's user manager; recreate [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage)'s function after reconnect |
 | Podman rootless/subuid/cgroup error | [prepare accounts and persistent storage](#prepare-accounts-and-persistent-storage) runtime checks | Repair host delegation/ranges through host policy; do not switch to root containers or mount a runtime socket |
 | Image missing | `runner podman images --no-trunc` | Load the exact approved image as runner, not root; runtime will not pull |
-| Provider auth works only outside container | Auth mount path, UID, HOME, keyring dependence | Use the installer’s native login prompts for that image/domain; Antigravity’s private keyring runs inside the container |
+| Provider auth works only outside container | Auth mount path, UID, HOME, keyring dependence | Log in manually using that installed image and persistent domain; the installer does not launch login prompts |
 | Verifier command/dependency missing | Image's absolute command and network-free check | Bake dependencies into a new qualified image; do not enable verifier network |
 | PostgreSQL peer auth failure | Linux user, DB role, local socket DSN | Test [private configuration and secrets](#private-configuration-and-secrets) as `cursus-control`; preserve local auth policy, no remote DSN on A |
 | Operator socket access denied | `id -nG`, socket group/mode | Reconnect after group change; do not make socket world-writable |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided host installation behind install.sh, revision 2026-11-20-r7.
+"""Guided host installation behind install.sh, revision 2026-11-20-r8.
 
 ADR 0010: source acquisition, host preparation and dependency acquisition precede
 configuration. ADR 0011 governs native checks; ADR 0012 governs discovered inputs.
@@ -334,6 +334,20 @@ class Guide:
             return answer
         return value
 
+    def native_install_complete(self, config):
+        """Save installation choices without claiming authenticated readiness."""
+        pending = self.root/'runner.pending.toml'
+        text = toml_text(config)
+        if pending.exists() or pending.is_symlink():
+            if pending.is_symlink() or pending.read_text()!=text:
+                raise RuntimeError('Pending worker setup differs; existing choices were not overwritten: '+str(pending))
+        else:
+            write_private(pending,text,self.user)
+        log('Native CLI installation complete: Claude Code, Codex CLI, Antigravity and pi.')
+        log('Reminder: log into all four CLIs yourself before running work. The installer does not open or control their login flows.')
+        log('Installed rootless image: '+config['containers']['image'])
+        log('Setup choices saved in '+str(pending)+'. Authentication and deployment configuration remain pending; no service was staged or activated.')
+
     def configure(self):
         kind = 'runner' if self.args.host=='worker' else 'control'
         target = self.root/(kind+'.toml')
@@ -342,6 +356,15 @@ class Guide:
                 raise RuntimeError('Refusing symlink config: '+str(target))
             log('Reusing explicit host config '+str(target)+'; it will be validated, not overwritten.')
             return target
+        pending = self.root/'runner.pending.toml'
+        if kind=='runner' and (pending.exists() or pending.is_symlink()):
+            if pending.is_symlink():
+                raise RuntimeError('Refusing symlink pending config: '+str(pending))
+            from native_setup import NativeSetup
+            config = tomllib.loads(pending.read_text())
+            NativeSetup(self,config).run()
+            self.native_install_complete(config)
+            return None
         log('[3/5] Configuring this server. Each question explains what to enter and where to find it.')
         from native_setup import NativeSetup, read_pairing
         config = tomllib.loads((self.source/'deploy'/f'{kind}.example.toml').read_text())
@@ -388,15 +411,9 @@ class Guide:
             config['containers']['hide_project_customizations'] = True
         config = self.fill(config)
         if kind=='runner':
-            profile = NativeSetup(self,config).run()
-            raw = toml_text(profile).encode()
-            digest = sha256(raw).hexdigest()
-            destination = Path('/etc/cursus/runner')/('capabilities-'+digest+'.toml')
-            if not destination.exists():
-                write_private(destination,raw.decode(),self.user)
-            elif destination.is_symlink() or destination.read_bytes()!=raw:
-                raise RuntimeError('Generated capability file conflicts with existing state.')
-            config['service'].update(capabilities_file=str(destination),capabilities_digest=digest)
+            NativeSetup(self,config).run()
+            self.native_install_complete(config)
+            return None
         write_private(target,toml_text(config),self.user)
         log('Saved private config '+str(target))
         if kind=='control':
@@ -496,13 +513,15 @@ class Guide:
         log('[3/5] Preparing stable service account, database/runtime and private storage...')
         installer.prepare_host()
         config_path = Path(self.args.config).resolve(strict=True) if self.args.config else self.configure()
+        if config_path is None:
+            return
         if config_path.is_symlink():
             raise RuntimeError('Config must not be a symlink.')
         config = tomllib.loads(config_path.read_text())
         options.config = str(config_path)
         self.secrets(config)
         if getattr(self.args,'native_only',False):
-            log('Native tools, login checks and private config prepared; no Cursus release staged or activated.')
+            log('Existing worker configuration prepared; no Cursus release staged or activated.')
             return
         log('[4/5] Preparing hash-locked Python dependencies and immutable release...')
         if not options.wheelhouse:

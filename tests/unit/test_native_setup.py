@@ -48,6 +48,25 @@ class NativeSetupTests(unittest.TestCase):
         with self.assertRaises(ValueError):native.read_pairing('x'*65537)
         with self.assertRaises(ValueError):native.read_pairing(native.pairing_code({**bundle,'secret':'not permitted'}))
 
+    def test_installation_stops_after_build_without_driving_auth_or_inference(self):
+        native=self.native();manager=object.__new__(native.NativeSetup)
+        from tests.unit.test_containers import policy
+        with tempfile.TemporaryDirectory() as folder:
+            manager.root=Path(folder)
+            settings,ceilings=policy(manager.root)
+            manager.config=dict(containers=settings,capacity=ceilings,
+                                service={key:str(manager.root/key) for key in ('state_root','spool_root','repository_root','worktree_root','review_root','bearer_file','capabilities_file')},publisher={})
+            manager.guide=SimpleNamespace(tty=None)
+            manager.account=SimpleNamespace(pw_uid=1234)
+            image='sha256:'+'a'*64
+            domains=settings['credentials']
+            forbidden=AssertionError('Installer must not drive login, model selection or inference')
+            with patch.object(native.subprocess,'run',return_value=SimpleNamespace(returncode=3)), patch.object(manager,'build',return_value=image), patch.object(manager,'domains',return_value=domains), patch.object(manager,'login',side_effect=forbidden), patch.object(manager,'selections',side_effect=forbidden), patch.object(manager,'check',side_effect=forbidden), patch.object(manager,'session',side_effect=forbidden):
+                result=manager._run()
+            self.assertIsNone(result)
+            self.assertEqual(manager.config['containers']['image'],image)
+            self.assertEqual(manager.config['containers']['credentials'],domains)
+
     def test_native_commands_start_from_runner_directory_not_callers_home(self):
         native=self.native();manager=native.NativeSetup.__new__(native.NativeSetup)
         with tempfile.TemporaryDirectory() as folder:

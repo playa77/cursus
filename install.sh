@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cursus installer entry point, revision 2026-11-20-r6. See ADRs 0010 and 0013.
+# Cursus installer entry point, revision 2026-11-20-r7. See ADRs 0010 and 0013.
 set -euo pipefail
 trap 'printf "Cursus bootstrap failed at line %s. No success is implied; inspect the error above.\n" "$LINENO" >&2' ERR
 
@@ -16,7 +16,7 @@ host to install, prepares it, and guides configuration before staging/startup.
   --source-dir PATH        Checkout location (default: $HOME/cursus-source)
   --config PATH            Existing complete private host TOML (optional)
   --wheelhouse PATH        Use offline locked dependencies (optional)
-  --native-only            Worker: install native apps, login and prepare config only
+  --native-only            Worker: install native apps only; logins stay manual
   --stage-only             Stage without switching or starting services
   --activate-existing      Activate the exact already staged commit/config
   --non-interactive        Require --host, --config and --yes; no prompts
@@ -25,10 +25,11 @@ host to install, prepares it, and guides configuration before staging/startup.
   --help                   Show this help
 
 Without --wheelhouse, downloads hash-locked Python wheels automatically.
-Worker setup installs Claude Code, Codex CLI, Antigravity and pi, guides their
-native logins, then requests a budget before native checks. It generates its
-capability file; you do not supply a prequalified image or profile. Host firewall
-and Tailscale enrollment remain explicit operator steps.
+Fresh worker setup installs Claude Code, Codex CLI, Antigravity and pi, saves
+setup choices, then finishes with a reminder to log into all four yourself.
+It does not open login flows, choose models, run inference checks or activate
+a fresh worker. Prepared deployment configs retain the staging/activation path.
+Host firewall and Tailscale enrollment remain explicit operator steps.
 Fresh guided installs enroll no repositories and need no GitHub publisher token.
 You can leave Cursus idle and enroll a repository later.
 HELP
@@ -84,13 +85,13 @@ if ((dry_run)); then
   printf 'Cursus dry-run: NO changes or network requests.\n'
   printf 'Host: %s; source: %s; requested revision: %s\n' "${host:-ask controller or worker}" "$source_dir" "$ref"
   printf 'Plan: obtain source if absent; install Ubuntu prerequisites; prepare stable account/storage;\n'
-  printf 'guide private config; prepare hash-locked wheels (or use supplied wheelhouse);\n'
-  if ((native_only)); then
-    printf 'install native apps, guide login, generate worker config and pairing output; no service staging.\n'
+  printf 'guide private installation choices;\n'
+  if ((native_only)) || { [[ "$host" == worker && -z "$config" ]]; }; then
+    printf 'install native apps; save pending setup; remind you to log in manually; no service staging.\n'
     exit 0
   fi
-  printf 'validate release/config; stage immutable release; %s.\n' "$([[ $stage_only == 1 ]] && echo 'leave services unchanged' || echo 'validate and activate with drain/migration guards')"
-  printf 'Worker plan includes building the native image, four guided logins and budgeted checks; controller consumes the generated pairing code.\n'
+  printf 'for prepared configs, prepare hash-locked wheels; validate release/config; stage immutable release; %s.\n' "$([[ $stage_only == 1 ]] && echo 'leave services unchanged' || echo 'validate and activate with drain/migration guards')"
+  printf 'Fresh worker plan ends after native image installation with a manual-login reminder; no authenticated checks or service activation. Prepared configs use the deployment plan above.\n'
   exit 0
 fi
 if ((noninteractive)) && { [[ -z "$host" || -z "$config" ]] || ((!yes)); }; then

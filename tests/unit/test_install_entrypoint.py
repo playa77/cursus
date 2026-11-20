@@ -114,12 +114,45 @@ class GuideContracts(unittest.TestCase):
                 return real_write(path, data, user)
             with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):
                 import native_setup
-                with patch.object(native_setup,'NativeSetup',return_value=SimpleNamespace(run=lambda:{'fixture':'offline'})), patch.object(module,'write_private',side_effect=write), patch.object(subprocess,'check_output',return_value='podman version 5.7.0'), patch.object(guide,'tailscale',return_value={}):
+                with patch.object(native_setup,'NativeSetup',return_value=SimpleNamespace(run=lambda:None)), patch.object(module,'write_private',side_effect=write), patch.object(subprocess,'check_output',return_value='podman version 5.7.0'), patch.object(guide,'tailscale',return_value={}):
                     path = guide.configure()
-            config = tomllib.loads(path.read_text())
+            self.assertIsNone(path)
+            pending=guide.root/'runner.pending.toml'
+            config = tomllib.loads(pending.read_text())
+            self.assertFalse((guide.root/'runner.toml').exists())
             self.assertEqual(config['repositories'], [])
             self.assertTrue(questions)
-            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+            self.assertEqual(pending.stat().st_mode & 0o777,0o600)
+
+    def test_saved_pending_installation_is_reused_without_questions_or_activation(self):
+        from types import SimpleNamespace
+        import pwd
+        module=helper()
+        guide=module.Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True))
+        guide.user=pwd.getpwuid(os.getuid()).pw_name
+        guide.ask=lambda *args:self.fail('Pending installation must not prompt for login or choices again')
+        config={'containers':{'image':'sha256:'+'a'*64}}
+        with tempfile.TemporaryDirectory() as folder:
+            guide.root=Path(folder)
+            guide.native_install_complete(config)
+            pending=guide.root/'runner.pending.toml'
+            original=pending.read_bytes()
+            with patch.object(sys,'path',[str(ROOT/'deploy'),*sys.path]):
+                import native_setup
+                with patch.object(native_setup,'NativeSetup',return_value=SimpleNamespace(run=lambda:None)):
+                    self.assertIsNone(guide.configure())
+            self.assertEqual(pending.read_bytes(),original)
+            self.assertFalse((guide.root/'runner.toml').exists())
+
+    def test_native_installation_completion_does_not_continue_into_deployment(self):
+        from types import SimpleNamespace
+        module=helper()
+        guide=module.Guide(SimpleNamespace(source=str(ROOT),host='worker',non_interactive=True,
+            config=None,wheelhouse=None,activate_existing=False,native_only=False))
+        with patch.object(module.os,'geteuid',return_value=0), patch.object(Path,'read_text',return_value='ID=ubuntu\nVERSION_ID="26.04"\n'), patch.object(module,'clean_checkout',return_value='a'*40), patch.object(module,'Installer') as installer, patch.object(guide,'configure',return_value=None), patch.object(guide,'secrets',side_effect=AssertionError('No pairing or credentials after installation')):
+            guide.run()
+        installer.return_value.stage.assert_not_called()
+        installer.return_value.activate.assert_not_called()
 
     def test_idle_worker_pairs_without_github_credentials(self):
         import contextlib

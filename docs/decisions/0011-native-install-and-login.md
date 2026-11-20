@@ -8,6 +8,10 @@
   ADR 0009's requirement that an operator separately build the execution image.
   Container/session/publication boundaries remain in effect.
 
+Installer-controlled authentication, model selection and native checks are
+superseded by [ADR 0015](0015-manual-native-login.md). Native installation remains;
+fresh worker setup ends with a manual-login reminder.
+
 ## Context and decision
 
 The installer wrongly asked the operator to bring an image and capabilities

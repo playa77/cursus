@@ -9,6 +9,12 @@ Source update; no intended-host/provider qualification or release tag implied.
 
 ### Native install and login
 
+- End fresh worker installation after the native image and persistent domain
+  directories are installed. Save choices in `runner.pending.toml` and remind
+  the operator to log into all four CLIs manually. Do not launch login/model
+  selection, run authenticated checks, generate pairing or activate a service
+  from that pending record. Reuse pending choices on rerun (ADR 0015).
+
 - Separate Antigravity’s compressed-download bound (256 MiB) from its expanded
   executable bound (512 MiB): the official 1.5.13 executable exceeds 256 MiB.
   Retain SHA-512 verification and regular-file checks, report invalid entry size
