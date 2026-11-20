@@ -1,10 +1,8 @@
-# Public provisioning template. M0 does not start a runner or CLI subprocess.
-schema_version = 1
+# Worksheet: explicit choices required; no agent concurrency defaults.
+schema_version = 2
 process_kind = "runner"
-
 [service]
-# Trusted parent needs UID/GID switching; no repo code runs as this identity.
-user = "root"
+user = "cursus-runner"
 origin = "https://REPLACE_VPS_B.REPLACE_TAILNET.ts.net"
 runner_id = "REPLACE_RUNNER_UUID"
 bearer_file = "/etc/cursus/runner/bearer"
@@ -15,85 +13,73 @@ worktree_root = "/var/lib/cursus-runner/worktrees"
 review_root = "/var/lib/cursus-runner/reviews"
 capabilities_file = "/etc/cursus/runner/capabilities.toml"
 capabilities_digest = "REPLACE_SHA256_OF_QUALIFIED_PROFILE"
-# No DSN or PostgreSQL client belongs on the runner.
-
 [publisher]
 git_binary = "/usr/bin/git"
 git_credential_file = "/etc/cursus/runner/publisher-git-credential"
 github_credential_file = "/etc/cursus/runner/publisher-github-credential"
-# Provision these via an operator-approved opaque client; never copy credentials
-# from a developer agent, CLI home, prompt or repository.
-
 [capacity]
-worker = 2
+worker = "REPLACE_WORKER_1_TO_4"
+claude = "REPLACE_CLAUDE_1_TO_2"
+codex = "REPLACE_CODEX_1_TO_2"
+agy = "REPLACE_AGY_1_TO_2"
 verifier = 1
-frontier = 1
 repository = 1
-
 [limits]
 long_poll_seconds = 30
 heartbeat_seconds = 10
 spool_bytes = 2147483648
-
-# Binaries must be approved, absolute, version-pinned installations. The
-# placeholder paths below are not assertions about any vendor's install layout.
-[cli.pi]
-binary = "/opt/cursus-cli/REPLACE_PI_VERSION/bin/pi"
-user = "cursus-pi-1"
-home = "/var/lib/cursus-identities/pi-1"
-provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
-model = "deepseek-v4.1-flash"
-reasoning = "REPLACE_QUALIFIED_REASONING_VALUE"
-
-[cli.claude]
-binary = "/opt/cursus-cli/REPLACE_CLAUDE_VERSION/bin/claude"
-user = "cursus-claude"
-home = "/var/lib/cursus-identities/claude"
-model = "REPLACE_QUALIFIED_CLAUDE_MODEL"
-
-[cli.codex]
-binary = "/opt/cursus-cli/REPLACE_CODEX_VERSION/bin/codex"
-user = "cursus-codex"
-home = "/var/lib/cursus-identities/codex"
-model = "REPLACE_QUALIFIED_CODEX_MODEL"
-
-[cli.agy]
-binary = "/opt/cursus-cli/REPLACE_AGY_VERSION/bin/agy"
-user = "cursus-agy"
-home = "/var/lib/cursus-identities/agy"
-model = "REPLACE_QUALIFIED_AGY_MODEL"
-
-[[worker_slots]]
-id = "worker-1"
-user = "cursus-pi-1"
-home = "/var/lib/cursus-identities/pi-1"
-
-[[worker_slots]]
-id = "worker-2"
-user = "cursus-pi-2"
-home = "/var/lib/cursus-identities/pi-2"
-
-[verification]
-user = "cursus-verifier"
-home = "/var/lib/cursus-identities/verifier"
-
-# A distinct pi reviewer is optional; if enabled, it needs its own native login
-# and read-only qualification. Default reviewer remains the Codex identity.
-[pi_reviewer]
-enabled = false
-user = "cursus-pi-reviewer"
-home = "/var/lib/cursus-identities/pi-reviewer"
-
-# Mirror the exact approved enrollment from VPS-B.
+[containers]
+binary = "/usr/bin/podman"
+version = "REPLACE_EXACT_5_X_VERSION"
+image = "REPLACE_LOCAL_QUALIFIED_IMAGE_SHA256_ID"
+network = "private"
+disk_reserve_mb = "REPLACE_POLICY_MB"
+[containers.budget]
+memory_mb = "REPLACE_EXECUTION_MB"
+cpu_millis = "REPLACE_EXECUTION_CPU_MILLIS"
+pids = "REPLACE_EXECUTION_TASK_LIMIT"
+host_reserve_mb = "REPLACE_HOST_RESERVE_MB"
+host_reserve_cpu_millis = "REPLACE_HOST_RESERVE_CPU_MILLIS"
+[containers.resources.agent]
+memory_mb = "REPLACE_POLICY_MB"
+cpu_millis = "REPLACE_POLICY_CPU_MILLIS"
+pids = "REPLACE_POLICY_TASK_LIMIT"
+tmp_mb = "REPLACE_TMPFS_MB"
+home_mb = "REPLACE_HOME_TMPFS_MB"
+[containers.resources.verifier]
+memory_mb = "REPLACE_POLICY_MB"
+cpu_millis = "REPLACE_POLICY_CPU_MILLIS"
+pids = "REPLACE_POLICY_TASK_LIMIT"
+tmp_mb = "REPLACE_TMPFS_MB"
+home_mb = "REPLACE_HOME_TMPFS_MB"
+# Declare one independent domain per configured concurrent session, for each CLI.
+# Mount only a provider's explicitly qualified auth directory, never a whole HOME.
+# No native credential path is guessed here. Renewal writes persist in place.
+[[containers.credentials.pi]]
+id = "pi-1"
+evidence = "REPLACE_PRIVATE_CONCURRENCY_AND_REFRESH_ATTESTATION"
+mounts = [{source = "/REPLACE_AUTH_DOMAIN_PI_1", target = "/home/session/REPLACE_NATIVE_AUTH_SUBDIRECTORY"}]
+[[containers.credentials.claude]]
+id = "claude-1"
+evidence = "REPLACE_PRIVATE_CONCURRENCY_AND_REFRESH_ATTESTATION"
+mounts = [{source = "/REPLACE_AUTH_DOMAIN_CLAUDE_1", target = "/home/session/REPLACE_NATIVE_AUTH_SUBDIRECTORY"}]
+[[containers.credentials.codex]]
+id = "codex-1"
+evidence = "REPLACE_PRIVATE_CONCURRENCY_AND_REFRESH_ATTESTATION"
+mounts = [{source = "/REPLACE_AUTH_DOMAIN_CODEX_1", target = "/home/session/REPLACE_NATIVE_AUTH_SUBDIRECTORY"}]
+[[containers.credentials.agy]]
+id = "agy-1"
+evidence = "REPLACE_PRIVATE_CONCURRENCY_AND_REFRESH_ATTESTATION"
+mounts = [{source = "/REPLACE_AUTH_DOMAIN_AGY_1", target = "/home/session/REPLACE_NATIVE_AUTH_SUBDIRECTORY"}]
 [[repositories]]
 owner = "REPLACE_GITHUB_OWNER"
 name = "REPLACE_TRUSTED_REPO"
 object_format = "sha1"
 allowed_target_refs = ["refs/heads/main"]
 phase_check_ids = ["unit"]
-
 [[repositories.checks]]
 id = "unit"
-argv = ["/opt/cursus/venv/bin/python", "-m", "unittest", "discover", "-s", "tests/unit"]
+# Absolute binary path INSIDE the qualified image, not the runner host.
+argv = ["/usr/bin/python3", "-m", "unittest", "discover", "-s", "tests/unit"]
 cwd = "."
 timeout_seconds = 300

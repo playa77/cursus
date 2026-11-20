@@ -6,8 +6,11 @@ The approved [roadmap](docs/cursus-implementation-roadmap-v0.1.1.md) and
 the staged implementation. This public repository contains no deployment
 credentials or private host inventory.
 
-Version 0.4.0 implements the source work through WP-16, including durable
-verification artifacts and the accepted private browser design. User qualification
+Version 0.5.0 preserves the source work through WP-16, including durable
+verification artifacts and the accepted private browser design, and replaces host
+execution accounts with rootless per-session Podman containers. See the
+[deployment and upgrade guide](ops/setup.md) and [ADR 0009](docs/decisions/0009-container-execution.md).
+PR #6 remains rejected; its account-pool backend is not included. User qualification
 and live testing are deferred until the end of M3 (WP-17); live provisioning and
 M0/M1/M2/M3 acceptance remain pending.
 No milestone tag has been created. Boundary fixtures do not prove provider or host capability.
@@ -22,7 +25,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --require-hashes -r requirements.lock
 PIP_NO_INDEX=1 python -m build --wheel --no-isolation
-python -m pip install --no-deps --force-reinstall dist/cursus-0.4.0-*.whl
+python -m pip install --no-deps --force-reinstall dist/cursus-0.5.0-*.whl
 cursus --help
 python -m unittest discover -s tests/unit
 python -m pip check
@@ -62,3 +65,8 @@ Architecture records: [packaging](docs/decisions/0001-bootstrap-contracts-and-pa
 [debug and conversations](docs/decisions/0006-m2-debug-and-conversations.md), and
 [M3 artifacts/browser](docs/decisions/0007-m3-artifacts-and-browser.md).
 See [dependency licenses](docs/dependency-licenses.md) for locked artifact evidence.
+
+Container source acceptance is tracked in the [finding matrix](docs/acceptance/container-execution.md).
+Rootless Podman 5.x/systemd/cgroup-v2 and native credential concurrency require
+separate intended-host qualification; no provider inference or VPS changes are
+part of the controlled local fixture evidence.

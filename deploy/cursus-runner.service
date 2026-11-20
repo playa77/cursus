@@ -1,21 +1,18 @@
 [Unit]
-Description=Cursus isolated execution runner
+Description=Cursus rootless container runner (service-account user manager)
 After=network-online.target
 Wants=network-online.target
-
 [Service]
 Type=simple
-User=root
 UMask=0077
-ExecStart=/opt/cursus/venv/bin/cursus runner --config /etc/cursus/runner.toml
+ExecStart=/opt/cursus/current/venv/bin/cursus runner --config /opt/cursus/current/config.toml
 Restart=on-failure
 RestartSec=5
-KillMode=control-group
-TimeoutStopSec=20
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/cursus-runner /var/lib/cursus-identities
-ProtectHome=true
-
+Delegate=yes
+KillMode=mixed
+TimeoutStopSec=60
+# Rootless Podman needs user namespaces/newuidmap and delegated cgroups.
+# Do not add NoNewPrivileges/RestrictNamespaces or expose its API socket.
+# Resource policy is generated in the release-specific unit drop-in by setup.py.
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

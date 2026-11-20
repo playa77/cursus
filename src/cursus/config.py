@@ -74,7 +74,7 @@ def role_release(service):
     # credential directories are read. A dirty unrelated file is immaterial.
     for item in paths:
         relative = str(item.relative_to(root))
-        result = subprocess.run(['git', '-C', str(root), 'show', f'{commit}:{relative}'],
+        result = subprocess.run(['git', '-c', 'safe.directory=' + str(root), '-C', str(root), 'show', f'{commit}:{relative}'],
                                 capture_output=True, check=False)
         if result.returncode or result.stdout != item.read_bytes():
             fail('Role/prompt files differ from the pinned release.')
@@ -83,7 +83,8 @@ def role_release(service):
     validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
-    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge'))
+    if set(('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge')) - registry['roles'].keys():
+        fail('Required roles are missing.')
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
         if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():
@@ -105,7 +106,7 @@ def role_release(service):
     return registry
 
 
-def load(process_kind, path):
+def load(process_kind, path, release_root=None):
     raw = absolute(path).read_bytes()
     try:
         settings = tomllib.loads(raw.decode())
@@ -117,8 +118,16 @@ def load(process_kind, path):
         return settings
     required = ('schema_version', 'process_kind', 'service', 'limits')
     if process_kind == 'control':
-        keys(settings, (*required, 'runner', 'repositories', 'backup'))
+        keys(settings, (*required, 'runner', 'repositories', 'backup', 'capacity'))
+        if 'capacity' in settings:
+            capacity(settings['capacity'])
         service = settings['service']
+        if release_root is not None:
+            staged = absolute(release_root)
+            for key in ('roles_file','prompts_root'):
+                configured = absolute(service[key])
+                if configured.is_relative_to('/opt/cursus/current'):
+                    service[key] = str(staged / configured.relative_to('/opt/cursus/current'))
         keys(service, ('user', 'group', 'operator_group', 'listen_host', 'listen_port',
                        'operator_socket', 'external_origin', 'operator_login', 'dsn_file',
                        'artifact_root', 'roles_file', 'prompts_root', 'role_release_commit'))
@@ -136,45 +145,19 @@ def load(process_kind, path):
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
     elif process_kind == 'runner':
-        keys(settings, (*required, 'publisher', 'capacity', 'cli', 'worker_slots', 'verification', 'pi_reviewer', 'repositories'))
+        keys(settings, (*required, 'publisher', 'capacity', 'containers', 'repositories'))
         service = settings['service']
         keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
                        'repository_root', 'worktree_root', 'review_root', 'capabilities_file', 'capabilities_digest'))
         validate('Id', service['runner_id'])
+        for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
+            absolute(service[key])
         enrollment(settings['repositories'])
         keys(settings['publisher'], ('git_binary', 'git_credential_file', 'github_credential_file'))
         for configured in settings['publisher'].values():
             absolute(configured)
-        keys(settings['cli'], ('pi', 'claude', 'codex', 'agy'))
-        users = []
-        for cli, identity in settings['cli'].items():
-            keys(identity, ('binary','user','home','model'), ('provider','reasoning'))
-            absolute(identity['binary'])
-            absolute(identity['home'])
-            users.append(identity['user'])
-        keys(settings['verification'], ('user','home'))
-        absolute(settings['verification']['home'])
-        users.append(settings['verification']['user'])
-        if len(set(users)) != len(users) or 'root' in users:
-            fail('Execution identities must be distinct and unprivileged.')
-        keys(settings['pi_reviewer'], ('enabled','user','home'))
-        if settings['pi_reviewer']['enabled'] and (settings['pi_reviewer']['user'] in users or settings['pi_reviewer']['user'] == 'root'):
-            fail('Pi review requires a distinct unprivileged identity.')
-        absolute(settings['pi_reviewer']['home'])
-        if len(settings['worker_slots']) != 2 or len({s['user'] for s in settings['worker_slots']}) != 2:
-            fail('Two distinct worker identities are required.')
-        if settings['worker_slots'][0]['user'] != settings['cli']['pi']['user']:
-            fail('First worker must match the pi profile identity.')
-        if settings['worker_slots'][1]['user'] in users or settings['worker_slots'][1]['user']=='root':
-            fail('Second worker must be separately isolated.')
-        for slot in settings['worker_slots']:
-            keys(slot, ('id','user','home'))
-            absolute(slot['home'])
-        for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
-            absolute(service[key])
-        keys(settings['capacity'], ('worker', 'verifier', 'frontier', 'repository'))
-        for number in settings['capacity'].values():
-            positive(number)
+        capacity(settings['capacity'])
+        container_settings(settings['containers'], settings['capacity'], service, settings['publisher'])
         settings['bearer'] = secret(service['bearer_file'])
         profile = absolute(service['capabilities_file']).read_bytes()
         if sha256(profile).hexdigest() != service['capabilities_digest']:
@@ -183,14 +166,19 @@ def load(process_kind, path):
         settings['profiles']['digest'] = service['capabilities_digest']
         if settings['profiles'].get('qualification') != 'qualified':
             fail('Capability profile is not qualified.')
+        if settings['profiles'].get('image') != settings['containers']['image']:
+            fail('Capability profile image differs from execution image.')
         for cli in ('pi','claude','codex','agy'):
             measured = settings['profiles'].get(cli, {})
-            if measured.get('binary') != settings['cli'][cli]['binary'] or measured.get('user') != settings['cli'][cli]['user'] or measured.get('home') != settings['cli'][cli]['home']:
-                fail('Measured binary/identity differs from runtime settings.')
+            capability(cli, measured)
+            if Path(measured.get('binary', '')).name != cli:
+                fail('Required direct native binary is missing.')
+            if measured.get('credential_concurrency', 0) < settings['capacity']['worker' if cli == 'pi' else cli]:
+                fail('Native credential concurrency is not qualified at the requested ceiling.')
         origin = service['origin']
     else:
         fail('Unsupported process kind.')
-    if settings['schema_version'] != 1 or settings['process_kind'] != process_kind:
+    if settings['schema_version'] != (2 if process_kind == 'runner' or 'capacity' in settings else 1) or settings['process_kind'] != process_kind:
         fail()
     parsed = urlsplit(origin)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
@@ -205,3 +193,94 @@ def load(process_kind, path):
         if name == 'debate_rounds' and value > 3:
             fail()
     return settings
+
+
+def capacity(value):
+    keys(value, ('worker','claude','codex','agy','verifier','repository'))
+    for key, number in value.items():
+        positive(number)
+        if key == 'worker' and number > 4 or key in ('claude','codex','agy') and number > 2:
+            fail('Configured agent ceiling is outside the accepted range.')
+        if key in ('repository', 'verifier') and number != 1:
+            fail('Repository and verifier remain independent single lanes.')
+
+
+def container_settings(value, ceilings, service, publisher):
+    keys(value, ('binary','version','image','network','disk_reserve_mb','resources','budget','credentials'))
+    if value['binary'] != '/usr/bin/podman' or not value['version'].startswith('5.'):
+        fail('This release supports an explicitly pinned Podman 5.x version.')
+    import re
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', value['image']):
+        fail('Execution image must be a locally qualified immutable image ID.')
+    if value['network'] != 'private':
+        fail('Agents require a private network namespace; host networking is forbidden.')
+    positive(value['disk_reserve_mb'])
+    keys(value['budget'], ('memory_mb','cpu_millis','pids','host_reserve_mb','host_reserve_cpu_millis'))
+    for n in value['budget'].values():
+        positive(n)
+    if value['budget']['memory_mb'] + value['budget']['host_reserve_mb'] > 12 * 1024 or value['budget']['cpu_millis'] + value['budget']['host_reserve_cpu_millis'] > 6000:
+        fail('Execution budget exceeds fixed VPS-A hardware after the host reserve.')
+    keys(value['resources'], ('agent','verifier'))
+    for resource in value['resources'].values():
+        keys(resource, ('memory_mb','cpu_millis','pids','tmp_mb','home_mb'))
+        for n in resource.values():
+            positive(n)
+        if resource['tmp_mb'] + resource['home_mb'] >= resource['memory_mb']:
+            fail('Tmpfs limits must leave execution memory within the cgroup limit.')
+    for key in ('memory_mb','cpu_millis','pids'):
+        if sum(r[key] for r in value['resources'].values()) > value['budget'][key]:
+            fail('Budget must admit an agent and a verifier simultaneously.')
+    keys(value['credentials'], ('pi','claude','codex','agy'))
+    ids, sources = set(), []
+    forbidden = [absolute(service[k]).resolve() for k in ('state_root','spool_root','repository_root','worktree_root','review_root','bearer_file','capabilities_file')]
+    forbidden += [absolute(p).resolve() for p in publisher.values()]
+    for cli, domains in value['credentials'].items():
+        if len(domains) != ceilings['worker' if cli == 'pi' else cli]:
+            fail('Provide one independent native credential domain per requested concurrent session.')
+        for domain in domains:
+            keys(domain, ('id','evidence','mounts'))
+            if domain['id'] in ids or not domain['evidence'] or 'REPLACE_' in domain['evidence'] or not domain['mounts']:
+                fail('Credential domains need unique IDs, explicit mounts and qualification records.')
+            ids.add(domain['id'])
+            targets = []
+            for mount in domain['mounts']:
+                keys(mount, ('source','target'))
+                source, target = absolute(mount['source']).resolve(), absolute(mount['target'])
+                if any(str(p) in str(mount['source']) for p in (':', ',', '\n')):
+                    fail('Unsupported mount source delimiter.')
+                if target == Path('/home/session') or not target.is_relative_to('/home/session') or '..' in target.parts:
+                    fail('Only explicit native auth subdirectories under disposable HOME may persist.')
+                if any(source == other or source.is_relative_to(other) or other.is_relative_to(source) for other in sources + forbidden):
+                    fail('Credential mounts overlap another domain or management path.')
+                if any(target == other or target.is_relative_to(other) or other.is_relative_to(target) for other in targets):
+                    fail('Credential target mounts overlap.')
+                targets.append(target)
+                sources.append(source)
+
+
+def capability(cli, profile):
+    required = ('binary','binary_digest','version','model','reasoning','qualified_roles',
+                'fixed_argv','prompt_transport','tool_allowlist','clean_config_argv','probe_evidence',
+                'credential_concurrency')
+    optional = {'provider','role_profiles','read_only_argv','success_signature','failure_signature','turn_terminal_signature','control_correlation','renewal_procedure'}
+    if not isinstance(profile,dict) or set(required)-profile.keys() or profile.keys()-set(required)-optional:
+        fail('Capability profile is incomplete.')
+    absolute(profile['binary'])
+    validate('Digest',profile['binary_digest'])
+    for field in ('version','model','reasoning'):
+        if not isinstance(profile[field],str) or not profile[field] or 'REPLACE_' in profile[field]:
+            fail('Capability tuple is not qualified.')
+    for field in ('qualified_roles','fixed_argv','tool_allowlist','clean_config_argv','probe_evidence'):
+        if not isinstance(profile[field],list) or not profile[field] or not all(isinstance(s,str) and s for s in profile[field]):
+            fail('Capability argv/roles/probe evidence is incomplete.')
+    if '*' in profile['tool_allowlist'] or 'openrouter' in str(profile.get('provider','')).lower():
+        fail('Capability grants forbidden authority/provider.')
+    if profile['prompt_transport'] not in ('stdin','argument','rpc') or profile['prompt_transport']=='rpc' and cli!='pi':
+        fail('Unsupported native prompt transport.')
+    required_tokens = {'pi':['--mode','rpc' if profile['prompt_transport']=='rpc' else 'json'],
+                       'claude':['-p','--output-format','stream-json'],
+                       'codex':['exec','--json'], 'agy':['-p','--output-format','stream-json']}[cli]
+    if any(token not in profile['fixed_argv'] for token in required_tokens):
+        fail('Capability must invoke the required native CLI family directly.')
+    for override in profile.get('role_profiles',{}).values():
+        capability(cli,{**profile,**override,'role_profiles':{}})

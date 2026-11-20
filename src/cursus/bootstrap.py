@@ -23,6 +23,7 @@ def parser():
             selection = command.add_mutually_exclusive_group()
             selection.add_argument('--phase-id')
             selection.add_argument('--attempt-id')
+            selection.add_argument('--deployment', action='store_true')
         else:
             command.add_argument('--input', required=True)
             command.add_argument('--idempotency-key')
@@ -53,12 +54,16 @@ async def service(args):
                     await asyncio.sleep(settings['limits']['heartbeat_seconds'])
                     await control.maintain('tick')
             timer = asyncio.create_task(maintenance())
+            from cursus.browser import environment
+            server = asyncio.create_task(serve(settings, control, environment()))
             try:
-                from cursus.browser import environment
-                await serve(settings, control, environment())
+                done, _ = await asyncio.wait((timer,server), return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    await task
             finally:
                 timer.cancel()
-                await asyncio.gather(timer,return_exceptions=True)
+                server.cancel()
+                await asyncio.gather(timer,server,return_exceptions=True)
         finally:
             await pool.close()
     else:
@@ -66,9 +71,13 @@ async def service(args):
         from cursus.runner import HTTPS, Journal, Runner
         from cursus.repository import Repository, GitHub
         from cursus.execution import Execution
-        if os.geteuid() != 0:
-            raise Problem('identity_boundary', 'Runner parent requires privileged identity switching.')
+        if os.geteuid() == 0:
+            raise Problem('identity_boundary', 'Rootless runner must use its stable unprivileged service account.')
         service = settings['service']
+        import pwd
+        account = pwd.getpwnam(service['user'])
+        if (account.pw_uid,account.pw_gid) != (os.getuid(),os.getgid()):
+            raise Problem('identity_boundary', 'Runner service numeric identity differs from configuration.')
         journal = Journal(service['state_root'], settings['limits']['spool_bytes'])
         try:
             transport = HTTPS(service['origin'], settings['bearer'], journal.generation)
@@ -77,11 +86,11 @@ async def service(args):
             repository = Repository(service['repository_root'], service['worktree_root'], service['review_root'],
                 enrollment, GitHub(publisher['github_credential_file']), publisher['git_binary'],
                 publisher['git_credential_file'])
-            identities = dict(settings['cli'])
-            if settings['pi_reviewer']['enabled']:
-                identities['pi_reviewer'] = settings['pi_reviewer']
-            execution = Execution(settings['profiles'], identities, settings['verification'])
-            execution.worker_slots = settings['worker_slots']
+            from cursus.containers import Containers
+            runtime = Containers(settings['containers'], journal.root / 'execution', settings['capacity'])
+            await runtime.preflight()
+            execution = Execution(settings['profiles'], {}, {'user': 'session', 'home': '/home/session'}, runtime=runtime)
+            repository.container_workspaces = True
             runner = Runner(service['runner_id'], journal, transport, repository, execution)
             await runner.serve()
         finally:
@@ -101,7 +110,9 @@ def main(argv=None):
         from cursus.http import request_local
         if args.command == 'status':
             route = '/'
-            if args.phase_id:
+            if args.deployment:
+                route = '/deployment'
+            elif args.phase_id:
                 route = '/phases/' + validate('Id', args.phase_id)
             elif args.attempt_id:
                 route = '/attempts/' + validate('Id', args.attempt_id)

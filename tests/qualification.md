@@ -346,3 +346,68 @@ centered stacked content, theme control, compact tables, lifecycle rail, exact P
 handoff and evidence rows without horizontal page overflow. This is local visual
 QA, not qualification of real Serve forwarding, OS identities, MyPC/Chromebook,
 provider behavior, screen readers or production readiness. Those remain WP-17.
+
+## Container replacement — 2026-11-20
+
+Baseline freshly cloned `main` was clean at `38ea8edec7a1d3bcbe9cebad9e041168eb117867`.
+GitHub confirms PR #5 merged at that commit. PR #6 was open/unmerged at
+`20831cffc28ff6452788409a3d5581800f6701ad`; the operator explicitly rejected it.
+This implementation starts from main, not its account pool or discarded repair.
+ADR 0009 and the findings matrix record decisions, evidence and remaining gates.
+No WP-17 live acceptance, VPS changes, native credential access or inference.
+
+Local environment: CPython 3.14.4, PostgreSQL 18.6, hash-locked offline Python
+wheelhouse. New task-owned database `/tmp/cursus-container-pg`, loopback port
+55439; tests create/drop only their random schemas. Native CLIs and GitHub are
+controlled executable/API fixtures. Runtime lifecycle fixtures create real local
+`sleep` processes but simulate Podman management: they do **not** prove kernel,
+container, mount, UID or cgroup isolation. Old direct execution fixtures use the
+same UID explicitly and cannot activate the production account backend.
+
+Verification commands (using the task virtual environments):
+
+- Unit discovery: **32 passed**, including setup plans/rejection, native capability
+  contracts, constructor without account inventory, same-boot surviving process,
+  identity collision, missing-ledger reconstruction, cleanup retries, verifier
+  reserve, bounded history and unknown-final receipt ordering.
+- Artifact/browser/intake/runner-transport/interview-debate batch: **17 passed**.
+- Scheduling/one-package/repository/direct-execution batch plus the then-seven
+  container cases: **23 passed**. The old workflow portion is 16 cases.
+- Final container/debug/recovery/Store batch: **24 passed**, including the then-nine
+  container cases. The existing workflow portion is 15 cases.
+- Final clean-installed wheel: unit discovery **32 passed** and container/direct-
+  execution/intake batch **15 passed** (ten container cases, three CLI-wire cases,
+  two intake/bootstrap cases). This includes durable drain and authenticated
+  deployment status. Across the batches: all **58 integration cases** passed.
+- Both host-script dry-runs, shell syntax, compileall, `git diff --check`, offline
+  wheel build/install, installed CLI help/version, dependency compatibility and
+  packaged runtime/migration/browser-resource checks passed. Wheel bytes were
+  compared with every packaged source file before delivery.
+
+The first monolithic regression run failed three lost-transport exception
+assertions after dispatch accidentally swallowed errors. That was corrected;
+artifact and recovery reruns passed. Connected container fixtures found the
+missing independent-workspace Git import, the provider-lane SQL constraint, and
+fixture reconciliation/cleanup-batch assumptions; these were corrected before
+final passing runs. These failures are not native-host qualification results.
+
+Podman reports **5.7.0** locally. Its first info attempt could not write the normal
+runtime store in the sandbox; a second attempt using task-local storage reached
+`cannot clone: Operation not permitted`. No container was launched. This is an
+explicit local namespace limitation, not evidence that intended VPS-A cannot run
+containers or that containers are too expensive. Source tests cannot establish
+native credential refresh, actual rootless userns/cgroups/mounts, applied setup,
+real Serve, real GitHub permissions, hardware throughput or live readiness.
+Those remain deferred to M3 end. Chromebook enrollment remains later.
+
+The operator approved OS runtime helpers after the license check identified
+passt's GPL-2.0-or-later license; no Python libraries were added. Do not label
+Podman's entire OS package closure permissively licensed.
+
+After the final unknown-final acknowledgment ordering correction, clean-installed
+wheel unit discovery passed again (**32**) and the complete container/artifact
+batch passed (**14**). Final wheel SHA-256:
+`16e9a469db9a90d34283ff82cfbff79f854b5c518849c96896009fef053725ad`.
+Every packaged source file matched the wheel; compileall, shell syntax,
+dependency compatibility and diff whitespace checks passed again. These final
+checks supersede the earlier wheel for delivery; no live qualification claim.

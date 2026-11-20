@@ -1,6 +1,6 @@
 # Public provisioning template; not a measured deployment or runnable M0 service.
 # Config loading/validation starts in WP-04. Replace every REPLACE_* locally.
-schema_version = 1
+schema_version = 2
 process_kind = "control"
 
 [service]
@@ -15,8 +15,8 @@ operator_login = "REPLACE_EXACT_TAILSCALE_LOGIN"
 # Only this service reads the DSN; never place the DSN itself in TOML.
 dsn_file = "/etc/cursus/control/database-dsn"
 artifact_root = "/var/lib/cursus-control/artifacts"
-roles_file = "/opt/cursus/release/roles.toml"
-prompts_root = "/opt/cursus/release/prompts"
+roles_file = "/opt/cursus/current/source/roles.toml"
+prompts_root = "/opt/cursus/current/source/prompts"
 # Future startup must reject a dirty or mismatched role/prompt release.
 role_release_commit = "REPLACE_FULL_RELEASE_COMMIT"
 
@@ -62,3 +62,12 @@ id = "unit"
 argv = ["/opt/cursus/venv/bin/python", "-m", "unittest", "discover", "-s", "tests/unit"]
 cwd = "."
 timeout_seconds = 300
+
+# Must exactly match VPS-A; each frontier provider has its own ceiling.
+[capacity]
+worker = "REPLACE_WORKER_1_TO_4"
+claude = "REPLACE_CLAUDE_1_TO_2"
+codex = "REPLACE_CODEX_1_TO_2"
+agy = "REPLACE_AGY_1_TO_2"
+verifier = 1
+repository = 1

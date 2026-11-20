@@ -56,6 +56,7 @@ class Repository:
         self.enrollments, self.github, self.binary = enrollments, github, git
         self.credential_file = credential_file
         self.worktree_admin = {}
+        self.container_workspaces = False
         self.network_lock = threading.Lock()
         self.last_network = 0.0
         self.local_only = all(str(r.get('remote','')).startswith('/') for r in enrollments.values())
@@ -124,6 +125,11 @@ class Repository:
         path = self.worktrees / attempt_id
         if path.exists():
             raise Problem('state_conflict', 'Workspace already exists; do not relaunch.')
+        if self.container_workspaces:
+            self.git(cache, 'clone', '--no-hardlinks', '--no-checkout', str(cache), str(path))
+            self.git(path, 'remote', 'remove', 'origin')
+            self.git(path, 'checkout', '--detach', base)
+            return path
         self.git(cache, 'worktree', 'add', '--detach', str(path), base)
         self.worktree_admin[path] = (path / '.git').read_text().strip().removeprefix('gitdir: ')
         return path
@@ -244,6 +250,8 @@ class Repository:
         self.git(path, 'commit', '--allow-empty', '-m', 'Cursus candidate')
         head = self.git(path, 'rev-parse', 'HEAD').decode().strip()
         ref = self.ref(job, attempt_id)
+        if self.container_workspaces:
+            self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
         self.push(repo, ref, head, None, ref)
         return {'kind': 'code', 'repo': repo, 'base_sha': base, 'attempt_ref': ref, 'head_sha': head}
 
@@ -308,6 +316,8 @@ class Repository:
             self.git(path, 'commit', '--allow-empty', '-m', 'Cursus integration')
             head = self.git(path, 'rev-parse', 'HEAD').decode().strip()
             ref = self.ref(job, attempt_id, 'stage')
+            if self.container_workspaces:
+                self.git(self.cache(repo), 'fetch', '--no-tags', '--no-recurse-submodules', str(path), head)
             self.push(repo, ref, head, None, ref)
             staged = dict(candidate, base_sha=data['expected_head'], head_sha=head, attempt_ref=ref)
             return {'candidate': staged, 'patch_identity': sha256(self.patch(staged)).hexdigest(),

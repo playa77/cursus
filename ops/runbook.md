@@ -1,6 +1,12 @@
 # Cursus operations runbook
 
-Revision: 2026-11-19-r1. Scope: WP-01 package and WP-02 provisioning.
+Revision: 2026-11-20-r2. Current deployment: [schema-2 container setup](setup.md).
+The original milestone procedures below are historical qualification checklists.
+Their per-CLI/worker host accounts, root runner and two-worker/shared-frontier
+settings are superseded by [ADR 0009](../docs/decisions/0009-container-execution.md).
+Use the setup guide for all installation/upgrade actions. Source is through WP-16;
+services/schema/browser now exist. Live qualification stays deferred to M3 end,
+and Chromebook enrollment is later. No current provisioning is requested.
 
 ## Deployment status and records
 

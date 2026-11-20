@@ -70,7 +70,7 @@ class Browser:
         runner = next(iter(view['runners']), {})
         health = runner.get('health', {})
         jobs = view['jobs']
-        metrics = dict(slots=health.get('slots'), queued=view['queue_counts'].get('queued',0),
+        metrics = dict(capacity=health.get('capacity', {}), execution=health.get('execution', []), slots=health.get('slots'), queued=view['queue_counts'].get('queued',0),
             claimed=view['queue_counts'].get('claimed',0), usage=reported_usage(view['usage']), runner=runner,
             spool=health.get('spool_bytes', 'unknown'))
         return self.render(request, {'overview':'index.html','phases':'phase.html','attempts':'attempt.html'}[route],

@@ -88,7 +88,8 @@ for line in sys.stdin:
                     self.assertEqual(phase['debug_checkpoint']['turn'],2)
                     debug_attempts=[a for a in (await rt['db'].store.read('attempts'))['items'] if a['claim']['job']['step']=='debug']
                     self.assertEqual(len(debug_attempts),1)
-                    checkpoints=[r['value']['payload']['candidate'] for r in rt['journal'].records if r['kind']=='event' and r['value']['kind']=='debug_checkpoint']
+                    committed = (await rt['db'].store.read('events', rt['phase_id']))['items']
+                    checkpoints=[r['payload']['payload']['candidate'] for r in committed if r['kind']=='debug_checkpoint']
                     pids=[rt['remote'].git(rt['remote'].remote,'show',c['attempt_ref']+':process.txt') for c in checkpoints]
                     self.assertEqual(len(pids),2)
                     self.assertEqual(pids[0],pids[1])
