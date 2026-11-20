@@ -2,86 +2,82 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
-## [Unreleased]
+## [0.7.0] - 2026-11-20
 
-Planned for 0.7.0; the version is not bumped until the installer work package lands.
-The branch is not releasable meanwhile: the installer and stage engine still emit
-the 0.6.0 container configuration, which the runner no longer loads.
+Source update; no intended-host/provider qualification or release tag implied. The design is
+described in [ADR 0016](docs/decisions/0016-host-native-single-host.md) and
+[ADR 0017](docs/decisions/0017-per-user-installation.md); the current system in
+[docs/architecture.md](docs/architecture.md).
 
-### Added (work package D)
+### Breaking changes
 
-- Per-user installer (`./install.sh`, ADR 0017): runs as your own user (never root), builds a
-  hash-locked venv from `requirements.lock`, creates private directories, scaffolds a separate role
-  release git repo, writes a starting `cursus.toml` (only mechanical values filled; capacity, reserves,
-  origin, login, role commit and repositories stay yours to choose), a local-socket DSN file, and a user
-  systemd unit with `KillMode=control-group`. It never overwrites existing files, never starts a service,
-  never signs in to a CLI. `--dry-run` changes nothing. The real venv, hash-locked install and package
-  build were run once in a scratch home; systemd, PostgreSQL and CLI logins were not.
-- Loading the config now names every unfilled `REPLACE_` value. `cursus preflight --config` no longer
-  needs the reserve values. A config without `[[repositories]]` loads idle (ADR 0013); the unused
-  `[backup]` section is removed.
+- Cursus runs the operator's already-installed, already-signed-in Claude Code, Codex CLI, Antigravity
+  and pi directly on one host, in one process, as that user. **There is no isolation**: the CLIs and
+  the repository's check commands run with the user's real home, files, credentials and network.
+  Enroll trusted repositories only. Cursus never installs, updates or signs in to a CLI.
+- `cursus serve --config` replaces `cursus control` and `cursus runner`. Configuration is a single
+  `schema_version = 3`, `process_kind = "serve"` file (`deploy/cursus.example.toml`); schemas 1 and 2,
+  the capability file and `roles.toml` schema 1 are not loaded. No migration of old configs, runner
+  journals or ledgers (journal record kinds `container_*` are now `execution_*`).
+- The 0.6.0 container runtime, native image, credential domains, installer, stage engine, pairing and
+  two-host topology are removed, along with `install.sh`'s old behavior.
+- The operator CLI's `--socket` default is `$XDG_RUNTIME_DIR/cursus/operator.sock`.
 
-### Changed (work package C1) - breaking
+### Added
 
-- Run the control plane and the runner in one process: `cursus serve --config` replaces
-  `cursus control` and `cursus runner`. The runner reaches control through an in-process
-  transport; the HTTPS pull transport, runner HTTP routes, bearer and digest, pairing
-  metadata and cross-host settings (`service.origin`, `bearer_file`, `runner.tailnet_node`)
-  are removed.
-- Single configuration `schema_version = 3`, `process_kind = "serve"`
-  (`deploy/cursus.example.toml`); `capacity` is required; the `long_poll_seconds` and
-  `runner_spool_bytes` limits are removed. `cursus serve` refuses to run as root or as a
-  user other than `service.user`.
-- The runner/control protocol and runner journal are unchanged in meaning, so crash
-  recovery semantics are retained. Control's specific error codes now reach the runner.
-- Remove the two-process systemd units and templates; a single unit comes with the installer.
+- Per-user installer, `./install.sh` (ADR 0017): refuses root; builds a hash-locked venv from
+  `requirements.lock`; creates private directories, a separate role release git repo, a starting
+  `cursus.toml` (only mechanical values filled; capacity, reserves, origin, login, role commit and
+  repositories stay yours), a local-socket DSN file and a user systemd unit with
+  `KillMode=control-group`. It never overwrites existing files, never starts a service and never signs in
+  to a CLI; `--dry-run` changes nothing.
+- `cursus preflight --roles roles.toml [--config cursus.toml]`: checks that each CLI the roles use is
+  installed and advertises every option its recipe emits (version and help queries only). It does not and
+  cannot check sign-in.
+- `cursus.host.HostRuntime`: per-CLI concurrency ceilings, memory and disk reserves, an allowlisted child
+  environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, a per-attempt `TMPDIR`, plus configured
+  `pass_env`), a durable process ledger, and process-group termination only after the process identity (pid,
+  start time, boot id) is confirmed, including after a restart.
+- `cursus.recipes`: per-CLI invocation recipes built from the role (CLI, model, reasoning, provider, tools),
+  replacing generated capability profiles.
+- Loading the config names every unfilled `REPLACE_` value. A config without `[[repositories]]` loads idle
+  (ADR 0013).
+- Documentation: new README, runbook and `docs/architecture.md`; the original design documents carry a
+  supersession map.
 
-### Removed (work package C0)
+### Changed
 
-- Remove the 0.6.0 installer stack, which built container images and paired two hosts:
-  `deploy/install.py`, `native_setup.py`, `setup.py`, `setup-*.sh`, `deploy/native/*`,
-  `deploy/runner.example.toml`, `cursus.containers`, `config.container_settings`,
-  `config.capability` and their tests. `install.sh` now only explains that the installer is
-  being rebuilt and changes nothing. README and ops documents are marked obsolete.
+- The runner reaches control through an in-process transport. The transactional runner/control protocol and
+  the runner journal are unchanged in meaning, so crash-recovery semantics are retained. Control's specific
+  error codes now reach the runner, and a database failure ends the process for a supervised restart.
+- Workspaces are always self-contained clones with no remote. pi's mode follows the role's tools.
+  Role `model`, `reasoning` and `provider` must be plain identifiers. Claude's recipe adds
+  `--no-session-persistence` so runs do not fill the signed-in user's session history.
+- `capacity` is required; the legacy capacity-less slot defaults, the long-poll branch and the
+  `long_poll_seconds` and `runner_spool_bytes` limits are gone.
 
-### Changed (work package B)
+### Removed
 
-- Replace generated capability profiles with in-source CLI recipes (`cursus.recipes`):
-  argv, prompt transport, read-only and clean-config flags are built from the role.
-  Remove the capability file and digest, `profile_digest`, `qualified_roles`,
-  `qualification` and the binary digest pin. `roles.toml` is `schema_version = 2`.
-- Add `cursus preflight --roles roles.toml [--config runner.toml]`: checks that each
-  CLI the roles use is installed and advertises every option its recipe emits, using
-  version and help queries only. It does not check sign-in. A missing CLI fails a job
-  with `cli_missing`.
-- Claude's recipe adds `--no-session-persistence`, so runs do not fill the signed-in
-  user's session history.
-- Role `model`, `reasoning` and `provider` must be plain identifiers.
-- Verified against Claude Code 2.1.330 help only; codex, agy and pi recipes are
-  unverified against real installs.
+- The runner HTTP surface, bearer and digest, pairing metadata and cross-host settings; the capability file,
+  `profile_digest`, `qualified_roles` and the binary digest pin; the unused `[backup]` section; the container
+  runtime, installer stack, `ops/setup.md` and the container acceptance matrix.
 
-### Changed (work package A)
+### Fixed
 
-- Run CLIs and verifier checks directly on the host as the service user through
-  `HostRuntime`: allowlisted environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`,
-  per-attempt `TMPDIR`, plus configured `pass_env`), worktree working directory,
-  own process group, durable process ledger and identity-checked group termination
-  after restarts. No isolation (ADR 0016).
-- New runner `[execution]` configuration (`deploy/runner.host.example.toml`)
-  replaces `[containers]`; credential domains, image pin and credential-concurrency
-  enforcement are gone. Workspaces are always self-contained clones.
-- Journal record kinds `container_*` are now `execution_*`; no migration of old journals.
-- Fix: a command that exits before reading stdin no longer raises
-  `ConnectionResetError` from the execution layer.
+- A command that exits before reading stdin no longer raises `ConnectionResetError` from the execution layer.
+- The publisher's no-redirect handler was removed with the HTTPS transport while `GitHub.request` still
+  imported it, so the first real GitHub call would have raised `ImportError`. It now lives in
+  `cursus.repository`, with tests of the real client (network faked) and a guard that resolves every
+  `cursus` import in the source.
 
-### Decided
+### Verification and limits
 
-- Run the operator's already-installed and already-signed-in Claude Code, Codex
-  CLI, Antigravity and pi directly on one host in one process. Remove the native
-  image, containers, credential domains, pairing and generated capability profile.
-  Isolation is deliberately dropped; repositories must be trusted (ADR 0016,
-  with a work-package plan). Supersedes ADRs 0011, 0014 and 0015 and most of 0009.
-
+Unit and integration suites pass against fixtures and a local PostgreSQL (run as root). The real venv,
+hash-locked install and package build were run once in a scratch home, and Claude Code 2.1.330's help was
+compared with its recipe. Not verified: a systemd user session, PostgreSQL peer authentication, a real
+non-root `cursus serve`, real SIGTERM handling, any real CLI login, the codex, agy and pi recipes against
+real installs, Antigravity's session variables, shared-login concurrency, the website behind Tailscale
+Serve, and publication to real GitHub.
 
 ## [0.6.0] - 2026-11-20
 

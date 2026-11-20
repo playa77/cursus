@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "cursus"
-version = "0.6.0"
+version = "0.7.0"
 description = "Private, evidence-driven work coordination"
 requires-python = ">=3.12"
 license = "MIT"
