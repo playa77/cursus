@@ -26,7 +26,7 @@ def application(control, local=False):
 
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
-        code = 409 if exc.code in ('idempotency_conflict', 'sequence_conflict', 'state_conflict') else 422
+        code = 409 if exc.code in ('idempotency_conflict', 'sequence_conflict', 'state_conflict', 'artifact_conflict') else 422
         code = {'forbidden': 403, 'unauthorized': 401, 'not_found': 404,
                 'payload_too_large': 413, 'unavailable': 503}.get(exc.code, code)
         return JSONResponse(exc.as_dict(), status_code=code, headers={'Cache-Control': 'no-store'})
@@ -61,6 +61,9 @@ def application(control, local=False):
         if len(values) != 1:
             raise Problem('invalid_fields', 'One Idempotency-Key is required.')
         return validate('Id', values[0])
+
+    from cursus.artifact_http import mount
+    mount(app, control, local)
 
     if local:
         @app.post('/operator/actions')

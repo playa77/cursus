@@ -33,7 +33,8 @@ async def phase_runtime(overrides=None, value=None):
             for profile in (execution.profiles[c] for c in ('pi','claude','codex','agy')):
                 profile['qualified_roles'] += ['debug','interviewer','advocate','critic','judge']
             config['repositories'][0]['checks'][0]['argv'] = [sys.executable, 'check.py']
-            control = Control(config, db.store)
+            from cursus.artifacts import Artifacts
+            control = Control(config, db.store, artifacts=Artifacts(ws.artifacts))
             journal = Journal(ws.state)
             try:
                 async with SocketService(control, ws.root/'operator.sock'), SocketService(control, ws.root/'runner.sock', False):

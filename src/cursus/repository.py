@@ -157,6 +157,27 @@ class Repository:
             path.chmod(0o555)
         return path
 
+    def evidence_files(self, path, inputs):
+        """Add declared immutable evidence before starting a read-only reviewer."""
+        if not inputs:
+            return
+        path.chmod(0o700)
+        try:
+            root = path / '.cursus-evidence'
+            root.mkdir(mode=0o700)  # A repository collision cannot replace inputs.
+            for ref, raw in inputs:
+                validate('FileRef', ref)
+                target = root / ref['id']
+                if target.exists():
+                    if target.read_bytes() != raw:
+                        raise Problem('artifact_conflict', 'Duplicate evidence differs.')
+                    continue
+                target.write_bytes(raw)
+                target.chmod(0o444)
+            root.chmod(0o555)
+        finally:
+            path.chmod(0o555)
+
     def ref(self, job, attempt_id, kind='candidate'):
         validate('Id', job['phase_id'])
         validate('Id', attempt_id)

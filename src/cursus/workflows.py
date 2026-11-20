@@ -29,7 +29,7 @@ def evidence(value, candidate, criteria, attempt_id):
     if not isinstance(value, list) or len(value) != len(expected):
         raise Problem('invalid_evidence', 'Missing required verifier evidence.')
     for criterion, item in zip(expected, value):
-        _object(item, {'criterion_id', 'candidate', 'passed', 'observed_exit', 'output', 'verifier_attempt_id'})
+        _object(item, {'criterion_id', 'candidate', 'passed', 'observed_exit', 'output', 'verifier_attempt_id'}, {'log'})
         check = criterion['check']
         if (item['criterion_id'] != criterion['id'] or item['candidate'] != candidate
                 or item['verifier_attempt_id'] != attempt_id or type(item['passed']) is not bool

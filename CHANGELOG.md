@@ -3,6 +3,16 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
+## [Unreleased]
+
+### Added
+
+- WP-15: bounded immutable artifact upload, claim-scoped input retrieval,
+  authorized attachment downloads and durable verifier evidence logs. Upload
+  intent/receipt replay gates final delivery; metadata conflicts fail closed.
+- ADR 0007 records M3 artifact/browser decisions and the operator's accepted
+  design and qualification deferral until the end of M3.
+
 ## [0.3.0] - 2026-11-19
 
 Public-source M2 implementation. User qualification and live testing are deferred

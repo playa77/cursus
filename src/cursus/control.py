@@ -10,8 +10,9 @@ def identity():
 
 
 class Control:
-    def __init__(self, settings, store, decide=workflows.decide):
+    def __init__(self, settings, store, decide=workflows.decide, artifacts=None):
         self.settings, self.store, self.decide = settings, store, decide
+        self.artifacts = artifacts
 
     def enrolled(self, repo):
         for item in self.settings['repositories']:
@@ -144,6 +145,9 @@ class Control:
             await tx.save('phases',phase)
             await tx.connection.execute("UPDATE jobs SET state='done' WHERE id=$1",job['id'])
             return
+        if job['step'] == 'verify' and final['kind'] == 'completed':
+            from cursus.artifact_control import verify_ready
+            await verify_ready(tx, attempt, final['value'])
         planning_value = final.get('value',{})
         if job['step']=='debate' and not (isinstance(planning_value,dict) and 'packages' in planning_value):
             planning_value = phase.get('debate',{}).get('document',{})

@@ -276,3 +276,23 @@ credential separation and working task-owned termination. Source defaults are
 not billing authorization or enforced provider caps. Respect source quotas and
 Retry-After; stop affected live work on denial, persistent throttle or uncertainty.
 See the runbook's WP-14 procedure for commands and isolated fault boundaries.
+
+## WP-15 source verification — 2026-11-20
+
+Operator authorized implementation through WP-16, accepted the visual reference,
+and deferred user qualification/live testing until the end of M3. Earlier live
+gates remain pending; no provider calls, host deployment or release tag.
+
+CPython 3.12.14, locked dependencies, disposable PostgreSQL 18.6, isolated random
+schemas, controlled Git remote, executable CLI fixtures and real HTTP over Unix
+sockets. Unit discovery: **18 passed**. WP-15 artifact/intake checks: **5 passed**
+(3 artifact, 2 intake). The existing one-package regression: **6 passed** before
+adding reviewer-side evidence materialization; final cross-package regressions
+are recorded below with WP-16. Wheel 0.3.0 built and installed during development.
+
+Observed: verification produced ready FileRefs; operator download matched
+SHA-256/length; wrong principal/claim failed; duplicate uploads converged;
+interrupted body streams, wrong digest/metadata, unsafe decoded names and oversized
+lengths did not expose ready files. After a lost committed-upload receipt, reopening
+the fsynced journal replayed the transfer/final with the original attempt and
+exactly one verifier launch. Tests never inserted artifact metadata manually.

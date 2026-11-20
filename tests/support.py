@@ -197,6 +197,7 @@ def control_config(ws, dsn):
         '/etc/cursus/control/database-dsn':str(dsn_file),
         '/etc/cursus/control/runner-bearer.sha256':str(digest),
         '/run/cursus/operator.sock':str(ws.root/'operator.sock'),
+        '/var/lib/cursus-control/artifacts':str(ws.artifacts),
         '"cursus-operators"':json_quote(grp.getgrgid(os.getgid()).gr_name),
         'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
         'REPLACE_GITHUB_OWNER':'fixture', 'REPLACE_TRUSTED_REPO':'repo',

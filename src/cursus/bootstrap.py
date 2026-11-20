@@ -43,7 +43,9 @@ async def service(args):
         try:
             store = Store(pool)
             await store.migrate()
-            control = Control(settings, store)
+            from cursus.artifacts import Artifacts
+            artifacts = Artifacts(settings['service']['artifact_root'])
+            control = Control(settings, store, artifacts=artifacts)
             if hasattr(control, 'maintain'):
                 await control.maintain('boot')
             async def maintenance():

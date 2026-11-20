@@ -33,6 +33,32 @@ class Wire:
                 connection.close()
         return await asyncio.to_thread(send)
 
+    async def upload(self, attempt_id, ref, path):
+        from cursus.runner_files import headers
+        return await self.binary(f'attempts/{attempt_id}/artifacts/{ref["id"]}', path.read_bytes(), headers(ref))
+
+    async def download(self, ref, claim_id):
+        from cursus.runner_files import checked_bytes
+        raw = await self.binary(f'runner/artifacts/{ref["id"]}?claim_id={claim_id}')
+        return checked_bytes(ref, raw)
+
+    async def binary(self, route, raw=None, extra=None):
+        def send():
+            connection = LocalConnection(self.socket)
+            headers = {'Authorization': 'Bearer fixture-bearer',
+                'X-Cursus-Generation': self.generation, 'Idempotency-Key': str(uuid4())}
+            headers.update(extra or {})
+            try:
+                connection.request('PUT' if raw is not None else 'GET', '/' + route, raw, headers)
+                response = connection.getresponse()
+                result = response.read()
+                if response.status >= 400:
+                    raise Problem(**decode_json(result))
+                return decode_json(result) if raw is not None else result
+            finally:
+                connection.close()
+        return await asyncio.to_thread(send)
+
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_claim_replay_and_gap(self):
