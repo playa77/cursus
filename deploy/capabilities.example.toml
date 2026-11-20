@@ -9,8 +9,8 @@ evidence_record = "REPLACE_OPERATOR_LOCAL_EVIDENCE_PATH"
 binary = "/opt/cursus-cli/REPLACE_PI_VERSION/bin/pi"
 version = "REPLACE_MEASURED_VERSION"
 binary_digest = "REPLACE_SHA256"
-user = "cursus-pi-1"
-home = "/var/lib/cursus-identities/pi-1"
+user = "cursus-pi"
+home = "/var/lib/cursus-identities/pi"
 qualified_roles = []
 provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
 model = "deepseek-v4.1-flash"
@@ -105,3 +105,7 @@ renewal_procedure = "REPLACE_OPERATOR_LOCAL_PROCEDURE_REFERENCE"
 # [pi.role_profiles.reviewer]; override the full fixed_argv, tool_allowlist,
 # qualified_roles and user/home where applicable. Read-only roles require
 # read_only_argv and clean_config_argv; never inherit worker write tools.
+
+# Capability tuples apply to the CLI/role, not each leased execution UID.
+# Native auth files are explicitly selected in runner.toml cli.NAME.auth_files.
+# No worker_profiles per pooled user or sixteen separate native logins are needed.

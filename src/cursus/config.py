@@ -74,7 +74,7 @@ def role_release(service):
     # credential directories are read. A dirty unrelated file is immaterial.
     for item in paths:
         relative = str(item.relative_to(root))
-        result = subprocess.run(['git', '-C', str(root), 'show', f'{commit}:{relative}'],
+        result = subprocess.run(['git', '-c', 'safe.directory='+str(root), '-C', str(root), 'show', f'{commit}:{relative}'],
                                 capture_output=True, check=False)
         if result.returncode or result.stdout != item.read_bytes():
             fail('Role/prompt files differ from the pinned release.')
@@ -83,7 +83,8 @@ def role_release(service):
     validate('Digest', registry['profile_digest'])
     if registry['schema_version'] != 1:
         fail()
-    keys(registry['roles'], ('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge'))
+    if not isinstance(registry['roles'],dict) or not {'interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge'} <= registry['roles'].keys():
+        fail('Missing built-in role binding.')
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
         if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():
@@ -115,7 +116,7 @@ def load(process_kind, path):
         keys(settings, ('operator_socket',))
         absolute(settings['operator_socket'])
         return settings
-    required = ('schema_version', 'process_kind', 'service', 'limits')
+    required = ('schema_version', 'process_kind', 'service', 'limits', 'capacity')
     if process_kind == 'control':
         keys(settings, (*required, 'runner', 'repositories', 'backup'))
         service = settings['service']
@@ -136,7 +137,7 @@ def load(process_kind, path):
         settings['bearer_digest'] = validate('Digest', secret(settings['runner']['bearer_digest_file']))
         origin = service['external_origin']
     elif process_kind == 'runner':
-        keys(settings, (*required, 'publisher', 'capacity', 'cli', 'worker_slots', 'verification', 'pi_reviewer', 'repositories'))
+        keys(settings, (*required, 'publisher', 'cli', 'execution_pool', 'resources', 'verification', 'pi_reviewer', 'repositories'))
         service = settings['service']
         keys(service, ('user', 'origin', 'runner_id', 'bearer_file', 'state_root', 'spool_root',
                        'repository_root', 'worktree_root', 'review_root', 'capabilities_file', 'capabilities_digest'))
@@ -148,7 +149,13 @@ def load(process_kind, path):
         keys(settings['cli'], ('pi', 'claude', 'codex', 'agy'))
         users = []
         for cli, identity in settings['cli'].items():
-            keys(identity, ('binary','user','home','model'), ('provider','reasoning'))
+            keys(identity, ('binary','user','home','model'), ('provider','reasoning','auth_files'))
+            auth = identity.get('auth_files',[])
+            if not isinstance(auth,list) or any(not isinstance(name,str) for name in auth) or len(set(auth))!=len(auth):
+                fail('Native auth files must be a unique list of relative file paths.')
+            for name in auth:
+                from cursus.contracts import _path
+                _path(name)
             absolute(identity['binary'])
             absolute(identity['home'])
             users.append(identity['user'])
@@ -157,24 +164,25 @@ def load(process_kind, path):
         users.append(settings['verification']['user'])
         if len(set(users)) != len(users) or 'root' in users:
             fail('Execution identities must be distinct and unprivileged.')
-        keys(settings['pi_reviewer'], ('enabled','user','home'))
+        keys(settings['pi_reviewer'], ('enabled','user','home'), ('auth_files',))
         if settings['pi_reviewer']['enabled'] and (settings['pi_reviewer']['user'] in users or settings['pi_reviewer']['user'] == 'root'):
             fail('Pi review requires a distinct unprivileged identity.')
         absolute(settings['pi_reviewer']['home'])
-        if len(settings['worker_slots']) != 2 or len({s['user'] for s in settings['worker_slots']}) != 2:
-            fail('Two distinct worker identities are required.')
-        if settings['worker_slots'][0]['user'] != settings['cli']['pi']['user']:
-            fail('First worker must match the pi profile identity.')
-        if settings['worker_slots'][1]['user'] in users or settings['worker_slots'][1]['user']=='root':
-            fail('Second worker must be separately isolated.')
-        for slot in settings['worker_slots']:
-            keys(slot, ('id','user','home'))
-            absolute(slot['home'])
+        pool = settings['execution_pool']
+        if not isinstance(pool,list) or len(pool)!=16:
+            fail('Exactly 16 execution pool accounts are required.')
+        for account in pool:
+            keys(account, ('id','user','home'))
+            absolute(account['home'])
+            if account['user'] in users or account['user']=='root':
+                fail('Pool identities must be separate from native credential identities.')
+        for field in ('id','user','home'):
+            if len({a[field] for a in pool})!=16:
+                fail('Pool identities must be unique.')
+        from cursus.resources import validate_resources
+        validate_resources(settings['resources'])
         for key in ('state_root', 'spool_root', 'repository_root', 'worktree_root', 'review_root'):
             absolute(service[key])
-        keys(settings['capacity'], ('worker', 'verifier', 'frontier', 'repository'))
-        for number in settings['capacity'].values():
-            positive(number)
         settings['bearer'] = secret(service['bearer_file'])
         profile = absolute(service['capabilities_file']).read_bytes()
         if sha256(profile).hexdigest() != service['capabilities_digest']:
@@ -190,6 +198,10 @@ def load(process_kind, path):
         origin = service['origin']
     else:
         fail('Unsupported process kind.')
+    from cursus.capacity import validate_capacity
+    settings['capacity'] = validate_capacity(settings['capacity'])
+    if process_kind=='control':
+        settings['runner']['capacity'] = settings['capacity']
     if settings['schema_version'] != 1 or settings['process_kind'] != process_kind:
         fail()
     parsed = urlsplit(origin)

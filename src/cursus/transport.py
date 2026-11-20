@@ -25,7 +25,15 @@ async def request(control, runner_id, route, data, generation, request_id):
         runner['reachable'] = True
         await tx.save('runners', runner)
         if route == f'runners/{runner_id}/reconcile':
-            _object(data, {'generation', 'observations', 'pending_request_ids'})
+            _object(data, {'generation', 'observations', 'pending_request_ids'}, {'capacity'})
+            from cursus.capacity import validate_capacity, fixture_capacity
+            if 'capacity' in control.settings and 'capacity' not in data:
+                raise Problem('invalid_fields','Runner must advertise its configured capacities.')
+            expected = control.settings['runner'].get('capacity', fixture_capacity())
+            reported = data.get('capacity', fixture_capacity())
+            if validate_capacity(reported) != expected:
+                raise Problem('state_conflict', 'Runner and controller capacities differ.')
+            runner['capacity'] = reported
             if data['generation'] != generation:
                 raise Problem('state_conflict', 'Generation mismatch.')
             if not isinstance(data['observations'], list) or not isinstance(data['pending_request_ids'], list):
@@ -76,7 +84,8 @@ async def request(control, runner_id, route, data, generation, request_id):
                     'dispositions': dispositions}
         if route == f'runners/{runner_id}/heartbeat':
             _object(data, {'slots', 'spool_bytes', 'boot_id', 'health'})
-            _object(data['slots'], {'worker', 'verifier', 'frontier', 'repository'})
+            if set(data['slots']) not in (set(('worker','verifier','frontier','repository')), set(runner.get('capacity',{}))):
+                raise Problem('invalid_fields', 'Unexpected occupancy lanes.')
             for value in data['slots'].values():
                 _integer(value, 0)
             _integer(data['spool_bytes'], 0)
@@ -85,8 +94,15 @@ async def request(control, runner_id, route, data, generation, request_id):
             return {'held_claims': [], 'commands': await recovery.commands(tx,runner_id), 'ack_by_attempt': {},
                     'reconciled': runner['reconciled'], 'dispositions': {}}
         if route == 'jobs/next':
-            _object(data, {'slot'})
+            _object(data, {'slot'}, {'provider','wait'})
             _enum(data['slot'], ('worker', 'verifier', 'frontier', 'repository'))
+            provider = data.get('provider')
+            if provider is not None:
+                _enum(provider, ('pi','claude','codex','agy'))
+                if data['slot'] != 'frontier':
+                    raise Problem('invalid_fields', 'Provider applies only to frontier claims.')
+            if data.get('wait','1') not in ('0','1'):
+                raise Problem('invalid_fields', 'Invalid wait selection.')
             if not runner['reconciled']:
                 raise Problem('state_conflict', 'Reconcile before claiming.')
             if await tx.connection.fetchval('SELECT drain FROM coordination'):
@@ -95,15 +111,15 @@ async def request(control, runner_id, route, data, generation, request_id):
                                                'AND request_id=$2', runner_id, request_id)
             if old:
                 return {'runner_id': runner_id, 'claim': payload(old)['claim']}
-            count = await tx.connection.fetchval(
-                "SELECT count(*) FROM attempts a JOIN jobs j ON a.job_id=j.id "
-                "WHERE a.runner_id=$1 AND a.status IN ('active','unknown') AND j.slot=$2", runner_id, data['slot'])
-            capacity = {'worker': 2, 'verifier': 1, 'frontier': 1, 'repository': 1}[data['slot']]
-            if count >= capacity:
-                return None
-            job_row = await tx.connection.fetchrow("SELECT j.id,j.payload FROM jobs j JOIN phases p ON j.phase_id=p.id WHERE j.state='queued' AND (p.payload->>'state' NOT IN ('parked','canceling','canceled','delivered') OR j.step='reconcile_publication') "
-                                                   'AND j.slot=$1 ORDER BY j.creation_cursor,j.id '
-                                                   'FOR UPDATE SKIP LOCKED LIMIT 1', data['slot'])
+            from cursus.capacity import lane, fixture_capacity
+            capacity = control.settings['runner'].get('capacity',fixture_capacity())
+            rows = await tx.connection.fetch("SELECT j.payload FROM attempts a JOIN jobs j ON a.job_id=j.id "
+                "WHERE a.runner_id=$1 AND a.status IN ('active','unknown')", runner_id)
+            occupied = [lane(payload(row)) for row in rows]
+            candidates = await tx.connection.fetch("SELECT j.id,j.payload FROM jobs j JOIN phases p ON j.phase_id=p.id WHERE j.state='queued' AND (p.payload->>'state' NOT IN ('parked','canceling','canceled','delivered') OR j.step='reconcile_publication') "
+                'AND j.slot=$1 ORDER BY j.creation_cursor,j.id FOR UPDATE OF j SKIP LOCKED', data['slot'])
+            job_row = next((row for row in candidates if (provider is None or lane(payload(row))==provider)
+                            and occupied.count(lane(payload(row))) < capacity[lane(payload(row))]),None)
             if not job_row:
                 return None
             from cursus.control import identity

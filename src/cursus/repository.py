@@ -10,6 +10,8 @@ import shlex
 import tarfile
 import time
 import threading
+import tempfile
+import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -65,7 +67,7 @@ class Repository:
                             'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
                             'GIT_TERMINAL_PROMPT': '0'}
 
-    def git(self, directory, *args, data=None, allowed=(0,)):
+    def git(self, directory, *args, data=None, allowed=(0,), file_limit=None):
         command = [self.binary, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
                    '-c', 'diff.external=', '-c', 'core.attributesFile=/dev/null',
                    '-c', 'user.name=Cursus', '-c', 'user.email=cursus@localhost',
@@ -78,7 +80,10 @@ class Repository:
         if Path(directory) in self.worktree_admin:
             command += ['--git-dir=' + self.worktree_admin[Path(directory)], '--work-tree=' + str(directory)]
         def invoke():
-            return subprocess.run([*command, *args], input=data, capture_output=True,
+            argv = [*command,*args]
+            if file_limit is not None:
+                argv = ['/usr/bin/prlimit','--fsize='+str(file_limit),'--',*argv]
+            return subprocess.run(argv, input=data, capture_output=True,
                                   env=self.environment, timeout=120)
         if args and args[0] in ('fetch','ls-remote','push') and not self.local_only:
             # Shared across worker captures and the repository lane. Start with
@@ -134,23 +139,33 @@ class Repository:
         validate('Id', attempt_id)
         path = self.reviews / attempt_id
         path.mkdir(mode=0o700)
-        raw = self.git(self.cache(repo), 'archive', '--format=tar', head)
-        # No tarfile.extract: reject symlink/hardlink and path escapes before
-        # writing any bytes. Review snapshots contain no .git or publisher data.
-        with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
-            for member in archive:
-                name = member.name.rstrip('/')
-                _path(name)
-                if not (member.isfile() or member.isdir()) or '.git' in Path(name).parts:
-                    raise Problem('unsafe_snapshot', 'Unsupported snapshot entry.')
-                target = path / name
-                if member.isdir():
-                    target.mkdir(parents=True, exist_ok=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(archive.extractfile(member).read())
-                    target.chmod((0o555 if member.mode & 0o111 else 0o444) if readonly else
-                                 (0o755 if member.mode & 0o111 else 0o644))
+        # Git writes its archive to disk; never retain a repository-sized bytes
+        # object alongside the extracted tree. A streaming tar reader bounds RAM.
+        limit = getattr(self, 'max_snapshot_bytes', 1073741824)
+        with tempfile.NamedTemporaryFile(prefix='cursus-archive-',dir=self.root) as temporary:
+            self.git(self.cache(repo), 'archive', '--format=tar', '--output='+temporary.name, head, file_limit=limit)
+            if os.fstat(temporary.fileno()).st_size > limit:
+                raise Problem('payload_too_large','Repository snapshot exceeds its disk budget.')
+            temporary.seek(0)
+            with tarfile.open(fileobj=temporary,mode='r|') as archive:
+                size = 0
+                for member in archive:
+                    name = member.name.rstrip('/')
+                    _path(name)
+                    if not (member.isfile() or member.isdir()) or '.git' in Path(name).parts:
+                        raise Problem('unsafe_snapshot', 'Unsupported snapshot entry.')
+                    size += member.size
+                    if size > limit:
+                        raise Problem('payload_too_large','Expanded snapshot exceeds its budget.')
+                    target = path / name
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with archive.extractfile(member) as incoming, target.open('xb') as outgoing:
+                            shutil.copyfileobj(incoming,outgoing,65536)
+                        target.chmod((0o555 if member.mode & 0o111 else 0o444) if readonly else
+                                     (0o755 if member.mode & 0o111 else 0o644))
         if readonly:
             for directory in sorted((p for p in path.rglob('*') if p.is_dir()), reverse=True):
                 directory.chmod(0o555)
@@ -291,6 +306,9 @@ class Repository:
                     length = int(self.git(self.cache(source_repo), 'cat-file', '-s', blob))
                     if length > 262144:
                         raise Problem('payload_too_large', 'Repository spec exceeds byte limit.')
+                    size = int(self.git(self.cache(source_repo),'cat-file','-s',blob))
+                    if size > 262144:
+                        raise Problem('payload_too_large','Repository spec exceeds byte limit.')
                     raw = self.git(self.cache(source_repo), 'show', blob)
                     if len(raw) > 262144:
                         raise Problem('payload_too_large', 'Repository spec exceeds byte limit.')

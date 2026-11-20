@@ -80,6 +80,8 @@ class M1ContractsTests(unittest.TestCase):
                             'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID':'fixture-go'}
             for old, new in replacements.items():
                 role_text = role_text.replace(old, new)
+            extra = role_text.split('[roles.worker]')[1].split('[roles.reviewer]')[0]
+            role_text += '\n[roles.additional_coder]\n'+extra
             (release / 'roles.toml').write_text(role_text)
             shutil.copytree('prompts', release / 'prompts')
             remote.git(release, 'add', '.')
@@ -98,11 +100,14 @@ class M1ContractsTests(unittest.TestCase):
                 '/etc/cursus/control/database-dsn':str(dsn),
                 '/etc/cursus/control/runner-bearer.sha256':str(digest),
                 'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
+                '"REPLACE_1_TO_4"':'2', '"REPLACE_1_OR_2"':'1',
             }.items():
                 text = text.replace(old,new)
             config = ws.root / 'control.toml'
             config.write_text(text)
-            self.assertEqual(load('control', str(config))['profile_digest'], 'a'*64)
+            loaded = load('control', str(config))
+            self.assertEqual(loaded['profile_digest'], 'a'*64)
+            self.assertEqual(loaded['roles']['additional_coder']['cli'],'pi')
             (release/'prompts'/'worker.md').write_text('Uncommitted changed authority')
             with self.assertRaises(Problem):
                 load('control', str(config))

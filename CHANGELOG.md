@@ -3,6 +3,35 @@
 Notable changes are recorded here using Semantic Versioning.
 
 
+## [0.5.0] - 2026-11-20
+
+### Changed
+
+- Replace fixed two-worker identities with 16 durable pooled execution accounts,
+  independent of roles; private per-attempt HOME and explicit native-auth inputs.
+  Unknown execution keeps its lease and resource reservation across restart.
+- Require explicit 1–4 worker and independent 1–2 Claude/Codex/Antigravity limits;
+  enforce identical settings in control/runner and remove idle-lane head blocking.
+- Allow additional role definitions while preserving required built-in bindings
+  and tier/tool authorization. No per-account capability profiles or native logins.
+- Add direct CLI/verifier systemd cgroups, memory/disk reserve admission and an
+  aggregate execution slice for the existing VPS-A hardware. Safety budgets are
+  configurable policies, not measured peak throughput guarantees.
+- Flush committed log events while agents are still executing, independently of
+  heartbeat and completion; preserve a bounded terminal journal reserve.
+- Stream journal loading/replay and repository snapshots, cap archive output,
+  aggregate browser usage in PostgreSQL, reserve DB connections for non-waiters,
+  and move download integrity hashing off the browser event loop.
+
+### Added
+
+- Worker/controller Ubuntu setup scripts: dry-run, explicit capacity choices,
+  account conflict checks, preserved configuration/secrets, package/service/DB
+  installation and opt-in validated startup. No live inference or VPS changes
+  were performed while implementing/verifying the scripts.
+- ADR 0008 and the current setup/migration guide. Live qualification remains
+  deferred; the existing browser design and two-VPS topology are retained.
+
 ## [0.4.0] - 2026-11-20
 
 Source implementation through WP-16. User qualification and live testing are

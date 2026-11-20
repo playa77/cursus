@@ -1,6 +1,11 @@
 # Cursus operations runbook
 
-Revision: 2026-11-19-r1. Scope: WP-01 package and WP-02 provisioning.
+Revision: 2026-11-20-r2.
+
+**Current installation:** use [the worker/controller setup guide](setup.md) and
+`deploy/setup-worker.sh` / `deploy/setup-controller.sh`. ADR 0008 supersedes the
+historical fixed two-worker/per-slot account instructions below. Both scripts
+require explicit worker and per-provider counts and preserve existing config.
 
 ## Deployment status and records
 
@@ -411,14 +416,11 @@ pin only confirmed integrated heads. Target movement causes bounded target merge
 verification and fresh review before an expected-head publication; conflicts or
 budget exhaustion park. Final merge remains with the operator.
 
-Configure both worker_slots with distinct unprivileged users/homes. The first
-matches the pi profile. For the second, add a measured capability override under
-`[worker_profiles."SECOND_WORKER_USER"]`, including its user/home and any differing
-binary/argv/qualification fields. It inherits the pi profile's fixed tuple and
-is checked against the assigned identity before launch. This is an unqualified
-configuration shape, not permission to reuse the developer agent's credentials.
-Require a separate measured `[pi.role_profiles.debug]` when debug settings differ.
-The debug role must qualify RPC prompt, idle continuation, steering and stop.
+The runner now leases from the 16-account execution pool. Worker concurrency
+is explicitly selected from 1–4; each frontier provider independently from 1–2.
+Use the current [setup guide](setup.md) for schema migration, one native login
+per CLI, account leases and cgroup budgets. Per-worker identity profiles and
+manual account creation for additional agents are superseded by ADR 0008.
 
 A debug Input uses workflow=debug, repo, source and both debate flags; omit form.
 The runner retains its RPC process while verifier jobs inspect numbered immutable

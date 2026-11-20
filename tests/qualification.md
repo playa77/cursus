@@ -346,3 +346,62 @@ centered stacked content, theme control, compact tables, lifecycle rail, exact P
 handoff and evidence rows without horizontal page overflow. This is local visual
 QA, not qualification of real Serve forwarding, OS identities, MyPC/Chromebook,
 provider behavior, screen readers or production readiness. Those remain WP-17.
+
+## Execution pool and deployment correction — 0.5.0, 2026-11-20
+
+Operator direction fixes the inventory at **16 pooled execution accounts** and
+requires configurable workers **1–4**, and Claude/Codex/Antigravity **1–2 each**.
+ADR 0008 and ops/setup.md amend the earlier identity/capacity contracts. Hardware
+remains A: 6 vCores/12 GB; B: 4 vCores/8 GB. No user provisioning/testing was
+requested or performed for this source correction.
+
+Verification uses CPython 3.12.14, PostgreSQL 18.6 in task-owned disposable storage,
+controlled Git/HTTP boundaries, executable CLI fixtures, fake systemd/account
+boundaries and temporary credential **fixtures**, never real provider credentials.
+
+- **30 unit tests passed**: existing contracts plus capacity bounds, sixteen
+  exclusive durable leases, unknown-lease restoration, private native-auth file
+  selection, bounded journal-load peak memory, resource command/cgroup lifetime
+  properties, failed supervisor queries retaining unknown stop, actual inner
+  `env -i` execution rejecting manager environment leakage, configuration loading
+  with sixteen identities, extra role definitions and setup collision/idempotency.
+- **54 integration tests passed** in bounded final batches of 24 and 30: all
+  previously existing 48 scenarios and six new capacity/pool scenarios.
+- After the final live-event-pump change, **13 passed**: seven capacity/pool/live-log
+  cases, five debug cases and runner transport. The runner service parallel-phase
+  case passed again (**1**), including pump shutdown and child cleanup.
+- The controller installer's generated PostgreSQL role SQL passed repeatability
+  and privilege checks (**1**); the provisioning transaction is explicitly rolled
+  back without dropping pre-existing roles. This and the new live-log case bring
+  the complete integration collection to **56 scenarios**, all covered by the
+  passing batches/targeted checks above.
+- Both actual setup wrapper `--dry-run` commands passed with explicit counts;
+  shell syntax checks, compileall and `git diff --check` passed. No account,
+  package, system service, Tailscale policy or credential changed in dry-run.
+- Wheel 0.5.0 built and installed; locked dependency compatibility passed;
+  installed version and packaged templates/new runtime modules were checked.
+
+Observed through production intake/claim/event paths: four workers can hold and
+execute four distinct leases; a fifth waits. Two jobs per provider can be held
+simultaneously without a shared frontier bottleneck; a third for that provider
+waits without blocking other providers. Unknown ownership still counts. Identity
+quarantine survives runner restart and abandonment; replacements use another UID
+lease. Changed-boot stop evidence permits release only after reconciliation.
+Private execution homes are removed on confirmed stop; old workspace roots are
+revoked before a production UID is lent again. Waiter saturation leaves database
+connections for operator reads. Live worker output reaches committed events before
+worker completion. Existing recovery, immutable evidence, PR publication, browser,
+interview/debate and continuing-debug fixture paths remain passing.
+
+An initial browser regression ran while the asynchronous download helper was
+being changed and mixed old/new module versions; it was superseded by fresh
+passing browser and final regression processes. No failing check is represented
+as passing. Local logical-UID fixtures do **not** prove kernel cross-UID isolation.
+
+Unverified: actual intended-host cgroup/systemd behavior, maximum-load hardware
+performance, installed vendor flags and native-token refresh with parallel private
+copies. Example memory/CPU/disk budgets are configurable safety policies, not
+measurements. Disk-pressure monitoring is not a filesystem project quota. Full
+retention/backup remains WP-19. Existing user/live qualification deferral remains
+in force; no release tag, live inference, remote deployment or production-readiness
+claim is made.

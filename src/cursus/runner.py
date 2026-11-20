@@ -1,8 +1,6 @@
 """Durable runner journal and bounded, runner-initiated HTTPS exchange."""
 
 import asyncio
-import fcntl
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -13,84 +11,12 @@ import urllib.parse
 import pwd
 import random
 import time
-import shutil
 from uuid import uuid4
 from cursus.contracts import Problem, canonical_json, decode_json, validate
 
 
-class Journal:
-    """Hash-chained, fsynced records protected by a lifetime exclusive lock.
-
-    A partial final line was never acknowledged and can be truncated. Complete
-    corrupt records cannot establish launch absence and fail closed.
-    """
-    def __init__(self, root, max_bytes=2147483648):
-        self.max_bytes = max_bytes
-        self.root = Path(root)
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.lock = (self.root / 'lock').open('a+b')
-        try:
-            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            self.lock.close()
-            raise
-        self.path = self.root / 'journal.jsonl'
-        self.records, self.digest = [], '0' * 64
-        raw = self.path.read_bytes() if self.path.exists() else b''
-        offset = 0
-        for line in raw.splitlines(keepends=True):
-            if not line.endswith(b'\n'):
-                with self.path.open('r+b') as output:
-                    output.truncate(offset)
-                    output.flush()
-                    os.fsync(output.fileno())
-                break
-            try:
-                item = decode_json(line)
-                expected = sha256(self.digest.encode() + canonical_json(item['record'])).hexdigest()
-                if item['digest'] != expected:
-                    raise ValueError()
-            except (ValueError, KeyError):
-                self.close()
-                raise Problem('journal_corrupt', 'Journal integrity is uncertain.') from None
-            self.records.append(item['record'])
-            self.digest = item['digest']
-            offset += len(line)
-        self.stream = self.path.open('ab', buffering=0)
-        os.chmod(self.path, 0o600)
-        directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-        generations = [r['value'] for r in self.records if r['kind'] == 'generation']
-        self.generation = generations[0] if generations else str(uuid4())
-        if not generations:
-            self.record('generation', self.generation)
-
-    def record(self, kind, value):
-        record = {'kind': kind, 'value': value}
-        digest = sha256(self.digest.encode() + canonical_json(record)).hexdigest()
-        raw = canonical_json({'record': record, 'digest': digest}) + b'\n'
-        terminal = kind in ('ack','retire','directive') or (kind == 'event' and value.get('kind') == 'final')
-        reserve = 0 if terminal else 65536
-        if self.path.stat().st_size + len(raw) + reserve > self.max_bytes or shutil.disk_usage(self.root).free < len(raw) + reserve:
-            raise Problem('storage', 'Journal reserve exhausted; intake is stopped.')
-        remaining = memoryview(raw)
-        while remaining:
-            written = self.stream.write(remaining)
-            if not written:
-                raise OSError('Journal write did not complete')
-            remaining = remaining[written:]
-        os.fsync(self.stream.fileno())
-        self.records.append(record)
-        self.digest = digest
-        return len(self.records)
-
-    def close(self):
-        if hasattr(self, 'stream'):
-            self.stream.close()
-        self.lock.close()
+from cursus.journal import Journal
+from cursus.capacity import lane, fixture_capacity
 
 
 class HTTPS:
@@ -156,9 +82,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Runner:
-    def __init__(self, runner_id, journal, transport, repository=None, execution=None):
+    def __init__(self, runner_id, journal, transport, repository=None, execution=None, capacity=None):
         self.id, self.journal, self.transport = runner_id, journal, transport
         self.repository, self.execution = repository, execution
+        self.capacity = capacity or fixture_capacity()
         self.reconciled = False
         self.activation = str(uuid4())
         self.active = {}
@@ -166,6 +93,13 @@ class Runner:
         self.boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         self.replay_lock = asyncio.Lock()
         self.tasks = set()
+        from cursus.identities import IdentityPool
+        self.pool = IdentityPool(execution.pool,journal) if execution and execution.pool else None
+        if self.pool and execution.resources:
+            for record in journal.records:
+                if record['kind']=='grant' and record['value']['attempt_id'] in self.pool.held:
+                    claim = record['value']
+                    execution.resources.held[claim['attempt_id']] = execution.resources.amount(claim['job'])
 
     def record(self, kind, value):
         return self.journal.record(kind, value)
@@ -182,15 +116,16 @@ class Runner:
         for claim in claims:
             attempt_id = claim['attempt_id']
             launched = any(r['kind'] == 'launch' and r['value'] == attempt_id for r in self.journal.records)
-            final = any(r['kind'] == 'event' and r['value']['attempt_id'] == attempt_id
-                        and r['value']['kind'] == 'final' for r in self.journal.records)
+            finals = [r['value']['payload'] for r in self.journal.records if r['kind']=='event'
+                      and r['value']['attempt_id']==attempt_id and r['value']['kind']=='final']
+            final = bool(finals and finals[-1]['kind']!='unknown')
             starts = [r['value'] for r in self.journal.records if r['kind']=='process_context' and r['value']['attempt_id']==attempt_id]
             stopped = starts and starts[-1]['boot_id'] != self.boot_id
             observations.append({'attempt_id': attempt_id,
                                  'kind': 'terminal_pending' if final else 'live' if attempt_id in self.active else 'stopped' if stopped else 'unknown' if launched else 'never_started',
                                  'reason': 'Durable journal observation.'})
         directive = await self.exchange(f'runners/{self.id}/reconcile', {
-            'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending})
+            'generation': self.journal.generation, 'observations': observations, 'pending_request_ids': pending, 'capacity': self.capacity})
         for attempt_id,disposition in directive['dispositions'].items():
             if disposition=='stop-stale' and attempt_id in self.command_queues:
                 prior=any(r['kind']=='stale_stop' and r['value']==attempt_id for r in self.journal.records)
@@ -200,23 +135,31 @@ class Runner:
         held_ids = {c['attempt_id'] for c in directive['held_claims']}
         resolved = {r['value']['payload']['command_id'] for r in self.journal.records
                     if r['kind']=='event' and r['value']['kind']=='command_result'}
-        for record in list(self.journal.records):
+        for record in self.journal.records:
             if record['kind']=='command_intent':
                 command = record['value']
                 if command['id'] not in resolved and command['attempt_id'] in held_ids and command['attempt_id'] not in self.active:
                     await self.event(command['attempt_id'],'command_result',
                         {'command_id':command['id'],'disposition':'uncertain','reason':'Prior RPC delivery has no durable result.'})
                     resolved.add(command['id'])
+        if self.pool:
+            for observation in observations:
+                if observation['attempt_id'] not in self.pool.held:
+                    continue
+                if observation['kind']=='stopped' and directive['dispositions'].get(observation['attempt_id'])=='ignore-stale':
+                    self.release_identity(observation['attempt_id'])
+                elif observation['kind']=='terminal_pending' and observation['attempt_id'] not in self.active:
+                    self.release_identity(observation['attempt_id'])
         self.record('directive', directive)
         self.reconciled = directive['reconciled']
         return directive
 
-    async def claim(self, slot, request_id=None):
+    async def claim(self, slot, request_id=None, provider=None, wait=True):
         if not self.reconciled:
             raise Problem('state_conflict', 'Runner must reconcile first.')
         request_id = request_id or str(uuid4())
         self.record('pending', {'id': request_id, 'slot': slot})
-        result = await self.exchange('jobs/next', {'slot': slot}, request_id, 'GET')
+        result = await self.exchange('jobs/next', dict(slot=slot, **({'provider':provider} if provider else {}), **({} if wait else {'wait':'0'})), request_id, 'GET')
         if result:
             claim = validate('Claim', result['claim'])
             if claim['runner_id'] != self.id or claim['request_id'] != request_id:
@@ -249,16 +192,23 @@ class Runner:
         for record in self.journal.records:
             if record['kind'] == 'ack':
                 positions[record['value']['attempt_id']] = record['value']['committed_through']
-        grouped = {}
-        for record in self.journal.records:
-            if record['kind'] == 'event':
+        attempts = {r['value']['attempt_id'] for r in self.journal.records if r['kind']=='grant'}
+        for attempt_id in attempts:
+            batch = []
+            for record in self.journal.records:
+                if record['kind'] != 'event':
+                    continue
                 event = record['value']
-                if event['seq'] > positions.get(event['attempt_id'], 0):
-                    grouped.setdefault(event['attempt_id'], []).append(event)
-        for attempt_id, events in grouped.items():
-            for offset in range(0, len(events), 100):
-                ack = await self.exchange(f'attempts/{attempt_id}/events', events[offset:offset + 100])
-                self.record('ack', dict(ack, attempt_id=attempt_id))
+                if event['attempt_id'] != attempt_id or event['seq'] <= positions.get(attempt_id,0):
+                    continue
+                batch.append(event)
+                if len(batch)==100:
+                    ack = await self.exchange(f'attempts/{attempt_id}/events',batch)
+                    self.record('ack',dict(ack,attempt_id=attempt_id))
+                    batch = []
+            if batch:
+                ack = await self.exchange(f'attempts/{attempt_id}/events',batch)
+                self.record('ack',dict(ack,attempt_id=attempt_id))
 
     def assign(self, path, configured, readonly=False):
         if not configured or os.geteuid() != 0:
@@ -270,7 +220,9 @@ class Runner:
                 if entry.name == '.git' or entry.is_symlink():
                     continue
                 os.chown(entry, user.pw_uid, user.pw_gid, follow_symlinks=False)
-        path.chmod(0o555 if readonly else 0o700)
+        if readonly:
+            os.chown(path,0,user.pw_gid)
+        path.chmod(0o550 if readonly else 0o700)
 
     def progress(self, event, job, attempt_id, outcome=None):
         import logging
@@ -281,21 +233,60 @@ class Runner:
             'version': __version__, 'event': event, 'job_id': job['id'],
             'attempt_id': attempt_id, 'step': job['step'], 'outcome': outcome}))
 
+    def release_identity(self, attempt_id):
+        """Remove old UID authority before lending that UID to another attempt."""
+        from cursus.identities import remove_home
+        if self.repository and os.geteuid()==0:
+            for root in (self.repository.worktrees,self.repository.reviews):
+                path = root / attempt_id
+                if path.is_dir() and not path.is_symlink():
+                    os.chown(path,0,0,follow_symlinks=False)
+                    path.chmod(0o700)
+        remove_home(self.execution.home_root,attempt_id)
+        self.pool.release(attempt_id)
+        if self.execution.resources:
+            self.execution.resources.release(attempt_id)
+
     async def dispatch(self, claim):
-        token, slot = None, None
-        if claim['job']['step'] in ('produce','debug'):
-            slots = range(2 if self.execution.allow_test_identity else len(self.execution.worker_slots))
-            slot = next((i for i in slots if i not in self.execution.worker_leases),None)
-            if slot is None:
-                raise Problem('capacity','No isolated worker identity is free.')
-            self.execution.worker_leases.add(slot)
-            token = self.execution.worker_context.set(0 if self.execution.allow_test_identity else slot)
+        token = None
+        attempt_id, job = claim['attempt_id'], claim['job']
+        if any(r['kind']=='launch' and r['value']==attempt_id for r in self.journal.records):
+            raise Problem('state_conflict','Launch intent exists; automatic relaunch forbidden.')
+        if self.pool and job['slot'] != 'repository':
+            from cursus.identities import prepare_home
+            account = self.pool.acquire(attempt_id)
+            if job['step']=='verify':
+                source, auth = self.execution.verifier, []
+            else:
+                source = self.execution.native(job['invocation'])
+                auth = source.get('auth_files',[])
+            from cursus.identities import remove_home
+            # A retained lease without launch intent proves this home was never
+            # exposed to an execution. Rebuild a possibly partial preparation.
+            remove_home(self.execution.home_root,attempt_id)
+            try:
+                configured = prepare_home(self.execution.home_root,attempt_id,account,source,auth)
+            except BaseException:
+                remove_home(self.execution.home_root,attempt_id)
+                self.pool.release(attempt_id)
+                if self.execution.resources:
+                    self.execution.resources.release(attempt_id)
+                raise
+            configured['category'] = 'worker' if job['slot']=='worker' else 'verifier' if job['step']=='verify' else 'frontier'
+            token = self.execution.pool_context.set(configured)
         try:
             return await self._dispatch(claim)
         finally:
             if token is not None:
-                self.execution.worker_context.reset(token)
-                self.execution.worker_leases.remove(slot)
+                self.execution.pool_context.reset(token)
+                finals = [r['value']['payload'] for r in self.journal.records if r['kind']=='event'
+                          and r['value']['attempt_id']==attempt_id and r['value']['kind']=='final']
+                if finals and finals[-1]['kind'] != 'unknown':
+                    self.release_identity(attempt_id)
+                # Unknown processes keep their identity; never reuse it by timeout.
+            if self.execution and self.execution.resources:
+                if not self.pool or attempt_id not in self.pool.held:
+                    self.execution.resources.release(attempt_id)
 
     async def _dispatch(self, claim):
         job, attempt_id = claim['job'], claim['attempt_id']
@@ -303,7 +294,7 @@ class Runner:
             raise Problem('state_conflict', 'Launch intent exists; automatic relaunch forbidden.')
         self.record('process_context', {'attempt_id':attempt_id,'boot_id':self.boot_id,'activation':self.activation})
         self.record('launch', attempt_id)
-        self.active[attempt_id] = job['slot']
+        self.active[attempt_id] = lane(job)
         self.command_queues[attempt_id] = asyncio.Queue()
         self.progress('started', job, attempt_id)
         await self.event(attempt_id, 'started', {'service_activation': self.activation,
@@ -352,7 +343,7 @@ class Runner:
                     for ref in file_refs(job['input']):
                         inputs.append((ref, await self.transport.download(ref, attempt_id)))
                     await asyncio.to_thread(self.repository.evidence_files, path, inputs)
-                configured = self.execution.verifier if step == 'verify' else self.execution.configured(job['invocation'])
+                configured = (self.execution.pool_context.get() or self.execution.verifier) if step == 'verify' else self.execution.configured(job['invocation'])
                 self.assign(path, configured, readonly=step == 'review')
                 value = await self.execution.run(job, path, attempt_id, log)
                 if step == 'verify':
@@ -366,6 +357,7 @@ class Runner:
                 else:
                     path = self.repository.reviews / attempt_id
                     path.mkdir(mode=0o755)
+                self.assign(path,self.execution.configured(job['invocation']),readonly=True)
                 value = await self.execution.run(job, path, attempt_id, log)
             else:
                 value = await asyncio.to_thread(self.repository.perform, job, attempt_id)
@@ -402,20 +394,33 @@ class Runner:
 
     async def serve(self):
         heartbeat = asyncio.create_task(self.heartbeat())
+        event_pump = asyncio.create_task(self.event_pump())
         try:
             await self.work_loop()
         finally:
             heartbeat.cancel()
+            event_pump.cancel()
             for task in self.tasks:
                 task.cancel()
-            await asyncio.gather(heartbeat,*self.tasks, return_exceptions=True)
+            await asyncio.gather(heartbeat,event_pump,*self.tasks, return_exceptions=True)
+
+    async def event_pump(self):
+        while True:
+            await asyncio.sleep(1)
+            if not self.reconciled:
+                continue
+            try:
+                await self.replay()
+            except (OSError,Problem):
+                # The work loop owns bounded recovery; children continue to spool.
+                self.reconciled = False
 
     async def heartbeat(self):
         failures = 0
         while failures < 5:
             await asyncio.sleep(10)
             try:
-                slots = dict.fromkeys(('worker','verifier','frontier','repository'), 0)
+                slots = dict.fromkeys(self.capacity, 0)
                 for slot in self.active.values():
                     slots[slot] += 1
                 directive = await self.exchange(f'runners/{self.id}/heartbeat', {'slots':slots,
@@ -449,7 +454,12 @@ class Runner:
                         if not launched and not finished:
                             if not any(r['kind'] == 'grant' and r['value']['attempt_id'] == held['attempt_id'] for r in self.journal.records):
                                 self.record('grant', validate('Claim', held))
-                            await self.dispatch(held)
+                            if self.execution and self.execution.resources:
+                                if not self.execution.resources.available(held['job']):
+                                    continue
+                                self.execution.resources.reserve(held['attempt_id'],held['job'])
+                            self.active[held['attempt_id']] = lane(held['job'])
+                            tasks.add(asyncio.create_task(self.dispatch(held)))
                 if not self.reconciled:
                     raise Problem('recovery_required', 'Unreconciled claims require operator evidence.')
                 for task in list(tasks):
@@ -459,13 +469,19 @@ class Runner:
                 granted = False
                 # Claims remain bounded centrally; local counts avoid polling
                 # a full slot while existing tasks retain process ownership.
-                for slot in ('repository', 'frontier', 'worker', 'verifier'):
-                    capacity = 2 if slot == 'worker' else 1
-                    for _ in range(capacity - list(self.active.values()).count(slot)):
-                        claim = await self.claim(slot)
+                for execution_lane, capacity in self.capacity.items():
+                    slot = 'frontier' if execution_lane in ('claude','codex','agy','pi') else execution_lane
+                    for _ in range(capacity - list(self.active.values()).count(execution_lane)):
+                        if self.pool and slot!='repository' and len(self.pool.held)>=len(self.pool.accounts):
+                            break
+                        if self.execution and self.execution.resources and not self.execution.resources.available({'slot':slot}):
+                            break
+                        claim = await self.claim(slot, provider=execution_lane if slot=='frontier' else None, wait=False)
                         if claim:
+                            if self.execution and self.execution.resources:
+                                self.execution.resources.reserve(claim['attempt_id'],claim['job'])
                             granted = True
-                            self.active[claim['attempt_id']] = slot
+                            self.active[claim['attempt_id']] = lane(claim['job'])
                             tasks.add(asyncio.create_task(self.dispatch(claim)))
                 failures, fault_started = 0, None
                 if not granted:

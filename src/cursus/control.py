@@ -102,7 +102,7 @@ class Control:
     async def runner_request(self, runner_id, route, data, generation, request_id):
         from cursus.transport import request
         result = await request(self, runner_id, route, data, generation, request_id)
-        if route == 'jobs/next' and result is None:
+        if route == 'jobs/next' and result is None and data.get('wait') != '0':
             import time
             await self.wait(time.monotonic() + self.settings['limits']['long_poll_seconds'])
             result = await request(self, runner_id, route, data, generation, request_id)

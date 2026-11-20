@@ -61,7 +61,7 @@ def settings():
     from uuid import uuid4
     return {
         'service': {'role_release_commit': '0' * 40},
-        'runner': {'id': str(uuid4())},
+        'runner': {'id': str(uuid4()), 'capacity': __import__('cursus.capacity',fromlist=['fixture_capacity']).fixture_capacity()},
         'bearer_digest': __import__('hashlib').sha256(b'fixture-bearer').hexdigest(),
         'roles': {}, 'limits': {'repair_retries': 2, 'long_poll_seconds': 1},
         'repositories': [{'owner': 'fixture', 'name': 'repo', 'object_format': 'sha1',
@@ -203,6 +203,7 @@ def control_config(ws, dsn):
         'REPLACE_FULL_RELEASE_COMMIT':commit, 'REPLACE_RUNNER_UUID':str(uuid4()),
         'REPLACE_GITHUB_OWNER':'fixture', 'REPLACE_TRUSTED_REPO':'repo',
         'listen_port = 8787':'listen_port = 0',
+        '"REPLACE_1_TO_4"':'2', '"REPLACE_1_OR_2"':'1',
     }.items():
         text = text.replace(old,new)
     path = ws.root/'control.toml'

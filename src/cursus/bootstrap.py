@@ -81,8 +81,12 @@ async def service(args):
             if settings['pi_reviewer']['enabled']:
                 identities['pi_reviewer'] = settings['pi_reviewer']
             execution = Execution(settings['profiles'], identities, settings['verification'])
-            execution.worker_slots = settings['worker_slots']
-            runner = Runner(service['runner_id'], journal, transport, repository, execution)
+            execution.pool = settings['execution_pool']
+            execution.home_root = str(__import__('pathlib').Path(service['state_root']).parent / 'homes')
+            from cursus.resources import Resources
+            execution.resources = Resources(settings['resources'],service['state_root'])
+            repository.max_snapshot_bytes = settings['resources']['repository_bytes']
+            runner = Runner(service['runner_id'], journal, transport, repository, execution,settings['capacity'])
             await runner.serve()
         finally:
             journal.close()

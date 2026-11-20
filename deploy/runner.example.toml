@@ -24,12 +24,6 @@ github_credential_file = "/etc/cursus/runner/publisher-github-credential"
 # Provision these via an operator-approved opaque client; never copy credentials
 # from a developer agent, CLI home, prompt or repository.
 
-[capacity]
-worker = 2
-verifier = 1
-frontier = 1
-repository = 1
-
 [limits]
 long_poll_seconds = 30
 heartbeat_seconds = 10
@@ -38,40 +32,118 @@ spool_bytes = 2147483648
 # Binaries must be approved, absolute, version-pinned installations. The
 # placeholder paths below are not assertions about any vendor's install layout.
 [cli.pi]
+# Relative regular files explicitly selected after native login; never whole homes.
+auth_files = []
 binary = "/opt/cursus-cli/REPLACE_PI_VERSION/bin/pi"
-user = "cursus-pi-1"
-home = "/var/lib/cursus-identities/pi-1"
+user = "cursus-pi"
+home = "/var/lib/cursus-identities/pi"
 provider = "REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID"
 model = "deepseek-v4.1-flash"
 reasoning = "REPLACE_QUALIFIED_REASONING_VALUE"
 
 [cli.claude]
+# Relative regular files explicitly selected after native login; never whole homes.
+auth_files = []
 binary = "/opt/cursus-cli/REPLACE_CLAUDE_VERSION/bin/claude"
 user = "cursus-claude"
 home = "/var/lib/cursus-identities/claude"
 model = "REPLACE_QUALIFIED_CLAUDE_MODEL"
 
 [cli.codex]
+# Relative regular files explicitly selected after native login; never whole homes.
+auth_files = []
 binary = "/opt/cursus-cli/REPLACE_CODEX_VERSION/bin/codex"
 user = "cursus-codex"
 home = "/var/lib/cursus-identities/codex"
 model = "REPLACE_QUALIFIED_CODEX_MODEL"
 
 [cli.agy]
+# Relative regular files explicitly selected after native login; never whole homes.
+auth_files = []
 binary = "/opt/cursus-cli/REPLACE_AGY_VERSION/bin/agy"
 user = "cursus-agy"
 home = "/var/lib/cursus-identities/agy"
 model = "REPLACE_QUALIFIED_AGY_MODEL"
 
-[[worker_slots]]
-id = "worker-1"
-user = "cursus-pi-1"
-home = "/var/lib/cursus-identities/pi-1"
+[[execution_pool]]
+id = "exec-01"
+user = "cursus-exec-01"
+home = "/var/lib/cursus-identities/exec-01"
 
-[[worker_slots]]
-id = "worker-2"
-user = "cursus-pi-2"
-home = "/var/lib/cursus-identities/pi-2"
+[[execution_pool]]
+id = "exec-02"
+user = "cursus-exec-02"
+home = "/var/lib/cursus-identities/exec-02"
+
+[[execution_pool]]
+id = "exec-03"
+user = "cursus-exec-03"
+home = "/var/lib/cursus-identities/exec-03"
+
+[[execution_pool]]
+id = "exec-04"
+user = "cursus-exec-04"
+home = "/var/lib/cursus-identities/exec-04"
+
+[[execution_pool]]
+id = "exec-05"
+user = "cursus-exec-05"
+home = "/var/lib/cursus-identities/exec-05"
+
+[[execution_pool]]
+id = "exec-06"
+user = "cursus-exec-06"
+home = "/var/lib/cursus-identities/exec-06"
+
+[[execution_pool]]
+id = "exec-07"
+user = "cursus-exec-07"
+home = "/var/lib/cursus-identities/exec-07"
+
+[[execution_pool]]
+id = "exec-08"
+user = "cursus-exec-08"
+home = "/var/lib/cursus-identities/exec-08"
+
+[[execution_pool]]
+id = "exec-09"
+user = "cursus-exec-09"
+home = "/var/lib/cursus-identities/exec-09"
+
+[[execution_pool]]
+id = "exec-10"
+user = "cursus-exec-10"
+home = "/var/lib/cursus-identities/exec-10"
+
+[[execution_pool]]
+id = "exec-11"
+user = "cursus-exec-11"
+home = "/var/lib/cursus-identities/exec-11"
+
+[[execution_pool]]
+id = "exec-12"
+user = "cursus-exec-12"
+home = "/var/lib/cursus-identities/exec-12"
+
+[[execution_pool]]
+id = "exec-13"
+user = "cursus-exec-13"
+home = "/var/lib/cursus-identities/exec-13"
+
+[[execution_pool]]
+id = "exec-14"
+user = "cursus-exec-14"
+home = "/var/lib/cursus-identities/exec-14"
+
+[[execution_pool]]
+id = "exec-15"
+user = "cursus-exec-15"
+home = "/var/lib/cursus-identities/exec-15"
+
+[[execution_pool]]
+id = "exec-16"
+user = "cursus-exec-16"
+home = "/var/lib/cursus-identities/exec-16"
 
 [verification]
 user = "cursus-verifier"
@@ -97,3 +169,24 @@ id = "unit"
 argv = ["/opt/cursus/venv/bin/python", "-m", "unittest", "discover", "-s", "tests/unit"]
 cwd = "."
 timeout_seconds = 300
+
+# Explicit safety budgets, not measurements of vendor CLI consumption.
+[resources]
+reserve_memory_bytes = 2147483648
+reserve_disk_bytes = 2147483648
+worker_memory_bytes = 2147483648
+frontier_memory_bytes = 536870912
+verifier_memory_bytes = 2147483648
+cpu_percent = 100
+tasks_max = 128
+repository_bytes = 1073741824
+
+# Required operator choices: no deployment defaults or shared frontier bottleneck.
+[capacity]
+worker = "REPLACE_1_TO_4"
+claude = "REPLACE_1_OR_2"
+codex = "REPLACE_1_OR_2"
+agy = "REPLACE_1_OR_2"
+pi = 1
+verifier = 1
+repository = 1

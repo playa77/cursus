@@ -40,7 +40,7 @@ async def replay(runner):
     receipts = {r['value']['id'] for r in runner.journal.records if r['kind'] in ('artifact_receipt','artifact_discarded')}
     directives = [r['value'] for r in runner.journal.records if r['kind']=='directive']
     dispositions = directives[-1].get('dispositions',{}) if directives else {}
-    for record in list(runner.journal.records):
+    for record in runner.journal.records:
         if record['kind'] != 'artifact_pending' or record['value']['file']['id'] in receipts:
             continue
         item = record['value']

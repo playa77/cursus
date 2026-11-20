@@ -78,6 +78,8 @@ class Transaction:
 class Store:
     def __init__(self, pool):
         self.pool = pool
+        # Waiters must not consume all connections needed by commands/readers.
+        self.waiters = asyncio.Semaphore(max(1, pool.get_max_size() // 3))
 
     async def migrate(self, migrations=None):
         if migrations is None:
@@ -171,12 +173,19 @@ class Store:
                 phase = (payload(await connection.fetchrow('SELECT payload FROM phases WHERE id=$1', phase_id))
                          if phase_id else None)
                 counts = await connection.fetch("SELECT state,count(*) AS count FROM jobs GROUP BY state")
-                usage = await connection.fetch("SELECT payload FROM events WHERE kind='usage' "
+                tokens = await connection.fetchrow("SELECT sum((payload->'payload'->>'input_tokens')::bigint) AS input_tokens, "
+                    "sum((payload->'payload'->>'output_tokens')::bigint) AS output_tokens FROM events WHERE kind='usage' "
                     "AND ($1::uuid IS NULL OR phase_id=$1) AND ($2::uuid IS NULL OR attempt_id=$2)",
-                    phase_id, identity if route == 'attempts' else None)
+                    phase_id, identity if route=='attempts' else None)
+                costs = await connection.fetch("SELECT payload->'payload'->>'currency' AS currency, "
+                    "sum((payload->'payload'->>'cost')::numeric)::text AS cost FROM events WHERE kind='usage' "
+                    "AND payload->'payload' ? 'cost' AND ($1::uuid IS NULL OR phase_id=$1) "
+                    "AND ($2::uuid IS NULL OR attempt_id=$2) GROUP BY payload->'payload'->>'currency'",
+                    phase_id, identity if route=='attempts' else None)
                 result = dict(cursor=position, entity=entity, phase=phase,
                               queue_counts={r['state']:r['count'] for r in counts},
-                              usage=[payload(r)['payload'] for r in usage])
+                              usage=[{k:int(v) for k,v in dict(tokens).items() if v is not None},
+                                     *[dict(r) for r in costs]])
                 for table in ('phases', 'attempts', 'jobs', 'runners', 'artifacts'):
                     condition = ''
                     args = []
@@ -198,6 +207,10 @@ class Store:
                 return result
 
     async def wait(self, deadline, cursor=None):
+        async with self.waiters:
+            return await self._wait(deadline,cursor)
+
+    async def _wait(self, deadline, cursor=None):
         # Register before checking the cursor; notifications are advisory and a
         # bounded fallback still observes commits if a notification was missed.
         wake = asyncio.Event()

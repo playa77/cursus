@@ -1,5 +1,6 @@
 """Bounded binary routes shared by the authorized operator and runner ingress."""
 import re
+import asyncio
 from urllib.parse import quote, unquote
 from fastapi import Request
 from fastapi.responses import StreamingResponse
@@ -41,16 +42,16 @@ def mount(app, control, local):
                 raise Problem('invalid_fields', 'One current claim_id is required.')
             row = await download(control, control.settings['runner']['id'], file_id,
                                  one(request, 'x-cursus-generation'), request.query_params['claim_id'])
-            return response(control, row)
+            return await response(control, row)
     else:
         @app.get('/artifacts/{file_id}')
         async def operator_file(file_id: str):
-            return response(control, await download(control, 'local_operator', file_id))
+            return await response(control, await download(control, 'local_operator', file_id))
 
 
-def response(control, row):
+async def response(control, row):
     ref = row['file']
-    source = control.artifacts.open(row['attempt_id'], ref)
+    source = await asyncio.to_thread(control.artifacts.open,row['attempt_id'],ref)
     def chunks():
         try:
             while raw := source.read(65536):

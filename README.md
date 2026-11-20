@@ -6,12 +6,17 @@ The approved [roadmap](docs/cursus-implementation-roadmap-v0.1.1.md) and
 the staged implementation. This public repository contains no deployment
 credentials or private host inventory.
 
-Version 0.4.0 implements the source work through WP-16, including durable
+Version 0.5.0 implements the source work through WP-16, including durable
 verification artifacts and the accepted private browser design. User qualification
 and live testing are deferred until the end of M3 (WP-17); live provisioning and
 M0/M1/M2/M3 acceptance remain pending.
 No milestone tag has been created. Boundary fixtures do not prove provider or host capability.
 See [qualification evidence](tests/qualification.md).
+
+Install with the [worker/controller setup scripts](ops/setup.md). The worker
+script creates 16 reusable execution accounts. Choose worker concurrency (1–4)
+and each frontier provider (1–2) explicitly; no shared frontier cap or per-agent
+account provisioning. See [ADR 0008](docs/decisions/0008-execution-pool-and-hardware-admission.md) for resource and credential boundaries.
 
 Requires CPython 3.12+, PostgreSQL 16+, and Git on Linux. WP-15/16 local verification uses
 CPython 3.12.14/PostgreSQL 18.6; earlier packages also used CPython 3.14.4.
@@ -22,7 +27,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --require-hashes -r requirements.lock
 PIP_NO_INDEX=1 python -m build --wheel --no-isolation
-python -m pip install --no-deps --force-reinstall dist/cursus-0.4.0-*.whl
+python -m pip install --no-deps --force-reinstall dist/cursus-0.5.0-*.whl
 cursus --help
 python -m unittest discover -s tests/unit
 python -m pip check

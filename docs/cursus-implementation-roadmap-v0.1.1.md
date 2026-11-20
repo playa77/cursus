@@ -8,6 +8,8 @@
 
 In this roadmap, **D1 §n** refers to **Cursus — Design Document v0.1.1 §n**. **D2 §n** refers to **Cursus — Technical Specification v0.1.2 §n**. S01–S09 and A1–A7 refer to D2 §§1 and 14. T01–T10 refer to D2 §15.2. All paths are repository-relative.
 
+**Execution correction, 2026-11-20:** [ADR 0008](decisions/0008-execution-pool-and-hardware-admission.md) and the [setup guide](../ops/setup.md) supersede fixed two-worker/shared-frontier and per-slot provisioning instructions. The correction includes fixture verification; live qualification remains deferred.
+
 ## 1. Roadmap Overview
 
 Execute one work package per agent session in listed order. For each session, load D1, D2 and this roadmap, confirm predecessor acceptance evidence, implement the assigned package and run its named verification. Keep one commit per work package. The mainline between milestones must build, with incomplete features inaccessible as production capabilities. Each milestone cut has an end-to-end verification.

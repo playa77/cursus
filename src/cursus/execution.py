@@ -50,9 +50,10 @@ class Execution:
     def __init__(self, profiles, identities, verifier, allow_test_identity=False):
         self.profiles, self.identities, self.verifier = profiles, identities, verifier
         self.allow_test_identity = allow_test_identity
-        self.worker_slots = [identities['pi']]
-        self.worker_context = ContextVar('worker_context',default=None)
-        self.worker_leases = set()
+        self.pool = []
+        self.pool_context = ContextVar('execution_identity',default=None)
+        self.resources = None
+        self.home_root = None
 
     def identity(self, configured):
         user = pwd.getpwnam(configured['user'])
@@ -62,8 +63,12 @@ class Execution:
 
     def configured(self, invocation):
         role = invocation['role']
-        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
-            return self.worker_slots[self.worker_context.get()]
+        if self.pool_context.get() is not None:
+            return self.pool_context.get()
+        return self.native(invocation)
+
+    def native(self, invocation):
+        role = invocation['role']
         key = 'pi_reviewer' if role['name'] == 'reviewer' and role['cli'] == 'pi' else role['cli']
         if key not in self.identities:
             raise Problem('profile_mismatch', 'Required isolated identity is unavailable.')
@@ -74,14 +79,6 @@ class Execution:
         cli = role['cli']
         profile = self.profiles[cli]
         profile = dict(profile, **profile.get('role_profiles', {}).get(role['name'], {}))
-        if role['name'] in ('worker','debug') and self.worker_context.get() is not None:
-            slot = self.worker_context.get()
-            if slot:
-                configured = self.worker_slots[slot]
-                measured = self.profiles.get('worker_profiles',{}).get(configured['user'])
-                if not measured and not self.allow_test_identity:
-                    raise Problem('profile_mismatch','Second worker identity lacks measured qualification.')
-                profile = dict(profile, **(measured or {}))
         if role['name'] not in profile['qualified_roles'] or role['model'] != profile['model']:
             raise Problem('profile_mismatch', 'Role/model is not qualified.')
         if (role['tier'] == 'production' and cli != 'pi') or role['tier'] not in ('production', 'organization'):
@@ -114,7 +111,7 @@ class Execution:
             argv += profile['read_only_argv']
         argv += profile['clean_config_argv']
         configured = self.configured(invocation)
-        if not self.allow_test_identity and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
+        if not self.allow_test_identity and self.pool_context.get() is None and (profile.get('user') != configured['user'] or profile.get('home') != configured['home']):
             raise Problem('profile_mismatch', 'Qualified privilege identity differs.')
         return profile, argv, self.identity(configured)
 
@@ -122,6 +119,11 @@ class Execution:
         environment = {'HOME': home, 'USER': user.pw_name, 'LOGNAME': user.pw_name,
                        'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'TMPDIR': home}
         privileges = {'user': user.pw_uid, 'group': user.pw_gid, 'extra_groups': []} if os.geteuid() == 0 else {}
+        unit = None
+        if self.resources is not None:
+            category = (self.pool_context.get() or {}).get('category','frontier')
+            unit, argv = self.resources.command(argv,workspace,user,environment,category)
+            privileges = {}
         process = await asyncio.create_subprocess_exec(*argv, cwd=workspace, env=environment,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=65537, **privileges)
@@ -157,6 +159,18 @@ class Execution:
                 process.stdin.write(canonical_json({'id':item['id'],'type':'steer','message':item['text']}) + b'\n')
                 await process.stdin.drain()
         command_task = asyncio.create_task(consume_commands())
+        resource_fault = False
+        async def monitor_resources():
+            nonlocal resource_fault
+            import shutil
+            while True:
+                await asyncio.sleep(.5)
+                if shutil.disk_usage(self.resources.root).free < self.resources.settings['reserve_disk_bytes']:
+                    resource_fault = True
+                    if unit is not None:
+                        await self.resources.stop(unit)
+                    return
+        monitor = asyncio.create_task(monitor_resources()) if self.resources else None
         async def read_output():
             nonlocal request_id,turn_start,turn,selected,debug_result
             terminal = False
@@ -226,6 +240,8 @@ class Execution:
                     process.stdin.close()
                 terminal, _ = await asyncio.gather(read_output(), read_error())
                 code = await process.wait()
+                if resource_fault:
+                    raise Problem('storage','Execution stopped at the host disk reserve.')
                 if stopped:
                     raise Problem('canceled', 'Execution stopped by operator command.')
                 if rpc and not terminal:
@@ -245,8 +261,13 @@ class Execution:
                 raise
             raise Problem('execution_timeout', 'Execution failed its framing/time bound.') from None
         finally:
+            if monitor:
+                monitor.cancel()
+                await asyncio.gather(monitor,return_exceptions=True)
             command_task.cancel()
             await asyncio.gather(command_task,return_exceptions=True)
+            if unit is not None:
+                await self.resources.stop(unit)
             # A CLI may exit while descendants hold execution authority. The
             # owned process group is terminated before candidate capture.
             try:
@@ -328,7 +349,8 @@ class Execution:
     async def verify(self, job, workspace, attempt_id):
         candidate = job['input']['candidate']
         checks = {item['id']: item for item in job['input']['checks']}
-        user = self.identity(self.verifier)
+        configured = self.pool_context.get() or self.verifier
+        user = self.identity(configured)
         evidence = []
         for criterion in job['input']['criteria']:
             check = criterion['check']
@@ -340,7 +362,7 @@ class Execution:
             path = (Path(workspace) / command['cwd']).resolve()
             if not path.is_relative_to(Path(workspace).resolve()):
                 raise Problem('invalid_check', 'Check cwd escapes snapshot.')
-            code, raw, diagnostic = await self.child(command['argv'], path, user, self.verifier['home'],
+            code, raw, diagnostic = await self.child(command['argv'], path, user, configured['home'],
                                                       b'', command['timeout_seconds'])
             text = sanitize(raw.decode('utf-8', errors='replace') + diagnostic)
             passed = code == check['expected_exit'] and check.get('required_literal', '') in text

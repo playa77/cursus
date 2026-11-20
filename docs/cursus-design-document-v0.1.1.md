@@ -8,6 +8,8 @@
 | Status | Approved |
 | Baseline | Project Brief Cursus v1.2.1, confirmed interview rounds 1–3, and the operator's decision to replace ReUI |
 
+**Execution amendment, 2026-11-20:** [ADR 0008](decisions/0008-execution-pool-and-hardware-admission.md) supersedes fixed per-worker identity allocation. Sixteen reusable accounts serve independently configured worker/provider concurrency on the existing hardware; no containers or new topology.
+
 ## 1. Overview & Goals
 
 Cursus takes a single operator's spec through planning, execution, verification, and independent review. It delivers reviewed GitHub pull requests for coding work and reviewed files for non-coding work. An ordinary run requires the operator to supply the spec and judge the final result. Guided intake, optional steering, and exceptional recovery remain available.

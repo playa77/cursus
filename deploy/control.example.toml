@@ -62,3 +62,13 @@ id = "unit"
 argv = ["/opt/cursus/venv/bin/python", "-m", "unittest", "discover", "-s", "tests/unit"]
 cwd = "."
 timeout_seconds = 300
+
+# Required operator choices: no deployment defaults or shared frontier bottleneck.
+[capacity]
+worker = "REPLACE_1_TO_4"
+claude = "REPLACE_1_OR_2"
+codex = "REPLACE_1_OR_2"
+agy = "REPLACE_1_OR_2"
+pi = 1
+verifier = 1
+repository = 1

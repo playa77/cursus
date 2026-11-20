@@ -70,7 +70,7 @@ class Browser:
         runner = next(iter(view['runners']), {})
         health = runner.get('health', {})
         jobs = view['jobs']
-        metrics = dict(slots=health.get('slots'), queued=view['queue_counts'].get('queued',0),
+        metrics = dict(slots=health.get('slots'), capacity=runner.get('capacity',{}), queued=view['queue_counts'].get('queued',0),
             claimed=view['queue_counts'].get('claimed',0), usage=reported_usage(view['usage']), runner=runner,
             spool=health.get('spool_bytes', 'unknown'))
         return self.render(request, {'overview':'index.html','phases':'phase.html','attempts':'attempt.html'}[route],
@@ -209,5 +209,5 @@ def mount(app, control, templates=None):
 
     @app.get('/artifacts/{file_id}')
     async def artifact(file_id: str):
-        return file_response(control, await download(control, 'local_operator', file_id))
+        return await file_response(control, await download(control, 'local_operator', file_id))
     return browser
