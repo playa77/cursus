@@ -48,7 +48,9 @@ user cannot reach it); it ran under `/var/tmp` and was removed afterwards.
 Unverified: sudo PostgreSQL provisioning, `loginctl enable-linger`, `systemctl --user enable --now`, Tailscale
 status parsing against a real tailnet, and the restart cycle under systemd. All were exercised only against fakes.
 
-## Proposed WP-E5: conversation with the system (not started; needs operator decisions)
+## Proposed WP-E5: conversation with the system (DEFERRED by the operator, 2026-11-21, until further notice)
+
+Not to be started or scaffolded until the operator says otherwise. The decisions below stay open.
 
 A read-only "Discuss" page: ask about project status, brainstorm a change, and turn an agreed change into a run.
 Needs decisions: (1) which role/CLI/model answers, (2) what context it may see (phases, plans, evidence, git state;

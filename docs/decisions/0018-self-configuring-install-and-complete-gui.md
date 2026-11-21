@@ -102,7 +102,8 @@ about project status or proposed changes, because no such workflow exists in the
 documents. Adding one is a new feature with its own decisions: a new role, a context assembler (phases, plans,
 evidence, repository state), persisted conversations, a path from an agreed change to a real run, a read-only
 boundary, and a live-inference cost cap. Repository text entering an agent's context is a prompt-injection surface.
-It is deferred as proposed WP-E5 (see the plan) pending the operator's decisions.
+It is proposed as WP-E5 (see the plan) and **deferred by the operator until further notice** (2026-11-21); no code,
+route or navigation entry for it exists.
 
 ## Alternatives rejected
 
