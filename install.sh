@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# Cursus installer entry point: intentionally disabled during the host-native rework.
-# The previous installer built container images and paired two hosts; both are removed
-# (ADR 0016). A small replacement is planned (work package D, docs/superpowers/plans/).
+# Cursus installer launcher (ADR 0017). Run from a checkout, as your own user (not root):
+#   git clone https://github.com/playa77/cursus.git && cd cursus && ./install.sh --help
 set -euo pipefail
-cat >&2 <<'MSG'
-The Cursus installer is being rebuilt (ADR 0016) and is not available in this revision.
-
-Cursus now runs your already-installed, already-signed-in Claude Code, Codex CLI,
-Antigravity and pi directly on one host. Until the new installer lands:
-  - check your CLIs with:  cursus preflight --roles roles.toml
-  - the configuration template is deploy/runner.host.example.toml
-No installation was attempted and nothing was changed.
-MSG
-exit 1
+cd "$(dirname "$(readlink -f "$0")")"
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
+  echo "Cursus needs Python 3.12 or newer as python3 (found: $(python3 --version 2>&1 || echo none))." >&2
+  exit 1
+fi
+exec python3 deploy/install.py "$@"

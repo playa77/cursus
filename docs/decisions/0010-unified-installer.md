@@ -1,8 +1,9 @@
 # ADR 0010: One fresh-host installation entry point
 
 - Status: accepted; external-profile/image prerequisite superseded by
-- Update: installer, pairing and discovery parts superseded by [ADR 0016](0016-host-native-single-host.md)
   [ADR 0011](0011-native-install-and-login.md); intended-host qualification remains open
+- Update: installer, pairing and discovery parts superseded by [ADR 0016](0016-host-native-single-host.md)
+- Update: the installer itself is superseded by [ADR 0017](0017-per-user-installation.md)
 - Date: 2026-11-20
 - Authority: operator requested one installer, quick-install-first README, and a
   fix for the absent `~/cursus-source` failure after README PR #8.

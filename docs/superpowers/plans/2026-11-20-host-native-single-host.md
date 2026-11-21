@@ -186,23 +186,32 @@ deploy units, tests.
 - Acceptance: unit and integration suites green against a real disposable
   PostgreSQL; crash-recovery tests prove no double launch and no lost candidate.
 
-## WP-D: Installer, docs, release
+## WP-D: Installer, docs, release (implemented)
 
-Files: `install.sh`, `deploy/*`, `README.md`, `ops/*`, `docs/*`,
-`CHANGELOG.md`, `pyproject.toml`, `tests/unit/test_*install*.py`.
+The deletions planned here were done in WP-C0. What remained:
 
-- [ ] Delete `deploy/native/*`, `deploy/native_setup.py`, pairing and Tailscale
-  discovery, resource prompts and the per-host wrapper scripts.
-- [ ] Installer: prerequisites and preflight, hash-locked packages, PostgreSQL
-  access, private config, one service unit. Keep `/dev/tty` prompts, no-op dry-run
-  and no-overwrite behavior.
-- [ ] Rewrite README (prerequisite first, plain isolation statement) and ops docs;
-  revise the design and technical specification for the new topology/contracts.
-- [ ] Bump to 0.7.0 with a full changelog entry; mark superseded ADRs.
-- Acceptance: whitespace/Unicode paths, dry-run no side effects, argument
-  rejection, existing-work preservation; full suites green. Real-host install,
-  actual CLI sign-in state, Antigravity keyring variables and shared-login
-  concurrency remain unverified until tested on an intended host.
+- [x] D1: loading names every unfilled `REPLACE_` value.
+- [x] D2: per-user installer (`install.sh`, `deploy/install.py`, `deploy/cursus.service`,
+  [ADR 0017](../../decisions/0017-per-user-installation.md)): refuses root, hash-locked venv, private
+  directories, separate role release repo, starting config (mechanical values only), local-socket DSN file,
+  user unit with `KillMode=control-group`; never overwrites, never starts, never signs in. Changes needed
+  to make it coherent: `[backup]` removed (unused), `repositories` optional (idle install, ADR 0013),
+  preflight needs only the settings that locate the CLIs.
+- [x] D3: README, runbook and `docs/architecture.md` rewritten; the obsolete `ops/setup.md` and container
+  acceptance matrix deleted; the original design, specification, roadmap and brief carry a section-level
+  supersession map instead of a rewrite; license doc updated; operator CLI socket default fixed.
+- [x] D4: version 0.7.0 and the changelog entry.
+- Bug found and fixed during D: WP-C1 removed `NoRedirect` while `GitHub.request` still imported it, so the
+  first real GitHub call would have raised `ImportError`. Tests used a fake GitHub. Now covered by tests of
+  the real client with the network faked and a guard that resolves every `cursus` import in the source.
+- Acceptance results: unit 80/80, integration 63/63 (as root, local PostgreSQL). The real venv, hash-locked
+  install and package build ran once in a scratch home; the installer's logic is tested offline in a
+  temporary HOME including whitespace/non-ASCII paths, dry-run without side effects, argument rejection,
+  existing-file preservation and a check that its output plus the documented edits loads through the real loader.
+- NOT verified (needs an intended host): a systemd user session and `loginctl enable-linger`, PostgreSQL peer
+  authentication, a real `cursus serve` as a non-root user, SIGTERM handling of the real process, real CLI
+  logins, the codex/agy/pi recipes and Antigravity's session variables, shared-login concurrency, the website
+  behind Tailscale Serve, and publication to real GitHub.
 
 ## Review Focus
 

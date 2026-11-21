@@ -242,7 +242,6 @@ def serve_config(ws, dsn, clis=None):
     config['runner']['id'] = str(uuid4())
     config['publisher'].update(git_credential_file=str(ws.root / 'git-credential'),
                                github_credential_file=str(ws.root / 'github-credential'))
-    config['backup'].update(root=str(ws.root / 'backups'), off_host_destination='fixture')
     config['capacity'].update(worker=2, claude=1, codex=1, agy=1)
     config['execution'] = dict(disk_reserve_mb=1, host_reserve_mb=1)
     if clis:

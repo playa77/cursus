@@ -1,12 +1,12 @@
 # Cursus — Design Document
 
-> Current execution amendment (2026-11-20): [ADR 0009](decisions/0009-container-execution.md)
-> supersedes host-account execution and fixed/shared concurrency descriptions
-> below. Schema-2 configuration uses rootless Podman sessions, explicit pi 1–4
-> and independent Claude/Codex/Antigravity 1–2 ceilings, protected verifier
-> capacity and qualified persistent auth domains. PR #6/ADR 0008 is rejected.
-> Native CLI, two-VPS, pull/DB ownership and workflow gates remain. Chromebook
-> enrollment is later; live/user qualification remains deferred to M3 end.
+> **Partly superseded (2026-11-20, [ADR 0016](decisions/0016-host-native-single-host.md)).** Cursus
+> now runs your already-installed, already-signed-in CLIs directly on one host, in one process, with
+> no isolation. For the system as built read [architecture.md](architecture.md); for installation and
+> operation read the [README](../README.md) and [runbook](../ops/runbook.md). **Superseded here:** §3
+> two-VPS architecture, §7 runner bearer and execution identities, §8 infrastructure and deployment,
+> and the pull-over-Tailscale transport in §9. **Retained:** workflow gates and evidence, the data
+> layer, operator endpoints, publication and the recovery semantics.
 
 
 | Field | Value |

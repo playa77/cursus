@@ -74,17 +74,9 @@ build or remote asset request. `allowEval` and inline script processing are off.
 The deployed CSS is the handoff's original Cursus stylesheet with production
 bindings; no Proper UI catalog software or prototype JavaScript is shipped.
 
-## Container runtime amendment — 2026-11-20
+## Container runtime amendment (removed)
 
-No Python dependencies added. Deployment requires an approved Ubuntu Podman 5.x
-package (Apache-2.0; [upstream license](https://github.com/containers/podman/blob/v5.7.0/LICENSE)).
-The OS package closure and operator-built image/native CLI distributions must be
-recorded separately at intended-host qualification; this Python wheel audit does
-not assert licenses or approval for arbitrary image contents.
-
-The operator explicitly permits OS runtime helpers while retaining the permissive
-Cursus-library requirement (2026-11-20 takeover clarification; ADR 0009). The
-installed Ubuntu passt copyright declares GPL-2.0-or-later, with BSD-3-Clause
-material in checksum.c; it is an OS runtime prerequisite, not a permissively
-licensed Cursus library. Setup's explicit passt prerequisite is covered by that
-clarification. No OS package installation occurred during this source task.
+The 0.6.0 container runtime (rootless Podman and the passt network helper, ADR 0009) was removed by
+[ADR 0016](decisions/0016-host-native-single-host.md). Deployment now needs no container runtime and no OS
+runtime helper beyond `git`, Python, PostgreSQL and the operator's own CLIs, which are not Cursus
+dependencies and are not audited here. No Python dependency changed.

@@ -9,6 +9,11 @@ from cursus import __version__
 from cursus.contracts import Problem, decode_json, validate
 
 
+def default_socket():
+    import os
+    return (os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') + '/cursus/operator.sock'
+
+
 def parser():
     root = argparse.ArgumentParser(prog='cursus', description='Private evidence-driven work coordination.')
     root.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
@@ -20,7 +25,7 @@ def parser():
     command.add_argument('--config', help='service config; only its [execution] section is read')
     for name in ('submit', 'action', 'status'):
         command = commands.add_parser(name)
-        command.add_argument('--socket', default='/run/cursus/operator.sock')
+        command.add_argument('--socket', default=default_socket(), help='operator socket (default: your runtime directory)')
         if name == 'status':
             selection = command.add_mutually_exclusive_group()
             selection.add_argument('--phase-id')
@@ -37,14 +42,14 @@ def preflight(args):
     import os
     import tomllib
     from pathlib import Path
-    from cursus.config import execution_settings
+    from cursus.config import execution_environment
     from cursus.host import DEFAULT_PATH
     from cursus.recipes import preflight as check, resolve
     roles = tomllib.loads(Path(args.roles).read_text()).get('roles', {})
     required = sorted({role['cli'] for role in roles.values()})
     if args.config:
         settings = tomllib.loads(Path(args.config).read_text()).get('execution', {})
-        execution_settings(settings)
+        execution_environment(settings)  # Reserves are not needed to locate the CLIs.
     else:
         search = [d for d in os.environ.get('PATH', DEFAULT_PATH).split(':') if d.startswith('/')]
         settings = {'path': ':'.join(search) or DEFAULT_PATH}
