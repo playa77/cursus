@@ -2,6 +2,50 @@
 
 Notable changes are recorded here using Semantic Versioning.
 
+## [0.8.0] - 2026-11-21
+
+Source update; no intended-host qualification or release tag implied. Decisions:
+[ADR 0018](docs/decisions/0018-self-configuring-install-and-complete-gui.md).
+
+### Added
+
+- **The installer finishes the job.** `./install.sh --yes` now derives every value the machine can answer and ends with
+  Cursus running and an address to open: the website origin and operator login from `tailscale status`
+  (or `--origin` / `--operator-login`), the CLI search path, conservative capacity and reserves, the role release
+  commit (committed and **pinned automatically**), the PostgreSQL role and database (directly, else `sudo -n -u postgres`,
+  else `sudo -u postgres` with a prompt on a terminal; the only use of sudo), `loginctl enable-linger`, and
+  `systemctl --user enable --now cursus` followed by a readiness check. It completes an unfinished 0.7.0
+  `cursus.toml` (backup kept) instead of leaving `REPLACE_` values, never restarts a running service, and stops with a
+  plain explanation (before changing anything, for Tailscale) when a step cannot be done. `--no-start` installs only.
+- **A complete operator website.** Settings: access (origin, login, port, socket group), capacity, resources and CLI
+  locations, limits, publisher with a write-only GitHub token, repositories with their check commands (enroll, edit,
+  remove), roles (CLI, tier, model, reasoning, provider, tools, timeout) and prompts, each committed and pinned as a role
+  release. System: deployment state, drain/reopen intake, CLI check (preflight), restart, configuration history and
+  restore. A setup checklist on the overview; a "restart to apply" banner on every page. The phase page now shows the
+  specification, the full interview transcript, debate turns, the plan and review findings, and a complete phase
+  record; the attempt page shows its result and inputs.
+- `cursus.admin` (validated, atomic, backed-up saves; roles commit-and-pin with revert on failure; pending-restart
+  detection; checklist; restart request), `cursus.settings_pages`, `cursus.tomlwrite` (production TOML writer).
+- A restart requested on the website ends the process with exit status 75; the unit's `Restart=on-failure` restarts it.
+  It is refused while attempts are active unless the operator accepts interrupting them.
+
+### Changed
+
+- **Unqualified roles no longer stop startup.** A role whose model, reasoning or provider is still a `REPLACE_` value loads
+  as unqualified; the website completes it and submitting work is refused (`roles_unqualified`) until it is.
+- `cursus.toml` is rewritten from the parsed document on a website save: hand-written comments are not preserved.
+  Hand edits remain honored on restart. `cursus serve` returns the process exit status (0, or 75 for a requested restart).
+- `set_drain` from the browser returns to Settings, System instead of a phase page.
+- The README, runbook and architecture describe "install, then open the website".
+
+### Not done
+
+- No freeform conversation or brainstorming with an agent exists in the backend or the original design; it is proposed
+  as WP-E5 in the plan, pending decisions. Hot reload, online token verification, Tailscale Serve provisioning, installing
+  PostgreSQL or the CLIs, and model selection remain out of scope.
+- Real sudo/PostgreSQL provisioning, lingering, systemd start, Tailscale parsing against a real tailnet and the restart cycle
+  were exercised only against simulated system calls.
+
 ## [0.7.0] - 2026-11-20
 
 Source update; no intended-host/provider qualification or release tag implied. The design is

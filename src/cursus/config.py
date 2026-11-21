@@ -1,5 +1,6 @@
 """Startup-only configuration; no credentials enter immutable job snapshots."""
 
+import copy
 from hashlib import sha256
 from pathlib import Path
 import stat
@@ -78,15 +79,31 @@ def role_release(service):
                                 capture_output=True, check=False)
         if result.returncode or result.stdout != item.read_bytes():
             fail('Role/prompt files differ from the pinned release.')
-    registry = tomllib.loads(path.read_text())
+    return parse_registry(tomllib.loads(path.read_text()), service['prompts_root'])
+
+
+REQUIRED_ROLES = ('interviewer', 'planner', 'worker', 'reviewer', 'scout', 'debug', 'advocate', 'critic', 'judge')
+READ_TOOLS = ('read', 'list', 'search')
+
+
+def parse_registry(registry, prompts_root):
+    """Validate a parsed roles registry and attach each role's prompt text.
+
+    A role whose model, reasoning or provider still holds a `REPLACE_` value is *unqualified*: the
+    service still starts and the website can complete it, but submitting work is refused (ADR 0018).
+    The names are returned in `registry['unqualified']`, never inside a role: role dicts travel in
+    job snapshots that the runner validates strictly. Every other rule is unchanged and strict.
+    """
+    from cursus.recipes import safe
     keys(registry, ('schema_version', 'roles'))
     if registry['schema_version'] != 2:
         fail()
-    if set(('interviewer','planner','worker','reviewer','scout','debug','advocate','critic','judge')) - registry['roles'].keys():
+    if set(REQUIRED_ROLES) - registry['roles'].keys():
         fail('Required roles are missing.')
+    unqualified = []
     for name, role in registry['roles'].items():
         keys(role, ('tier', 'cli', 'model', 'reasoning', 'tools', 'timeout_seconds', 'prompt'), ('provider',))
-        if any('REPLACE_' in str(role.get(k, '')) for k in ('model','provider','reasoning')) or 'openrouter' in str(role.get('provider','')).lower():
+        if 'openrouter' in str(role.get('provider', '')).lower():
             fail('Role invocation tuple is not qualified.')
         if role['cli'] not in ('pi', 'claude', 'codex', 'agy') or any('*' in tool for tool in role['tools']):
             fail('Invalid CLI or wildcard authority.')
@@ -94,17 +111,21 @@ def role_release(service):
             fail()
         if role['tier'] == 'production' and role['cli'] != 'pi':
             fail('Production requires pi.')
-        if role['tier'] == 'organization' and set(role['tools']) - {'read', 'list', 'search'}:
+        if role['tier'] == 'organization' and set(role['tools']) - set(READ_TOOLS):
             fail('Organizational roles require read-only tools.')
         positive(role['timeout_seconds'])
-        from cursus.recipes import safe
-        if not all(safe(role[k]) for k in ('model','reasoning')) or ('provider' in role and not safe(role['provider'])):
+        placeholder = [k for k in ('model', 'provider', 'reasoning') if 'REPLACE_' in str(role.get(k, ''))]
+        if placeholder:
+            unqualified.append(name)
+        if not all(safe(role[k]) for k in ('model', 'reasoning') if k not in placeholder) or (
+                'provider' in role and 'provider' not in placeholder and not safe(role['provider'])):
             fail('Role model, reasoning and provider must be plain identifiers.')
-        prompt = absolute(service['prompts_root']) / role['prompt']
-        if prompt.suffix != '.md' or prompt.resolve().parent != absolute(service['prompts_root']).resolve():
+        prompt = absolute(prompts_root) / role['prompt']
+        if prompt.suffix != '.md' or prompt.resolve().parent != absolute(prompts_root).resolve():
             fail()
         role['prompt_text'] = prompt.read_text()
         role['name'] = name
+    registry['unqualified'] = sorted(unqualified)
     return registry
 
 
@@ -127,6 +148,7 @@ def load(process_kind, path):
         settings = tomllib.loads(raw.decode())
     except (ValueError, UnicodeError):
         fail('Malformed TOML.')
+    original = copy.deepcopy(settings)
     if process_kind == 'operator_cli':
         keys(settings, ('operator_socket',))
         absolute(settings['operator_socket'])
@@ -163,6 +185,7 @@ def load(process_kind, path):
     execution_settings(settings['execution'])
     release = role_release(service)
     settings['roles'] = release['roles']
+    settings['unqualified_roles'] = release['unqualified']
     settings['dsn'] = secret(service['dsn_file'])
     parsed = urlsplit(service['external_origin'])
     if parsed.scheme != 'https' or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
@@ -174,6 +197,8 @@ def load(process_kind, path):
         positive(value)
         if name == 'debate_rounds' and value > 3:
             fail()
+    # What is running, for the website's "pending restart" comparison (no secrets: only paths).
+    settings['_config'] = dict(path=str(path), sha256=sha256(raw).hexdigest(), raw=original)
     return settings
 
 

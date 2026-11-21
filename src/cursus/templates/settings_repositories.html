@@ -1,0 +1,10 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, None, None) }}
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">Enrolled repositories</h2><a class="btn btn--primary btn--sm" href="/settings/repositories/new">Enroll a repository</a></div>
+<div class="tablewrap"><table class="tbl"><thead><tr><th>Repository</th><th>Target refs</th><th>Checks</th><th>Phase checks</th></tr></thead><tbody>
+{% for repo in repositories %}<tr><td><a href="/settings/repositories/{{ repo.owner }}/{{ repo.name }}">{{ repo.owner }}/{{ repo.name }}</a></td><td class="mono">{{ repo.allowed_target_refs|join(', ') }}</td><td>{{ repo.checks|map(attribute='id')|join(', ') }}</td><td>{{ repo.phase_check_ids|join(', ') }}</td></tr>
+{% else %}<tr><td colspan="4">No repositories enrolled. Cursus is idle until you enroll one.</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="tablecard__foot">Only trusted repositories: agents and check commands run as your user. Changes apply after a restart.</p></section>
+{% endblock %}

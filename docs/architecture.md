@@ -1,4 +1,4 @@
-# Cursus architecture (0.7.0)
+# Cursus architecture (0.8.0)
 
 This describes the system as built after [ADR 0016](decisions/0016-host-native-single-host.md). The original
 [design](cursus-design-document-v0.1.1.md) and [specification](cursus-technical-specification-v0.1.2.md) remain
@@ -38,6 +38,7 @@ database.
 | `host`, `execution`, `recipes` | Admission and process lifecycle, CLI protocols and output normalization, and the per-CLI invocation recipes. |
 | `repository` | Git cache, self-contained workspaces, candidate capture, staging, publication and reconciliation. |
 | `artifacts`, `artifact_control`, `artifact_http`, `http`, `browser` | Evidence files, and the operator socket and website surfaces. |
+| `admin`, `settings_pages`, `tomlwrite` | The website's Settings and System: validated atomic configuration saves, role releases, token, drain/restart/preflight, setup checklist. |
 
 ## Work and gates
 
@@ -55,6 +56,18 @@ to a git commit that startup verifies. `recipes.build` turns a role into the exa
 supported CLIs; pi's mode follows the role's tools, and organization roles are restricted to read-only tools. A
 model, reasoning or provider value must be a plain identifier. `cursus preflight` checks that the installed CLI
 advertises every option a recipe can emit. Nothing installs, updates or signs in to a CLI.
+
+## Configuration and the website (ADR 0018)
+
+`cursus.toml` is managed by the website: each save builds a candidate file, runs the real loader on it, keeps the
+previous file in `state/backups/config/` and replaces the live file atomically. A role or prompt change is
+validated, committed to the roles repository and pinned (`service.role_release_commit`) in one operation, with a
+revert commit if pinning fails. The process builds its runtime at startup, so settings apply on restart; `Admin`
+compares the file on disk with what is running and the website says what is pending. A restart ends the process
+with exit status 75 and the unit's `Restart=on-failure` brings it back; it is refused while attempts are active
+unless the operator accepts interrupting them. A role whose model/reasoning/provider is still unset loads but
+blocks submission (`unqualified_roles`, kept beside the roles because role dicts travel in strictly validated
+job snapshots). The GitHub token is write-only and applies immediately (it is read per request).
 
 ## Execution and recovery
 

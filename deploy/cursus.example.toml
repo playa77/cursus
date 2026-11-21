@@ -1,4 +1,6 @@
-# Cursus single-process configuration worksheet (ADR 0016). Replace every REPLACE_* value.
+# Cursus single-process configuration: the DOCUMENTED SHAPE (ADR 0016, ADR 0018).
+# The installer writes the real file for you from this template, every value derived from the machine, and the website
+# (Settings) edits it afterwards; you rarely need to touch it. Hand edits are honored on restart.
 #
 # Cursus runs on ONE host as ONE process. It uses the Claude Code, Codex CLI, Antigravity
 # and pi installations that already exist for the user below and are already signed in as

@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, csrf_field %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, problem, errors) }}
+<section class="card"><div class="card__head"><h2 class="card__title">{{ file }}</h2></div>
+<p class="field-help">Used by: {{ uses|join(', ') or 'no role' }}. A prompt defines what a role is allowed and expected to do, so a change is committed and pinned as a role release; it applies after a restart.</p>
+<form method="post" action="/settings/prompts/{{ file }}" class="settings-form">{{ csrf_field(csrf) }}
+<div class="field-row{{ ' has-error' if errors.get('text') }}"><label for="f-text">Prompt text</label><textarea id="f-text" name="text" rows="22" spellcheck="false" class="mono">{{ text }}</textarea>{% if errors.get('text') %}<p class="field-error" role="alert">{{ errors.get('text') }}</p>{% endif %}</div>
+<button class="btn btn--primary" type="submit">Save prompt</button> <a class="btn btn--ghost" href="/settings/roles">Back to roles</a></form></section>
+{% endblock %}
