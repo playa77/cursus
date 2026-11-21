@@ -169,38 +169,11 @@ class GitRemote:
 
 
 def toml_text(value):
-    """Minimal TOML writer for test configuration (strings, ints, bools, lists, tables)."""
-    import json
-    lines = []
-
-    def scalar(item):
-        if isinstance(item, bool):
-            return 'true' if item else 'false'
-        if isinstance(item, list):
-            return '[' + ', '.join(scalar(i) for i in item) + ']'
-        return json.dumps(item)
-
-    def is_tables(item):
-        return isinstance(item, list) and bool(item) and all(isinstance(i, dict) for i in item)
-
-    def emit(name, table, array=False):
-        if name:
-            lines.append(('[[%s]]' if array else '[%s]') % name)
-        for key, item in table.items():
-            if not isinstance(item, dict) and not is_tables(item):
-                lines.append(f'{key} = {scalar(item)}')
-        for key, item in table.items():
-            if isinstance(item, dict):
-                emit(f'{name}.{key}' if name else key, item)
-            elif is_tables(item):
-                for entry in item:
-                    emit(f'{name}.{key}' if name else key, entry, True)
-
-    emit('', value)
-    return '\n'.join(lines) + '\n'
+    from cursus.tomlwrite import dumps
+    return dumps(value)
 
 
-def serve_config(ws, dsn, clis=None):
+def serve_config(ws, dsn, clis=None, qualified=True):
     """A real, loadable single-process config built from the public example template.
 
     Returns (path, release_dir, release_commit, remote). Roles come from a committed
@@ -221,7 +194,8 @@ def serve_config(ws, dsn, clis=None):
     role_text = Path('roles.toml').read_text()
     for old, new in {'REPLACE_QUALIFIED_MODEL': 'fixture', 'REPLACE_QUALIFIED_REASONING': 'fixture',
                      'REPLACE_QUALIFIED_OPENCODE_GO_PROVIDER_ID': 'fixture-go'}.items():
-        role_text = role_text.replace(old, new)
+        if qualified:
+            role_text = role_text.replace(old, new)
     (release / 'roles.toml').write_text(role_text)
     shutil.copytree('prompts', release / 'prompts')
     remote.git(release, 'add', '.')

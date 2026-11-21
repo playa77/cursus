@@ -13,6 +13,7 @@ class Control:
     def __init__(self, settings, store, decide=workflows.decide, artifacts=None):
         self.settings, self.store, self.decide = settings, store, decide
         self.artifacts = artifacts
+        self.admin = None  # Settings/administration seam (cursus.admin.Admin); set by the composition root.
 
     def enrolled(self, repo):
         for item in self.settings['repositories']:
@@ -36,6 +37,11 @@ class Control:
             if value['kind'] != 'submit':
                 from cursus.recovery import action
                 return await action(self, tx, value)
+            unqualified = self.settings.get('unqualified_roles', [])
+            if unqualified:
+                # Loadable but incomplete: the website completes the roles (ADR 0018).
+                raise Problem('roles_unqualified', 'Roles without a chosen model, reasoning or provider: '
+                              + ', '.join(unqualified) + '. Complete them under Settings, Roles.')
             decision = self.decide({}, value)
             data = value['input']
             if data['plan_debate'] or data['spec_debate']:

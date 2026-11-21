@@ -92,10 +92,10 @@ async def service(args):
     from cursus.config import load
     settings = load('serve', args.config)
     check_identity(settings)
-    await run(settings)
+    return await run(settings)
 
 
-async def run(settings, github=None):
+async def run(settings, github=None, admin=None):
     """Control plane, runner and HTTP surfaces in one supervised process.
 
     Any component ending, normally or not, ends the process; a supervisor restarts
@@ -120,6 +120,11 @@ async def run(settings, github=None):
         store = Store(pool)
         await store.migrate()
         control = Control(settings, store, artifacts=Artifacts(service['artifact_root']))
+        restart = asyncio.Event()
+        control.admin = admin if admin is not None else make_admin(settings)
+        if control.admin:
+            loop = asyncio.get_running_loop()
+            control.admin.restart_hook = lambda: loop.call_soon_threadsafe(restart.set)
         await control.maintain('boot')
         journal = Journal(service['state_root'], settings['limits']['spool_bytes'])
         try:
@@ -140,7 +145,11 @@ async def run(settings, github=None):
                 while True:
                     await asyncio.sleep(settings['limits']['heartbeat_seconds'])
                     await control.maintain('tick')
+            async def restart_requested():
+                await restart.wait()
+                await asyncio.sleep(1)  # Let the response that asked for it reach the browser.
             tasks = [asyncio.create_task(maintenance(), name='maintenance'),
+                     asyncio.create_task(restart_requested(), name='restart'),
                      asyncio.create_task(serve(settings, control, environment()), name='http'),
                      asyncio.create_task(runner.serve(), name='runner')]
             try:
@@ -155,6 +164,13 @@ async def run(settings, github=None):
             journal.close()
     finally:
         await pool.close()
+    from cursus.admin import RESTART_EXIT_STATUS
+    return RESTART_EXIT_STATUS if control.admin and control.admin.restart_requested else 0
+
+
+def make_admin(settings):
+    from cursus.admin import Admin
+    return Admin(settings) if settings.get('_config') else None
 
 
 def main(argv=None):
@@ -165,8 +181,7 @@ def main(argv=None):
         return 0
     try:
         if args.command == 'serve':
-            asyncio.run(service(args))
-            return 0
+            return asyncio.run(service(args))
         if args.command == 'preflight':
             return preflight(args)
         from cursus.http import request_local

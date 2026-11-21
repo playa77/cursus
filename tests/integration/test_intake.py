@@ -28,3 +28,22 @@ class IntakeTests(unittest.IsolatedAsyncioTestCase):
                         await submit(changed, str(uuid4()))
                     self.assertEqual(len((await db.store.read('phases'))['items']), 1)
                 self.assertEqual(len((await db.store.read('phases'))['items']), 1)
+
+    async def test_submission_is_refused_while_any_role_is_unqualified_and_allowed_after(self):
+        async with Database() as db:
+            config = settings()
+            config['unqualified_roles'] = ['planner']
+            control = Control(config, db.store)
+            with workspace() as ws:
+                async with SocketService(control, ws.root / 'operator.sock'):
+                    async def submit():
+                        return await asyncio.to_thread(request_local, str(ws.root / 'operator.sock'),
+                                                       '/operator/actions', {'kind': 'submit', 'input': code_input()}, str(uuid4()))
+                    with self.assertRaises(Problem) as caught:
+                        await submit()
+                    self.assertEqual(caught.exception.code, 'roles_unqualified')
+                    self.assertIn('planner', caught.exception.message)
+                    self.assertNotIn('worker', caught.exception.message)
+                    self.assertEqual((await db.store.read('phases'))['items'], [])
+                    config['unqualified_roles'] = []
+                    await submit()
