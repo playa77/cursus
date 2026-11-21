@@ -94,6 +94,16 @@ belong in a GUI that can validate them.
     naming the roles and the page that fixes them. This lets a fresh install start, serve the GUI and be
     completed there.
 
+## Open question: conversation with the system
+
+The website exposes every interaction the backend has: the structured interview (agent asks, operator answers),
+steering a running pi session, and read-only views of the debate. It does **not** have a freeform conversation
+about project status or proposed changes, because no such workflow exists in the backend or in the original design
+documents. Adding one is a new feature with its own decisions: a new role, a context assembler (phases, plans,
+evidence, repository state), persisted conversations, a path from an agreed change to a real run, a read-only
+boundary, and a live-inference cost cap. Repository text entering an agent's context is a prompt-injection surface.
+It is deferred as proposed WP-E5 (see the plan) pending the operator's decisions.
+
 ## Alternatives rejected
 
 - Keep the checklist and improve the README: the operator rejected it; most steps are derivable.

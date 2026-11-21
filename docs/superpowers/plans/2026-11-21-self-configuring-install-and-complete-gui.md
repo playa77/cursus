@@ -30,6 +30,33 @@ publication recovery and pinned roles; no isolation claim; branch `claude/dazzli
   calls; installer output plus the real loader accept the produced config.
 - **WP-E4 Release.** README/runbook/architecture, CHANGELOG, version 0.8.0, full suites, handoff.
 
+## Results (2026-11-21)
+
+| Package | Commit | Checks run |
+| --- | --- | --- |
+| WP-E0 | `fc922f1` | n/a (documents) |
+| WP-E1 | `e8398f5` | unit 108/108, integration 64/64 |
+| WP-E2 | `ecf1b30` | integration 82/82 (18 new, through the real HTTP surface); every page inspected in Chromium, light and dark |
+| WP-E3 | `665add2` | unit 130/130 (installer against simulated system calls; the real loader accepts its output) |
+| WP-E4 | this commit | full unit and integration runs recorded in the handoff |
+
+One defect found and fixed during WP-E1: a `qualified` flag inside role dicts reached the runner's strict job
+validation and made the transport exhaust its retries; it now lives beside the roles (`unqualified_roles`).
+The test PostgreSQL could not live in the scratchpad (the harness re-tightens its permissions so the `postgres`
+user cannot reach it); it ran under `/var/tmp` and was removed afterwards.
+
+Unverified: sudo PostgreSQL provisioning, `loginctl enable-linger`, `systemctl --user enable --now`, Tailscale
+status parsing against a real tailnet, and the restart cycle under systemd. All were exercised only against fakes.
+
+## Proposed WP-E5: conversation with the system (not started; needs operator decisions)
+
+A read-only "Discuss" page: ask about project status, brainstorm a change, and turn an agreed change into a run.
+Needs decisions: (1) which role/CLI/model answers, (2) what context it may see (phases, plans, evidence, git state;
+repository file contents or not), (3) a per-conversation call and cost cap and a kill switch, (4) whether "turn into a
+run" prefills the intake form or submits directly, (5) retention of transcripts. Design sketch: a `discussion` role
+(read-only tools) invoked per turn with an assembled, size-bounded status digest; turns persisted as committed events;
+no write tools, no network beyond the CLI's own; repository text delimited and labelled as untrusted data.
+
 ## Out of scope
 
 Hot reload; verifying a GitHub token online; Tailscale Serve provisioning; installing PostgreSQL or the CLIs;
