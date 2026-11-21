@@ -88,6 +88,14 @@ class Store:
                 queued = await connection.fetchval("SELECT count(*) FROM jobs WHERE state='queued'")
                 return dict(drain=drain, unresolved_attempts=active, queued_jobs=queued)
 
+    async def repository_phases(self, owner, name):
+        """How many unfinished phases target or read from this repository (guards un-enrollment)."""
+        async with self.pool.acquire() as connection:
+            return await connection.fetchval(
+                "SELECT count(*) FROM phases WHERE payload->>'state' NOT IN ('delivered','canceled') AND "
+                "((payload->'input'->'repo'->>'owner'=$1 AND payload->'input'->'repo'->>'name'=$2) OR "
+                "(payload->'input'->'source'->>'owner'=$1 AND payload->'input'->'source'->>'name'=$2))", owner, name)
+
     async def migrate(self, migrations=None):
         if migrations is None:
             root = files('cursus').joinpath('migrations')

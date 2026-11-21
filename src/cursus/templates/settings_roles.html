@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, csrf_field %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, None, None) }}
+{% for note in notes %}<p class="banner banner--warn" role="status">{{ note }}</p>{% endfor %}
+{% if release.dirty or release.differs %}<section class="card"><div class="card__head"><h2 class="card__title">Role files and the pinned release differ</h2></div>
+<p class="field-help">{% if release.dirty %}The role files on disk have uncommitted edits.{% endif %} {% if release.differs and not release.dirty %}HEAD ({{ release.head[:10] }}) is not the pinned release ({{ release.pin[:10] }}).{% endif %} Cursus refuses to start while the files differ from the pin. Validate, commit and pin them now:</p>
+<form method="post" action="/settings/roles/pin" data-confirm="Validate, commit and pin the role files as they are on disk?">{{ csrf_field(csrf) }}<button class="btn btn--primary" type="submit">Commit and pin current files</button></form></section>{% endif %}
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">Roles</h2><span class="tablecard__meta">pinned {{ release.pin[:10] }}</span></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Role</th><th>CLI / tier</th><th>Model</th><th>Reasoning</th><th>Provider</th><th>Tools</th><th>State</th></tr></thead><tbody>
+{% for name, role in roles.items() %}<tr><td><a href="/settings/roles/{{ name }}">{{ name }}</a></td><td>{{ role.cli }} <span class="chip chip--neutral">{{ role.tier }}</span></td>
+{% for key in ['model','reasoning','provider'] %}<td class="mono">{% if key in role.holes %}<span class="field-help">not set</span>{% else %}{{ role.get(key,'') }}{% endif %}</td>{% endfor %}<td>{{ role.tools|join(', ') }}</td>
+<td><span class="chip chip--{{ 'ok' if role.qualified else 'warn' }}">{{ 'ready' if role.qualified else 'needs ' ~ role.holes|join(', ') }}</span></td></tr>{% endfor %}
+</tbody></table></div><p class="tablecard__foot">Runs are refused until every role has a model, reasoning level and (for pi) provider. Each save is validated, committed to the role release repository and pinned; Cursus still refuses to start on files that differ from the pin.</p></section>
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">Prompts</h2></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Prompt</th><th>Used by</th></tr></thead><tbody>
+{% for file in prompts %}<tr><td><a href="/settings/prompts/{{ file }}">{{ file }}</a></td><td>{{ roles.values()|selectattr('prompt','equalto',file)|map(attribute='name')|join(', ') }}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

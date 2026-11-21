@@ -1,0 +1,24 @@
+{# What the agents produced and decided, read-only (specification, interview, debate, review, plan). #}
+{% from 'settings_forms.html' import show %}
+{% set source = phase.input.source %}
+<section class="card"><div class="card__head"><h2 class="card__title">Specification</h2>{% if phase.get('spec_revision') %}<span class="chip chip--neutral">revision {{ phase.spec_revision }}</span>{% endif %}</div>
+{% if phase.get('spec') %}<div class="prose">{{ phase.spec }}</div>
+{% elif source.kind == 'inline' %}<p class="field-help">As submitted:</p><div class="prose">{{ source.text }}</div>
+{% elif source.kind == 'repo' %}<p>Read from <span class="mono">{{ source.owner }}/{{ source.name }}@{{ source.commit[:12] }}:{{ source.path }}</span> once the phase starts.</p>
+{% else %}<p class="field-help">The guided interview produces the specification. Answer the questions below as they appear.</p>{% endif %}</section>
+{% if phase.get('interviews') %}<section class="card"><div class="card__head"><h2 class="card__title">Interview transcript</h2></div>
+{% for item in phase.interviews %}
+{% if item.question is defined %}<div class="turn turn--you"><span class="turn__who">You answered</span><div class="prose"><strong>{{ item.question.text }}</strong>
+{{ item.question.answer }}</div></div>
+{% elif item.result is defined and item.result.kind == 'questions' %}<div class="turn"><span class="turn__who">Interviewer asked</span><ol>{% for q in item.result.questions %}<li class="prose">{{ q.text }} {{ '(required)' if q.required else '(optional)' }}</li>{% endfor %}</ol></div>
+{% elif item.result is defined %}<div class="turn"><span class="turn__who">Interviewer proposed a complete specification</span> <span class="field-help">(shown above once accepted)</span></div>{% endif %}
+{% endfor %}</section>{% endif %}
+{% if phase.get('debate_history') or phase.get('debate') %}<section class="card"><div class="card__head"><h2 class="card__title">Debate</h2>{% if phase.get('debate') %}<span class="chip chip--neutral">{{ phase.debate.get('mode','') }}</span>{% endif %}</div>
+{% for entry in phase.get('debate_history', []) %}<div class="turn"><span class="turn__who">{{ entry.role }}</span>
+{% for key, item in entry.result.items() %}{{ show(key, item) }}{% endfor %}</div>{% else %}<p class="field-help">The debate has not produced a turn yet.</p>{% endfor %}
+{% if phase.get('debate',{}).get('judgment') %}<p><strong>Latest verdict:</strong> {{ phase.debate.judgment.verdict }}{% if phase.debate.get('blocking') %} · blocking objections upheld{% endif %}</p>{% endif %}</section>{% endif %}
+{% if phase.get('plan') %}<section class="card"><div class="card__head"><h2 class="card__title">Plan</h2></div>{% for key, item in phase.plan.items() %}{{ show(key, item) }}{% endfor %}</section>{% endif %}
+{% if phase.get('repair_findings') or phase.get('integration_review') or phase.get('repair_count') %}<section class="card"><div class="card__head"><h2 class="card__title">Review and repair</h2>{% if phase.get('repair_count') %}<span class="chip chip--warn">{{ phase.repair_count }} repair round(s)</span>{% endif %}</div>
+{% if phase.get('repair_findings') %}{{ show('Findings sent back for repair', phase.repair_findings) }}{% endif %}
+{% if phase.get('integration_review') %}{% for key, item in phase.integration_review.items() %}{{ show('integration review: ' ~ key, item) }}{% endfor %}{% endif %}</section>{% endif %}
+<section class="card"><div class="card__head"><h2 class="card__title">Complete phase record</h2></div><details><summary>Show every committed field (roles omitted)</summary><pre class="logwell logwell--static">{{ record|tojson(indent=2) }}</pre></details></section>

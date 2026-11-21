@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, checklist %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, None, None) }}
+<section class="card"><div class="card__head"><h2 class="card__title">Setup checklist</h2></div>
+{{ checklist(items) }}</section>
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">What you can change here</h2></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Page</th><th>Controls</th></tr></thead><tbody>
+{% for key, spec in sections.items() %}<tr><td><a href="/settings/{{ key }}">{{ spec[0] }}</a></td><td>{{ spec[2]|map(attribute='label')|join(', ') }}</td></tr>{% endfor %}
+<tr><td><a href="/settings/repositories">Repositories</a></td><td>Enroll, edit and remove repositories; their target refs and the check commands that gate every candidate</td></tr>
+<tr><td><a href="/settings/roles">Roles &amp; prompts</a></td><td>Each role's CLI, model, reasoning level, tools and timeout, and every prompt; changes are committed and pinned as a role release</td></tr>
+<tr><td><a href="/settings/system">System</a></td><td>Drain or reopen intake, check your CLIs, restart Cursus, configuration history and restore</td></tr>
+</tbody></table></div><p class="tablecard__foot">Changes take effect when Cursus restarts, except the GitHub token, which applies immediately.</p></section>
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">Fixed by design (not editable)</h2></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Setting</th><th>Value</th><th>Why it is fixed</th></tr></thead><tbody>
+{% for key, current, why in read_only %}<tr><td class="mono">{{ key }}</td><td class="mono">{{ current }}</td><td>{{ why }}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

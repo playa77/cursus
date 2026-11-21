@@ -39,6 +39,24 @@
     const problem = doc.querySelector('.problem');
     if (problem) document.querySelector('#main').prepend(problem);
   });
+  // After a restart request: wait until the service has gone away and come back, then continue.
+  const waiting = document.querySelector('[data-restart-wait]');
+  if (waiting) {
+    const status = document.querySelector('#restart-status');
+    let wentDown = false, tries = 0;
+    const poll = async () => {
+      tries += 1;
+      try {
+        const response = await fetch(waiting.dataset.restartWait, {cache: 'no-store'});
+        if (response.ok && wentDown) { location.href = waiting.dataset.restartWait + '?saved=restarted'; return; }
+        if (!response.ok) wentDown = true;
+      } catch { wentDown = true; }
+      if (tries > 90) { status.textContent = 'Cursus did not come back within three minutes. Check the service logs.'; return; }
+      if (tries > 15 && !wentDown) status.textContent = 'Cursus has not stopped yet. If it refused to restart, return to System and read the message.';
+      setTimeout(poll, 2000);
+    };
+    setTimeout(poll, 2000);
+  }
   const log = document.querySelector('[data-events]');
   if (!log) return;
   let cursor = Number(log.dataset.cursor), paused = false;

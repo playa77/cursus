@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, field, csrf_field %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, problem, errors) }}
+<section class="card"><div class="card__head"><h2 class="card__title">{{ title }}</h2></div><p class="field-help">{{ blurb }}</p>
+<form method="post" action="/settings/{{ section }}" class="settings-form">{{ csrf_field(csrf) }}
+<div class="form-grid">{% for f in fields %}{{ field(f, values.get(f.name, ''), errors.get(f.name)) }}{% endfor %}</div>
+<button class="btn btn--primary" type="submit">Save {{ title|lower }}</button> <span class="field-help">Validated by the same loader the service uses; a previous copy is kept.</span></form></section>
+{% if section == 'publisher' %}
+<section class="card"><div class="card__head"><h2 class="card__title">GitHub token</h2></div>
+<p class="field-help">Used to publish pull requests. Write-only: it is stored in the two private files above, applies immediately, and is never displayed.</p>
+<ul class="checklist">{% for key, status in credentials.items() %}<li class="checklist__item"><span class="chip chip--{{ 'ok' if status.present and status.private else 'warn' }}">{{ 'stored' if status.present and status.private else ('not private' if status.present else 'missing') }}</span><div><span class="mono">{{ status.path }}</span>{% if status.time %}<p class="field-help">Updated {{ status.time }}</p>{% endif %}</div></li>{% endfor %}</ul>
+<form method="post" action="/settings/publisher/token" autocomplete="off">{{ csrf_field(csrf) }}
+<div class="field-row{{ ' has-error' if errors.get('token') }}"><label for="f-token">New token</label><input id="f-token" name="token" type="password" autocomplete="new-password" spellcheck="false" required>
+<p class="field-help">A GitHub token that may open pull requests and push branches on your enrolled repositories. Cursus never merges.</p>
+{% if errors.get('token') %}<p class="field-error" role="alert">{{ errors.get('token') }}</p>{% endif %}</div>
+<button class="btn btn--primary" type="submit">Store token</button></form></section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, csrf_field %}
+{% from 'forms.html' import hidden %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, problem, None) }}
+<section class="card"><div class="card__head"><h2 class="card__title">Service</h2></div>
+<dl class="kv"><dt>Version</dt><dd>{{ version }}</dd><dt>Running since</dt><dd>{{ started }}</dd><dt>Runner</dt><dd class="mono">{{ runner_id }}</dd><dt>Configuration file</dt><dd class="mono">{{ config_path }}</dd><dt>Supervision</dt><dd>{{ 'systemd (can restart itself)' if supervised else 'not under systemd (restart it yourself)' }}</dd></dl></section>
+<section class="card"><div class="card__head"><h2 class="card__title">Intake</h2><span class="chip chip--{{ 'warn' if deployment.drain else 'ok' }}">{{ 'drained' if deployment.drain else 'open' }}</span></div>
+<p>{{ deployment.unresolved_attempts }} unresolved attempt(s) · {{ deployment.queued_jobs }} queued job(s).</p>
+<p class="field-help">Draining stops new work from being claimed so running work can finish, which is how you prepare for a restart or an upgrade. It stays in effect across restarts until you reopen intake.</p>
+<form method="post" action="/operator/actions" {% if not deployment.drain %}data-confirm="Drain intake? New jobs stop being claimed until you reopen it."{% endif %}>{{ hidden('set_drain', csrf, request_id(), {'enabled': 'false' if deployment.drain else 'true'}) }}
+<button class="btn {{ 'btn--primary' if deployment.drain else 'btn--secondary' }}" type="submit">{{ 'Reopen intake' if deployment.drain else 'Drain intake' }}</button></form></section>
+<section class="card"><div class="card__head"><h2 class="card__title">Restart</h2>{% if settings_pending %}<span class="chip chip--warn">changes pending</span>{% endif %}</div>
+{% if settings_pending %}<p>Saved but not running yet: <span class="mono">{{ settings_pending|join(', ') }}</span></p>{% else %}<p class="field-help">What is running matches the saved configuration.</p>{% endif %}
+<p class="field-help">A restart stops the process and its CLI sessions; Cursus cannot resume a running session afterwards, it reports the interrupted attempts and lets the workflow retry or park them. Drain first and let work finish.</p>
+<form method="post" action="/settings/system/restart" data-confirm="Restart Cursus now? The website is unavailable for a few seconds.">{{ csrf_field(csrf) }}
+{% if deployment.unresolved_attempts or deployment.queued_jobs %}<label class="check"><input type="checkbox" name="interrupt"> Interrupt the {{ deployment.unresolved_attempts }} active attempt(s) and {{ deployment.queued_jobs }} queued job(s)</label>{% endif %}
+<button class="btn btn--danger" type="submit" {% if not supervised %}disabled{% endif %}>Restart Cursus…</button>{% if not supervised %}<p class="field-help">Disabled: Cursus is not running under systemd, so it cannot bring itself back.</p>{% endif %}</form></section>
+<section class="tablecard" id="preflight"><div class="tablecard__head"><h2 class="tablecard__title">CLI check</h2>
+<form method="post" action="/settings/system/preflight">{{ csrf_field(csrf) }}<button class="btn btn--secondary btn--sm" type="submit">Run check</button></form></div>
+{% if preflight %}<div class="tablewrap"><table class="tbl"><thead><tr><th>CLI</th><th>Location</th><th>Version</th><th>Result</th></tr></thead><tbody>
+{% for row in preflight[1] %}<tr><td>{{ row.cli }}</td><td class="mono">{{ row.binary or '—' }}</td><td>{{ row.version or '—' }}</td><td><span class="chip chip--{{ 'ok' if row.ok else 'danger' }}">{{ 'ok' if row.ok else 'failed' }}</span> {{ row.get('error') or (('missing options: ' ~ row.missing|join(', ')) if row.missing else '') }}</td></tr>{% endfor %}
+</tbody></table></div><p class="tablecard__foot">Checked {{ preflight[0] }}. Version and help queries only: no sign-in check and no inference, so this cannot tell whether a CLI is signed in.</p>
+{% else %}<p class="tablecard__foot">Checks that each CLI your roles use is installed and supports the options Cursus needs. It cannot tell whether a CLI is signed in.</p>{% endif %}</section>
+<section class="tablecard"><div class="tablecard__head"><h2 class="tablecard__title">Configuration history</h2></div><div class="tablewrap"><table class="tbl"><thead><tr><th>Saved copy</th><th>Time</th><th></th></tr></thead><tbody>
+{% for item in history %}<tr><td class="mono">{{ item.name }}</td><td>{{ item.time }}</td><td><form method="post" action="/settings/system/restore" data-confirm="Restore this earlier configuration? The current one is kept in history.">{{ csrf_field(csrf) }}<input type="hidden" name="name" value="{{ item.name }}"><button class="btn btn--ghost btn--sm" type="submit">Restore</button></form></td></tr>
+{% else %}<tr><td colspan="3">No earlier versions yet. Each save keeps the file it replaces.</td></tr>{% endfor %}
+</tbody></table></div><p class="tablecard__foot">The last 50 are kept. If a wrong access setting locks you out of this site, copy one of these files over the configuration file by hand and restart.</p></section>
+{% endblock %}

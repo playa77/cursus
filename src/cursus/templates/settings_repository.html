@@ -1,0 +1,29 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, csrf_field %}
+{% macro err(name) %}{% if errors.get(name) %}<p class="field-error" role="alert">{{ errors.get(name) }}</p>{% endif %}{% endmacro %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, problem, errors) }}
+<form method="post" action="{{ '/settings/repositories/' ~ existing.owner ~ '/' ~ existing.name if existing else '/settings/repositories/new' }}" class="settings-form">{{ csrf_field(csrf) }}
+<input type="hidden" name="check_rows" value="{{ rows|length }}">
+<section class="card"><div class="card__head"><h2 class="card__title">{{ 'Repository' if existing else 'Enroll a repository' }}</h2></div>
+<div class="form-grid">
+<div class="field-row{{ ' has-error' if errors.get('owner') }}"><label for="f-owner">GitHub owner</label><input id="f-owner" name="owner" value="{{ values.owner }}" {% if existing %}readonly{% else %}required{% endif %} spellcheck="false">{{ err('owner') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('name') }}"><label for="f-name">Repository name</label><input id="f-name" name="name" value="{{ values.name }}" {% if existing %}readonly{% else %}required{% endif %} spellcheck="false">{{ err('name') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('object_format') }}"><label for="f-fmt">Git object format</label><select id="f-fmt" name="object_format"><option value="sha1" {{ 'selected' if values.object_format=='sha1' }}>sha1</option><option value="sha256" {{ 'selected' if values.object_format=='sha256' }}>sha256</option></select>{{ err('object_format') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('allowed_target_refs') }}"><label for="f-refs">Allowed target refs (one per line)</label><textarea id="f-refs" name="allowed_target_refs" rows="3" spellcheck="false">{{ values.allowed_target_refs }}</textarea><p class="field-help">Branches pull requests may target, for example refs/heads/main.</p>{{ err('allowed_target_refs') }}</div>
+</div></section>
+<section class="card"><div class="card__head"><h2 class="card__title">Check commands</h2></div>
+<p class="field-help">Literal commands run as your user from the candidate's worktree; their exit status and output are the evidence for every candidate. One argument per line; the first line is the absolute path of the program, for example <span class="mono">/usr/bin/python3</span> then <span class="mono">-m</span>, <span class="mono">unittest</span>, <span class="mono">discover</span>. Leave a row blank to skip it.</p>{{ err('checks') }}
+{% for row in rows %}{% set i = loop.index0 %}<fieldset class="checkrow"><legend>Check {{ loop.index }}</legend>
+<div class="form-grid">
+<div class="field-row{{ ' has-error' if errors.get('check.' ~ i ~ '.id') }}"><label for="c{{ i }}-id">Id</label><input id="c{{ i }}-id" name="check.{{ i }}.id" value="{{ row.id }}" spellcheck="false">{{ err('check.' ~ i ~ '.id') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('check.' ~ i ~ '.timeout_seconds') }}"><label for="c{{ i }}-t">Timeout (seconds)</label><input id="c{{ i }}-t" name="check.{{ i }}.timeout_seconds" value="{{ row.timeout_seconds }}" inputmode="numeric">{{ err('check.' ~ i ~ '.timeout_seconds') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('check.' ~ i ~ '.argv') }}"><label for="c{{ i }}-a">Command, one argument per line</label><textarea id="c{{ i }}-a" name="check.{{ i }}.argv" rows="4" spellcheck="false">{{ row.argv }}</textarea>{{ err('check.' ~ i ~ '.argv') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('check.' ~ i ~ '.cwd') }}"><label for="c{{ i }}-c">Working directory (inside the repository)</label><input id="c{{ i }}-c" name="check.{{ i }}.cwd" value="{{ row.cwd }}" spellcheck="false">{{ err('check.' ~ i ~ '.cwd') }}</div>
+</div></fieldset>{% endfor %}
+<p class="field-help">Need more rows? Save, then reopen this page: two blank rows are always added.</p></section>
+<section class="card"><div class="card__head"><h2 class="card__title">Phase checks</h2></div>
+<div class="field-row{{ ' has-error' if errors.get('phase_check_ids') }}"><label for="f-phase">Check ids that gate a whole phase</label><input id="f-phase" name="phase_check_ids" value="{{ values.phase_check_ids }}" spellcheck="false"><p class="field-help">Comma-separated ids from the checks above; the planner must retain every one.</p>{{ err('phase_check_ids') }}</div>
+<button class="btn btn--primary" type="submit">{{ 'Save repository' if existing else 'Enroll repository' }}</button></section></form>
+{% if existing %}<section class="card"><div class="card__head"><h2 class="card__title">Remove</h2></div>
+<form method="post" action="/settings/repositories/{{ existing.owner }}/{{ existing.name }}/remove" data-confirm="Remove {{ existing.owner }}/{{ existing.name }} from Cursus? Finished work is kept; new runs against it stop after the next restart.">{{ csrf_field(csrf) }}<p class="field-help">Refused while unfinished phases still use it.</p><button class="btn btn--danger" type="submit">Remove repository…</button></form></section>{% endif %}
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends 'base.html' %}{% from 'settings_forms.html' import subnav, notices, csrf_field %}
+{% macro err(name) %}{% if errors.get(name) %}<p class="field-error" role="alert">{{ errors.get(name) }}</p>{% endif %}{% endmacro %}
+{% block content %}
+{{ subnav(path) }}{{ notices(saved, problem, errors) }}
+<section class="card"><div class="card__head"><h2 class="card__title">{{ role.name }}</h2><span class="chip chip--{{ 'ok' if role.qualified else 'warn' }}">{{ 'ready' if role.qualified else 'needs ' ~ role.holes|join(', ') }}</span></div>
+<p class="field-help">Production roles must use pi and may write; organization roles are read-only and may use claude, codex, agy or pi. The model, reasoning level and provider are passed to the CLI as plain identifiers, exactly as you would type them for that CLI. Cursus cannot verify them against your provider: a wrong value fails on first use.</p>
+<form method="post" action="/settings/roles/{{ role.name }}" class="settings-form">{{ csrf_field(csrf) }}
+<div class="form-grid">
+<div class="field-row{{ ' has-error' if errors.get('cli') }}"><label for="f-cli">CLI</label><select id="f-cli" name="cli">{% for c in ['claude','codex','agy','pi'] %}<option {{ 'selected' if values.cli==c }}>{{ c }}</option>{% endfor %}</select>{{ err('cli') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('tier') }}"><label for="f-tier">Tier</label><select id="f-tier" name="tier">{% for t in ['production','organization'] %}<option {{ 'selected' if values.tier==t }}>{{ t }}</option>{% endfor %}</select>{{ err('tier') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('model') }}"><label for="f-model">Model</label><input id="f-model" name="model" value="{{ values.model }}" spellcheck="false" required>{{ err('model') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('reasoning') }}"><label for="f-reasoning">Reasoning level</label><input id="f-reasoning" name="reasoning" value="{{ values.reasoning }}" spellcheck="false" required><p class="field-help">The CLI's effort or thinking level, for example high.</p>{{ err('reasoning') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('provider') }}"><label for="f-provider">Provider (pi only)</label><input id="f-provider" name="provider" value="{{ values.provider }}" spellcheck="false">{{ err('provider') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('timeout_seconds') }}"><label for="f-timeout">Timeout (seconds)</label><input id="f-timeout" name="timeout_seconds" type="number" min="1" value="{{ values.timeout_seconds }}" required>{{ err('timeout_seconds') }}</div>
+<div class="field-row{{ ' has-error' if errors.get('prompt') }}"><label for="f-prompt">Prompt</label><select id="f-prompt" name="prompt">{% for file in prompts %}<option {{ 'selected' if values.prompt==file }}>{{ file }}</option>{% endfor %}</select><p class="field-help"><a href="/settings/prompts/{{ values.prompt }}">Edit this prompt</a></p>{{ err('prompt') }}</div>
+</div>
+<fieldset class="field-row{{ ' has-error' if errors.get('tools') }}"><legend>Tools</legend><div class="form-options">{% for t in tools %}<label class="check"><input type="checkbox" name="tool.{{ t }}" {{ 'checked' if values.get('tool.' ~ t) == 'on' }}> {{ t }}</label>{% endfor %}</div>{{ err('tools') }}</fieldset>
+<button class="btn btn--primary" type="submit">Save role</button> <span class="field-help">Committed to the role release repository and pinned; applies after a restart.</span></form></section>
+{% endblock %}

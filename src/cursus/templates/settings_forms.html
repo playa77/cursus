@@ -1,0 +1,52 @@
+{# Shared pieces for the Settings and System pages (ADR 0018). #}
+{% macro csrf_field(csrf) -%}<input type="hidden" name="csrf" value="{{ csrf }}">{%- endmacro %}
+
+{% macro subnav(path) %}
+<nav class="subnav" aria-label="Settings sections">
+{% for href, label in [('/settings','Overview'),('/settings/access','Access'),('/settings/capacity','Capacity'),('/settings/resources','Resources &amp; CLIs'),('/settings/limits','Limits'),('/settings/publisher','Publisher'),('/settings/repositories','Repositories'),('/settings/roles','Roles &amp; prompts'),('/settings/system','System')] %}
+<a class="subnav__item" href="{{ href }}" {% if path == href or (href != '/settings' and path.startswith(href ~ '/')) %}aria-current="page"{% endif %}>{{ label|safe }}</a>
+{% endfor %}</nav>
+{% endmacro %}
+
+{% macro notices(saved, problem, errors) %}
+{% if saved %}<p class="banner banner--ok" role="status">
+{% if saved == 'saved' %}Saved. Applies after a restart (see System).
+{% elif saved == 'unchanged' %}Nothing changed.
+{% elif saved == 'token' %}Token stored privately and in effect now. It is never shown again.
+{% elif saved == 'removed' %}Repository removed. Applies after a restart.
+{% elif saved == 'restored' %}Previous configuration restored. Applies after a restart.
+{% elif saved == 'preflight' %}CLI check finished.
+{% elif saved == 'restarted' %}Cursus restarted; the saved configuration is now running.
+{% elif saved|length == 10 %}Role release {{ saved }} committed and pinned. Applies after a restart.
+{% else %}Saved.{% endif %}</p>{% endif %}
+{% if problem %}<p class="banner banner--danger" role="alert">{{ problem }}</p>
+{% elif errors %}<p class="banner banner--danger" role="alert">Some values were rejected; nothing was saved. Fix the marked fields.</p>{% endif %}
+{% endmacro %}
+
+{% macro field(f, value, error) %}
+<div class="field-row{{ ' has-error' if error }}">
+<label for="f-{{ f.name }}">{{ f.label }}</label>
+{% if f.kind == 'int' %}<input id="f-{{ f.name }}" name="{{ f.name }}" type="number" inputmode="numeric" min="{{ f.lo }}"{% if f.hi %} max="{{ f.hi }}"{% endif %} value="{{ value }}" required>
+{% else %}<input id="f-{{ f.name }}" name="{{ f.name }}" type="text" value="{{ value }}" autocomplete="off" spellcheck="false"{% if f.kind not in ['optpath','dirs','list'] %} required{% endif %}>{% endif %}
+{% if f.help %}<p class="field-help">{{ f.help }}</p>{% endif %}
+{% if error %}<p class="field-error" role="alert">{{ error }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro checklist(items) %}
+<ul class="checklist">{% for item in items %}
+<li class="checklist__item"><span class="chip chip--{{ {'ok':'ok','todo':'warn','warn':'warn','info':'neutral'}[item.state] }}">{{ {'ok':'done','todo':'to do','warn':'attention','info':'note'}[item.state] }}</span>
+<div><strong>{{ item.title }}</strong><p class="field-help">{{ item.detail }}{% if item.link %} <a href="{{ item.link }}">Open</a>{% endif %}</p></div></li>{% endfor %}</ul>
+{% endmacro %}
+
+{# Generic, read-only rendering of agent output (specs, debates, reviews, results). #}
+{% macro show(key, item) %}
+{% if item is string %}<div class="rv"><span class="rv__key">{{ key }}</span><div class="prose">{{ item }}</div></div>
+{% elif item is mapping %}<div class="rv"><span class="rv__key">{{ key }}</span><details><summary>{{ item|length }} field(s)</summary><pre class="logwell logwell--static">{{ item|tojson(indent=2) }}</pre></details></div>
+{% elif item is iterable and item and item[0] is mapping %}<div class="rv"><span class="rv__key">{{ key }}</span>
+<div class="tablewrap"><table class="tbl"><thead><tr>{% for col in item[0].keys() %}<th>{{ col }}</th>{% endfor %}</tr></thead><tbody>
+{% for row in item %}<tr>{% for col in item[0].keys() %}{% set cell = row.get(col) %}<td>{% if cell is string %}<span class="prose">{{ cell }}</span>{% else %}<code class="mono">{{ cell|tojson }}</code>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table></div></div>
+{% elif item is iterable and item %}<div class="rv"><span class="rv__key">{{ key }}</span><ul>{% for entry in item %}<li class="prose">{{ entry if entry is string else entry|tojson }}</li>{% endfor %}</ul></div>
+{% else %}<div class="rv"><span class="rv__key">{{ key }}</span> <code class="mono">{{ item|tojson }}</code></div>{% endif %}
+{% endmacro %}

@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card" data-restart-wait="/settings/system"><div class="card__head"><h2 class="card__title">Restarting Cursus</h2></div>
+<p id="restart-status" aria-live="polite">Waiting for Cursus to stop and start again. This page continues by itself when the website answers.</p>
+<p class="field-help">systemd restarts the service a few seconds after it stops. If nothing happens within a minute, check <span class="mono">journalctl --user -u cursus -n 80</span>.</p></section>
+{% endblock %}

@@ -1,5 +1,7 @@
 """Server-rendered operator surface; all mutations use the existing Control seam."""
 import anyio
+import asyncio
+from datetime import datetime, timezone
 from hashlib import sha256
 import hmac
 from importlib.resources import files
@@ -28,6 +30,8 @@ class Browser:
         self.control, self.templates = control, templates
         self.key = secrets.token_bytes(32)
         self.origin = control.settings['service']['external_origin']
+        self.started = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        self.preflight_result = None   # (time, rows) of the last CLI check run from the website
 
     def csrf(self, request):
         token = request.cookies.get(COOKIE, '')
@@ -53,7 +57,9 @@ class Browser:
 
     def render(self, request, template, status=200, **context):
         token, _ = self.csrf(request)
-        context.update(csrf=token, request_id=lambda: str(uuid4()),
+        admin = self.control.admin
+        context.update(csrf=token, request_id=lambda: str(uuid4()), admin=admin,
+            pending=admin.pending() if admin else [], nav=context.get('nav', ''), path=request.url.path,
             login=self.control.settings['service']['operator_login'],
             theme=request.cookies.get('cursus_theme', 'system'),
             title=context.get('title', 'Cursus'), view=context.get('view', {}))
@@ -73,13 +79,22 @@ class Browser:
         metrics = dict(capacity=health.get('capacity', {}), execution=health.get('execution', []), slots=health.get('slots'), queued=view['queue_counts'].get('queued',0),
             claimed=view['queue_counts'].get('claimed',0), usage=reported_usage(view['usage']), runner=runner,
             spool=health.get('spool_bytes', 'unknown'))
+        admin = self.control.admin
+        checklist = await asyncio.to_thread(admin.checklist) if admin and route == 'overview' else []
         return self.render(request, {'overview':'index.html','phases':'phase.html','attempts':'attempt.html'}[route],
             view=view, phase=phase, attempt=attempt, files=ready, metrics=metrics,
+            deployment=await self.control.store.deployment() if route == 'overview' else None,
+            checklist=checklist, unqualified=self.control.settings.get('unqualified_roles', []),
+            record={k: v for k, v in (phase or {}).items() if k != 'roles'},
+            inputs=(attempt or {}).get('claim', {}).get('job', {}).get('input'),
+            nav=('new' if request.query_params.get('new') == '1' else 'attempts' if request.query_params.get('attempts') == '1'
+                 else 'overview') if route == 'overview' else 'attempts' if attempt else 'overview',
             title=('New run & intake' if request.query_params.get('new')=='1' else 'Attempts' if request.query_params.get('attempts')=='1' else 'Overview') if route=='overview' else ('Attempt' if attempt else 'Phase'),
             intake=request.query_params.get('new') == '1', attempts_page=request.query_params.get('attempts') == '1',
             repositories=self.control.settings['repositories'])
 
-    async def action(self, request):
+    async def form(self, request, max_fields=30, keyed=True):
+        """Read one URL-encoded browser form after the session and CSRF checks. Returns (data, request_id)."""
         raw = bytearray()
         async for chunk in request.stream():
             raw.extend(chunk)
@@ -88,7 +103,7 @@ class Browser:
         if request.headers.get('content-type', '').split(';')[0] != 'application/x-www-form-urlencoded':
             raise Problem('invalid_contract', 'URL-encoded browser form required.')
         try:
-            fields = parse_qsl(raw.decode('utf-8'), keep_blank_values=True, max_num_fields=30, errors='strict')
+            fields = parse_qsl(raw.decode('utf-8'), keep_blank_values=True, max_num_fields=max_fields, errors='strict')
         except (ValueError, UnicodeError):
             raise Problem('invalid_contract', 'Invalid form encoding.') from None
         data = dict(fields)
@@ -98,10 +113,14 @@ class Browser:
         submitted = data.pop('csrf', '')
         if not valid or not submitted.isascii() or not hmac.compare_digest(submitted, token):
             raise Problem('forbidden', 'Valid session and CSRF token required.')
-        key = validate('Id', data.pop('request_id', None))
+        key = validate('Id', data.pop('request_id', None)) if keyed else None
+        return data, key
+
+    async def action(self, request):
+        data, key = await self.form(request)
         value = form_action(data)
         reply = await self.control.action('local_operator', key, value)
-        target = '/phases/' + reply['entity_id']
+        target = '/settings/system?saved=1' if value['kind'] == 'set_drain' else '/phases/' + reply['entity_id']
         if request.headers.get('hx-request') == 'true':
             return HTMLResponse('', headers={'HX-Redirect': target})
         return RedirectResponse(target, status_code=303)
@@ -158,6 +177,11 @@ def reported_usage(rows):
 
 def form_action(data):
     kind = data.get('kind')
+    if kind == 'set_drain':
+        # A browser form carries text; the contract wants a boolean.
+        if data.get('enabled') not in ('true', 'false') or data.keys() - {'kind', 'enabled'}:
+            raise Problem('invalid_fields', 'Drain needs enabled true or false.')
+        return validate('Action', dict(kind=kind, enabled=data['enabled'] == 'true'))
     if kind != 'submit':
         return validate('Action', data)
     allowed = {'kind','workflow','form','source_kind','text','repository','source_owner',
@@ -185,6 +209,9 @@ def form_action(data):
 def mount(app, control, templates=None):
     browser = Browser(control, templates or environment())
     app.state.browser = browser
+    if control.admin:
+        from cursus.settings_pages import mount as mount_settings
+        mount_settings(app, control, browser)
     app.mount('/static', StaticFiles(directory=str(files('cursus').joinpath('static'))), name='static')
 
     @app.get('/')
